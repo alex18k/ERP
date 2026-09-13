@@ -139,7 +139,7 @@ onMounted(loadData)
 
       <el-table :data="list" v-loading="loading" stripe>
         <el-table-column prop="code" label="工艺路线编码" width="110" />
-        <el-table-column prop="name" label="工艺名称" min-width="140" />
+        <el-table-column prop="name" label="工艺名称" width="120" />
         <el-table-column label="工序数" width="80">
           <template #default="{ row }">{{ row.processes?.length ?? 0 }}</template>
         </el-table-column>
