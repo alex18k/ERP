@@ -201,7 +201,8 @@ export interface ScheduleBatchInput {
 export async function scheduleProduction(
   productionOrderId: number,
   userId: number,
-  batches?: ScheduleBatchInput[]
+  batches?: ScheduleBatchInput[],
+  planner?: string
 ) {
   const order = await prisma.productionOrder.findUnique({
     where: { id: productionOrderId },
@@ -211,7 +212,8 @@ export async function scheduleProduction(
   if (order.status === "completed") throw new Error("已完成的生产订单不能排产");
 
   // 排产前置条件：计划员、下达日期必须已维护；计划日期按批次录入（未维护时由批次日期回填）
-  if (!order.planner) throw new Error("请先指定计划员");
+  const finalPlanner = (planner && planner.trim()) || order.planner;
+  if (!finalPlanner) throw new Error("请先指定计划员");
   if (!order.releaseDate) throw new Error("请先维护下达日期");
 
   const routeId = order.material.processRouteId;
@@ -358,7 +360,7 @@ export async function scheduleProduction(
 
     await tx.productionOrder.update({
       where: { id: order.id },
-      data: { status: "in_progress", actualStartDate: order.actualStartDate ?? new Date(), planStartDate, planEndDate },
+      data: { status: "in_progress", actualStartDate: order.actualStartDate ?? new Date(), planStartDate, planEndDate, planner: finalPlanner },
     });
 
     // 关联销售订单状态更新

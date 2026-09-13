@@ -74,7 +74,7 @@ export async function cancelOrderHandler(req: Request, res: Response) {
 export async function scheduleHandler(req: AuthRequest, res: Response) {
   try {
     const batches = Array.isArray(req.body?.batches) ? req.body.batches : undefined;
-    const data = await productionService.scheduleProduction(Number(req.params.id), req.user!.id, batches);
+    const data = await productionService.scheduleProduction(Number(req.params.id), req.user!.id, batches, req.body?.planner);
     return success(res, data, "排产完成");
   } catch (error: any) {
     return fail(res, 400, error.message);

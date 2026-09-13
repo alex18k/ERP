@@ -39,6 +39,7 @@ const scheduleDialogVisible = ref(false)
 const scheduling = ref(false)
 const scheduleOrder = ref<any>(null)
 const scheduleBatches = ref<any[]>([])
+const schedulePlanner = ref('')
 const scheduledQty = computed(() =>
   (scheduleOrder.value?.batches || [])
     .filter((b: any) => b.status !== 'cancelled')
@@ -169,6 +170,7 @@ async function handleSchedule(row: any) {
   scheduleBatches.value = [
     { quantity: remain, planStartDate: row.planStartDate?.slice(0, 10) || '', planEndDate: row.planEndDate?.slice(0, 10) || '' },
   ]
+  schedulePlanner.value = row.planner || ''
   scheduleDialogVisible.value = true
 }
 
@@ -196,9 +198,13 @@ async function submitSchedule() {
     ElMessage.warning(`本次批次合计 ${batchTotal.value} 超过剩余可排产量 ${remainingQty.value}`)
     return
   }
+  if (!schedulePlanner.value) {
+    ElMessage.warning('请选择计划员')
+    return
+  }
   scheduling.value = true
   try {
-    const res: any = await productionApi.schedule(scheduleOrder.value.id, { batches })
+    const res: any = await productionApi.schedule(scheduleOrder.value.id, { batches, planner: schedulePlanner.value })
     ElMessage.success(`排产完成，生成 ${res.data?.workOrders?.length ?? 0} 张加工单`)
     scheduleDialogVisible.value = false
     loadData()
@@ -372,6 +378,13 @@ onMounted(() => {
         <el-descriptions-item label="数量">{{ scheduleOrder?.quantity }}</el-descriptions-item>
         <el-descriptions-item label="已排 / 剩余">{{ scheduledQty }} / {{ remainingQty }}</el-descriptions-item>
       </el-descriptions>
+      <el-form label-width="70px" inline style="margin-bottom: 4px">
+        <el-form-item label="计划员">
+          <el-select v-model="schedulePlanner" filterable clearable placeholder="选择计划员" style="width: 220px">
+            <el-option v-for="p in plannerOptions" :key="p.id" :label="p.realName || p.username" :value="p.realName || p.username" />
+          </el-select>
+        </el-form-item>
+      </el-form>
       <div style="margin-bottom: 8px">
         <el-button size="small" type="primary" plain @click="addBatch"><el-icon><Plus /></el-icon>添加批次</el-button>
         <span style="margin-left: 12px; color: var(--el-text-color-secondary)">本次合计：{{ batchTotal }} / 剩余 {{ remainingQty }}</span>
