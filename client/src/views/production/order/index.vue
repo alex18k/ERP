@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { productionApi, mrpApi } from '../../../api'
+import { productionApi, mrpApi, materialApi } from '../../../api'
 
 const loading = ref(false)
 const list = ref<any[]>([])
@@ -33,6 +33,84 @@ const editRules = {
   planEndDate: [{ required: true, message: '请选择计划结束日期', trigger: 'change' }],
   planner: [{ required: true, message: '请选择计划员', trigger: 'change' }],
   releaseDate: [{ required: true, message: '请选择下达日期', trigger: 'change' }],
+}
+
+// ===== 手工新增生产订单 =====
+const manualDialogVisible = ref(false)
+const manualSaving = ref(false)
+const manualFormRef = ref()
+const manualMaterials = ref<any[]>([])
+const manualMaterialMap = new Map<number, any>()
+const manualMaterialLoading = ref(false)
+const manualForm = reactive<any>({
+  materialId: null, quantity: 1, salesOrderNo: '', planStartDate: '', planEndDate: '', planner: '', releaseDate: '', remark: '',
+})
+const manualRules = {
+  materialId: [{ required: true, message: '请选择产品', trigger: 'change' }],
+  quantity: [{ required: true, message: '请输入生产数量', trigger: 'blur' }],
+  planStartDate: [{ required: true, message: '请选择计划开始日期', trigger: 'change' }],
+  planEndDate: [{ required: true, message: '请选择计划结束日期', trigger: 'change' }],
+  planner: [{ required: true, message: '请选择计划员', trigger: 'change' }],
+  releaseDate: [{ required: true, message: '请选择下达日期', trigger: 'change' }],
+}
+
+function todayStr() {
+  const d = new Date()
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+}
+
+function registerManualMaterials(items: any[]) {
+  for (const m of items) if (m?.id) manualMaterialMap.set(m.id, m)
+  manualMaterials.value = [...manualMaterialMap.values()]
+}
+
+async function searchManualMaterials(keyword: string) {
+  manualMaterialLoading.value = true
+  try {
+    const res: any = await materialApi.options({ category: 'manufacture', keyword, limit: 50 })
+    registerManualMaterials(res.data || [])
+  } catch {
+    /* ignore */
+  } finally {
+    manualMaterialLoading.value = false
+  }
+}
+
+async function openManualDialog() {
+  Object.assign(manualForm, { materialId: null, quantity: 1, salesOrderNo: '', planStartDate: '', planEndDate: '', planner: '', releaseDate: todayStr(), remark: '' })
+  manualMaterialMap.clear()
+  manualMaterials.value = []
+  await searchManualMaterials('')
+  manualDialogVisible.value = true
+}
+
+async function submitManualOrder() {
+  try { await manualFormRef.value.validate() } catch { return }
+  if (!manualForm.quantity || manualForm.quantity <= 0) {
+    ElMessage.warning('生产数量必须大于0')
+    return
+  }
+  manualSaving.value = true
+  try {
+    const res: any = await productionApi.createOrders([{
+      materialId: manualForm.materialId,
+      quantity: manualForm.quantity,
+      salesOrderNo: manualForm.salesOrderNo || undefined,
+      planStartDate: manualForm.planStartDate,
+      planEndDate: manualForm.planEndDate,
+      planner: manualForm.planner,
+      releaseDate: manualForm.releaseDate,
+      remark: manualForm.remark,
+    }])
+    const createdCount = res.data?.created?.length ?? 0
+    const skippedCount = res.data?.skipped?.length ?? 0
+    ElMessage.success(skippedCount > 0 ? `已创建 ${createdCount} 张，跳过 ${skippedCount} 张（已下达过）` : `已创建 ${createdCount} 张生产订单`)
+    manualDialogVisible.value = false
+    loadData()
+  } catch { /* error shown */ } finally {
+    manualSaving.value = false
+  }
 }
 
 const scheduleDialogVisible = ref(false)
@@ -250,7 +328,10 @@ onMounted(() => {
       </div>
 
       <div class="table-toolbar">
-        <el-button type="primary" @click="openCreateDialog">
+        <el-button type="primary" @click="openManualDialog">
+          <el-icon><Plus /></el-icon>新增生产订单
+        </el-button>
+        <el-button type="primary" plain @click="openCreateDialog">
           <el-icon><Plus /></el-icon>从MRP建议下达
         </el-button>
         <el-button @click="loadData"><el-icon><Refresh /></el-icon>刷新</el-button>
@@ -307,6 +388,43 @@ onMounted(() => {
         <el-pagination v-model:current-page="query.page" v-model:page-size="query.pageSize" :total="total" :page-sizes="[10, 20, 50]" layout="total, sizes, prev, pager, next" @change="loadData" />
       </div>
     </div>
+
+    <el-dialog v-model="manualDialogVisible" title="新增生产订单" width="560px" destroy-on-close>
+      <el-form ref="manualFormRef" :model="manualForm" :rules="manualRules" label-width="110px">
+        <el-form-item label="产品" prop="materialId">
+          <el-select v-model="manualForm.materialId" filterable remote reserve-keyword :remote-method="searchManualMaterials" :loading="manualMaterialLoading" placeholder="输入编码/名称搜索制造类物料" style="width: 100%">
+            <el-option v-for="m in manualMaterials" :key="m.id" :label="`${m.code} - ${m.name}${m.specification ? ' / ' + m.specification : ''}`" :value="m.id" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="生产数量" prop="quantity">
+          <el-input-number v-model="manualForm.quantity" :min="0.01" :precision="2" style="width: 100%" />
+        </el-form-item>
+        <el-form-item label="销售订单号">
+          <el-input v-model="manualForm.salesOrderNo" placeholder="可选，填写销售订单号" clearable />
+        </el-form-item>
+        <el-form-item label="计划开始" prop="planStartDate">
+          <el-date-picker v-model="manualForm.planStartDate" type="date" value-format="YYYY-MM-DD" placeholder="选择日期" style="width: 100%" />
+        </el-form-item>
+        <el-form-item label="计划结束" prop="planEndDate">
+          <el-date-picker v-model="manualForm.planEndDate" type="date" value-format="YYYY-MM-DD" placeholder="选择日期" style="width: 100%" />
+        </el-form-item>
+        <el-form-item label="计划员" prop="planner">
+          <el-select v-model="manualForm.planner" filterable clearable placeholder="选择计划员" style="width: 100%">
+            <el-option v-for="p in plannerOptions" :key="p.id" :label="p.realName || p.username" :value="p.realName || p.username" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="下达日期" prop="releaseDate">
+          <el-date-picker v-model="manualForm.releaseDate" type="date" value-format="YYYY-MM-DD" placeholder="选择日期" style="width: 100%" />
+        </el-form-item>
+        <el-form-item label="备注">
+          <el-input v-model="manualForm.remark" type="textarea" :rows="2" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="manualDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="manualSaving" @click="submitManualOrder">保存</el-button>
+      </template>
+    </el-dialog>
 
     <el-dialog v-model="createDialogVisible" title="从MRP建议下达生产订单" width="760px" top="6vh">
       <el-alert v-if="mrpRun" type="info" :closable="false" :title="`基于最近一次MRP运算 (#${mrpRun.runNo}) 的半成品/成品生产建议`" style="margin-bottom: 12px" />

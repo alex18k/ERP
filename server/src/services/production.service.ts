@@ -14,6 +14,7 @@ export async function generateProductionOrderNo(): Promise<string> {
 
 export interface ProductionOrderInput {
   salesOrderId?: number;
+  salesOrderNo?: string;
   materialId: number;
   quantity: number;
   planStartDate?: string;
@@ -58,21 +59,54 @@ export async function listProductionOrders(where: any) {
 export async function createProductionOrders(inputs: ProductionOrderInput[], userId: number) {
   const created: any[] = [];
   const skipped: { materialId: number; salesOrderId: number | null }[] = [];
+
+  // 先全部校验（非制造类 / 销售订单号 / BOM / 工艺路线），避免中途报错留下半成品
+  const resolved: { input: ProductionOrderInput; salesOrderId: number | null }[] = [];
   for (const input of inputs) {
     const material = await prisma.material.findUnique({ where: { id: input.materialId } });
     if (!material) throw new Error(`物料ID ${input.materialId} 不存在`);
-    if (material.category !== "manufacture") continue;
+    if (material.category !== "manufacture") {
+      throw new Error(`物料 ${material.code} 非制造类，不能创建生产订单`);
+    }
 
+    // 销售订单：可用 id，或用「销售订单号」精确匹配
+    let salesOrderId = input.salesOrderId ?? null;
+    if (!salesOrderId && input.salesOrderNo && input.salesOrderNo.trim()) {
+      const so = await prisma.salesOrder.findFirst({ where: { orderNo: input.salesOrderNo.trim() } });
+      if (!so) throw new Error(`销售订单 ${input.salesOrderNo} 不存在`);
+      salesOrderId = so.id;
+    }
+
+    // 必须有启用中的 BOM
+    const bom = await prisma.bom.findFirst({
+      where: { productId: input.materialId, status: "active" },
+      select: { id: true },
+    });
+    if (!bom) throw new Error(`物料 ${material.code} 没有启用中的 BOM，不能创建生产订单`);
+
+    // 必须有启用且含工序的工艺路线
+    if (!material.processRouteId) throw new Error(`物料 ${material.code} 未指定工艺路线，不能创建生产订单`);
+    const route = await prisma.processRoute.findUnique({
+      where: { id: material.processRouteId },
+      include: { processes: { select: { id: true } } },
+    });
+    if (!route || route.status !== "active") throw new Error(`物料 ${material.code} 的工艺路线未启用，不能创建生产订单`);
+    if (route.processes.length === 0) throw new Error(`物料 ${material.code} 的工艺路线没有工序，不能创建生产订单`);
+
+    resolved.push({ input, salesOrderId });
+  }
+
+  for (const { input, salesOrderId } of resolved) {
     // 防重复下达：同一销售订单 + 同一物料已有未完成生产订单则跳过
     const exists = await prisma.productionOrder.findFirst({
       where: {
         materialId: input.materialId,
-        salesOrderId: input.salesOrderId ?? null,
+        salesOrderId,
         status: { in: ["planned", "in_progress"] },
       },
     });
     if (exists) {
-      skipped.push({ materialId: input.materialId, salesOrderId: input.salesOrderId ?? null });
+      skipped.push({ materialId: input.materialId, salesOrderId });
       continue;
     }
 
@@ -80,7 +114,7 @@ export async function createProductionOrders(inputs: ProductionOrderInput[], use
     const order = await prisma.productionOrder.create({
       data: {
         orderNo,
-        salesOrderId: input.salesOrderId,
+        salesOrderId,
         materialId: input.materialId,
         quantity: input.quantity,
         planStartDate: input.planStartDate ? new Date(input.planStartDate) : null,
