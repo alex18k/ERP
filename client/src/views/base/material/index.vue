@@ -65,7 +65,6 @@ const form = reactive<any>({
   leadTime: 0,
   orderCycleDays: 30,
   minOrderQty: 0,
-  unitPrice: 0,
   cost: 0,
   processRouteId: null,
   supplierId: null,
@@ -96,7 +95,6 @@ async function openDialog(row?: any) {
     form.leadTime = 0
     form.orderCycleDays = 30
     form.minOrderQty = 0
-    form.unitPrice = 0
     form.cost = 0
     form.processRouteId = null
     form.location = ''
@@ -222,7 +220,6 @@ onMounted(() => {
         <el-table-column prop="leadTime" label="提前期(天)" width="100" />
         <el-table-column prop="orderCycleDays" label="订货周期(天)" width="110" />
         <el-table-column prop="minOrderQty" label="最小订量" width="90" />
-        <el-table-column prop="unitPrice" label="单价" width="80" />
         <el-table-column prop="cost" label="成本" width="80" />
         <el-table-column label="当前库存" width="100">
           <template #default="{ row }">
@@ -319,11 +316,6 @@ onMounted(() => {
           </el-col>
         </el-row>
         <el-row :gutter="16">
-          <el-col :span="12">
-            <el-form-item label="单价">
-              <el-input-number v-model="form.unitPrice" :min="0" :precision="2" style="width: 100%" />
-            </el-form-item>
-          </el-col>
           <el-col :span="12">
             <el-form-item label="成本">
               <el-input-number v-model="form.cost" :min="0" :precision="2" style="width: 100%" />

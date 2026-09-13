@@ -218,8 +218,8 @@ function onMaterialChange(row: any, materialId: number) {
   if (!m) return
   if (m.unit) row.unit = m.unit
   row.location = m.location || headerLocation.value || ''
-  row.unitPrice = m.unitPrice ?? 0
-  row.unitPriceText = m.unitPrice ? String(m.unitPrice) : ''
+  row.unitPrice = m.cost ?? 0
+  row.unitPriceText = m.cost ? String(m.cost) : ''
 }
 
 function onUnitPriceInput(row: any) {

@@ -489,7 +489,7 @@ export async function listShortages() {
   const extraSuggestions = await prisma.purchaseSuggestion.findMany({
     where: { status: "pending", id: { notIn: [...jsonIds] } },
     include: {
-      material: { select: { id: true, code: true, name: true, specification: true, unit: true, supplierId: true, leadTime: true, unitPrice: true } },
+      material: { select: { id: true, code: true, name: true, specification: true, unit: true, supplierId: true, leadTime: true, cost: true } },
     },
   });
   for (const s of extraSuggestions) {
@@ -694,7 +694,7 @@ export async function createSafetyStockSuggestions() {
         runId: latestRun.id,
         materialId: m.id,
         suggestedQty: Math.ceil(shortage * 100) / 100,
-        unitPrice: m.unitPrice ?? 0,
+        unitPrice: m.cost ?? 0,
         supplierId: m.supplierId,
         leadTime: m.leadTime,
         needDate,
