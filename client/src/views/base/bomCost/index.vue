@@ -78,18 +78,29 @@ async function handlePrint(row: any) {
   const product = data.product || {}
   const rows: any[] = []
   let seq = 0
-  const push = (code: string, name: string, spec: string, qty: number, unit: string) => {
+  const push = (code: string, name: string, spec: string, qty: number, unit: string, cost: number) => {
     seq += 1
-    rows.push({ no: seq, code, name, spec, qty, unit })
+    rows.push({ no: seq, code, name, spec, qty, unit, cost, amount: (qty || 0) * (cost || 0) })
   }
-  push(product.code || row.code, product.name || row.name, product.specification || '', 1, product.unit || '')
+  push(product.code || row.code, product.name || row.name, product.specification || '', 1, product.unit || '', product.cost || 0)
   const walk = (nodes: any[], level: number) => {
     for (const n of nodes || []) {
-      push('+'.repeat(level) + ' ' + (n.materialCode || ''), n.materialName || '', n.specification || '', n.quantity, n.unit || '')
+      push('+'.repeat(level) + ' ' + (n.materialCode || ''), n.materialName || '', n.specification || '', n.totalQuantity, n.unit || '', n.cost || 0)
       if (n.children?.length) walk(n.children, level + 1)
     }
   }
   walk(data.tree, 1)
+
+  // BOM 物料成本：按叶子物料（无子BOM）累计用量×成本，避免半成品重复计算
+  const leafCost = (nodes: any[]): number => {
+    let sum = 0
+    for (const n of nodes || []) {
+      if (n.hasSubBom && n.children?.length) sum += leafCost(n.children)
+      else sum += (n.totalQuantity || 0) * (n.cost || 0)
+    }
+    return sum
+  }
+  const totalCost = leafCost(data.tree)
 
   const today = new Date()
   const pad = (n: number) => String(n).padStart(2, '0')
@@ -101,11 +112,11 @@ async function handlePrint(row: any) {
       <td class="c">${r.no}</td>
       <td>${esc(r.code)}</td>
       <td>${esc(r.name)}</td>
-      <td></td>
       <td>${esc(r.spec)}</td>
       <td class="c">${fmtQty(r.qty)}</td>
       <td class="c">${esc(r.unit)}</td>
-      <td></td>
+      <td class="r">${(r.cost || 0).toFixed(4)}</td>
+      <td class="r">${(r.amount || 0).toFixed(4)}</td>
     </tr>`
     )
     .join('')
@@ -123,9 +134,11 @@ async function handlePrint(row: any) {
   th, td { border: 1px solid #000; padding: 3px 5px; vertical-align: top; word-break: break-all; }
   th { background: #f2f2f2; text-align: center; font-weight: bold; }
   td.c { text-align: center; white-space: nowrap; }
-  col.no { width: 5%; } col.code { width: 17%; } col.name { width: 13%; }
-  col.pos { width: 9%; } col.spec { width: 34%; } col.qty { width: 7%; }
-  col.unit { width: 7%; } col.remark { width: 8%; }
+  td.r { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  col.no { width: 5%; } col.code { width: 16%; } col.name { width: 14%; }
+  col.spec { width: 30%; } col.qty { width: 9%; } col.unit { width: 7%; }
+  col.cost { width: 9%; } col.amt { width: 10%; }
+  tfoot td { font-weight: bold; background: #fafafa; }
 </style></head><body>
   <div class="head">
     <span>型号: ${esc(product.code || row.code)}</span>
@@ -135,14 +148,18 @@ async function handlePrint(row: any) {
   <h1>物料清单（BOM）</h1>
   <table>
     <colgroup>
-      <col class="no" /><col class="code" /><col class="name" /><col class="pos" />
-      <col class="spec" /><col class="qty" /><col class="unit" /><col class="remark" />
+      <col class="no" /><col class="code" /><col class="name" />
+      <col class="spec" /><col class="qty" /><col class="unit" /><col class="cost" /><col class="amt" />
     </colgroup>
     <thead><tr>
-      <th>#</th><th>物料号</th><th>物料名称</th><th>号位</th>
-      <th>型号规格</th><th>用量</th><th>单位</th><th>备注</th>
+      <th>#</th><th>物料号</th><th>物料名称</th>
+      <th>型号规格</th><th>累计用量</th><th>单位</th><th>单价</th><th>金额</th>
     </tr></thead>
     <tbody>${body}</tbody>
+    <tfoot><tr>
+      <td colspan="7" class="r">物料成本合计</td>
+      <td class="r">${totalCost.toFixed(4)}</td>
+    </tr></tfoot>
   </table>
   <script>window.onload = function () { window.print(); }<\/script>
 </body></html>`

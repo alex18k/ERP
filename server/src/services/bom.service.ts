@@ -216,6 +216,7 @@ export interface BomTreeNode {
   quantity: number;      // 本级用量（父BOM中标注的用量）
   totalQuantity: number; // 累计用量（自根节点逐层相乘，含损耗率）
   lossRate: number;
+  cost: number;          // 物料成本（单价）
   level: number;
   hasSubBom: boolean;
   children: BomTreeNode[];
@@ -276,6 +277,7 @@ export async function getBomTree(id: number) {
         quantity: item.quantity,
         totalQuantity,
         lossRate: item.lossRate ?? 0,
+        cost: mat.cost ?? 0,
         level,
         hasSubBom: !!hasSubBom,
         children: [],
