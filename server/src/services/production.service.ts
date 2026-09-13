@@ -210,9 +210,7 @@ export async function scheduleProduction(
   if (!order) throw new Error("生产订单不存在");
   if (order.status === "completed") throw new Error("已完成的生产订单不能排产");
 
-  // 排产前置条件：计划开始/结束日期、计划员、下达日期必须已维护
-  if (!order.planStartDate) throw new Error("请先维护计划开始日期");
-  if (!order.planEndDate) throw new Error("请先维护计划结束日期");
+  // 排产前置条件：计划员、下达日期必须已维护；计划日期按批次录入（未维护时由批次日期回填）
   if (!order.planner) throw new Error("请先指定计划员");
   if (!order.releaseDate) throw new Error("请先维护下达日期");
 
@@ -253,8 +251,8 @@ export async function scheduleProduction(
     planBatches = [
       {
         quantity: remaining,
-        planStartDate: order.planStartDate.toISOString(),
-        planEndDate: order.planEndDate.toISOString(),
+        planStartDate: order.planStartDate ? order.planStartDate.toISOString() : undefined,
+        planEndDate: order.planEndDate ? order.planEndDate.toISOString() : undefined,
       },
     ];
   }
@@ -352,9 +350,15 @@ export async function scheduleProduction(
       }
     }
 
+    // 计划开始/结束日期：订单未维护时，用本次批次日期回填（取最早开始/最晚结束）
+    const batchStarts = createdBatches.map((b: any) => b.planStartDate).filter(Boolean) as Date[];
+    const batchEnds = createdBatches.map((b: any) => b.planEndDate).filter(Boolean) as Date[];
+    const planStartDate = order.planStartDate ?? (batchStarts.length ? new Date(Math.min(...batchStarts.map((d) => d.getTime()))) : undefined);
+    const planEndDate = order.planEndDate ?? (batchEnds.length ? new Date(Math.max(...batchEnds.map((d) => d.getTime()))) : undefined);
+
     await tx.productionOrder.update({
       where: { id: order.id },
-      data: { status: "in_progress", actualStartDate: order.actualStartDate ?? new Date() },
+      data: { status: "in_progress", actualStartDate: order.actualStartDate ?? new Date(), planStartDate, planEndDate },
     });
 
     // 关联销售订单状态更新
