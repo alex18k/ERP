@@ -303,6 +303,8 @@ export async function shipOrder(id: number, userId: number) {
   if (!order) throw new Error("订单不存在");
   if (order.status !== "completed") throw new Error("仅已完工订单可以发货");
 
+  const shipType = await prisma.stockTransactionType.findUnique({ where: { code: "ISS-SO" } });
+
   return prisma.$transaction(async (tx) => {
     for (const [idx, item] of order.items.entries()) {
       await tx.salesOrderItem.update({
@@ -327,6 +329,7 @@ export async function shipOrder(id: number, userId: number) {
               quantity: deduct,
               relatedType: "sales-order",
               relatedId: id,
+              transactionTypeId: shipType?.id,
               documentNo: order.orderNo,
               lineNo: idx + 1,
               operatorId: userId,

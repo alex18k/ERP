@@ -77,6 +77,7 @@ export async function listStockRecords(where: any) {
         material: { select: { id: true, code: true, name: true, unit: true } },
         warehouse: { select: { id: true, code: true, name: true } },
         operator: { select: { id: true, realName: true } },
+        transactionType: { select: { id: true, code: true, description: true, direction: true } },
       },
       orderBy: { createdAt: "desc" },
       skip: (Number(page) - 1) * Number(pageSize),

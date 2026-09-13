@@ -109,6 +109,12 @@ onMounted(async () => {
         <el-table-column label="行号" width="70">
           <template #default="{ row }">{{ row.lineNo ?? '-' }}</template>
         </el-table-column>
+        <el-table-column label="事务类型" width="170">
+          <template #default="{ row }">
+            <span v-if="row.transactionType">{{ row.transactionType.code }} - {{ row.transactionType.description }}</span>
+            <span v-else>-</span>
+          </template>
+        </el-table-column>
         <el-table-column label="物料" min-width="160">
           <template #default="{ row }">{{ row.material?.code }} - {{ row.material?.name }}</template>
         </el-table-column>

@@ -261,6 +261,8 @@ export async function receivePurchaseOrder(
   if (po.status === "cancelled") throw new Error("采购单已取消，不能收货");
   if (po.status === "received") throw new Error("采购单已全部收货");
 
+  const receiptType = await prisma.stockTransactionType.findUnique({ where: { code: "RCT-PO" } });
+
   // 本次各明细的收货数量：传了 receipts 用传入值，否则默认收完剩余
   const receiveMap = new Map<number, number>();
   if (receipts && receipts.length > 0) {
@@ -321,6 +323,7 @@ export async function receivePurchaseOrder(
           quantity: qty,
           relatedType: "PurchaseOrder",
           relatedId: po.id,
+          transactionTypeId: receiptType?.id,
           documentNo: po.orderNo,
           lineNo: idx + 1,
           operatorId: userId,
