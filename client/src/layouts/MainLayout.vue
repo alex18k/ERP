@@ -45,9 +45,6 @@ const menuItems: MenuNode[] = [
       { path: '/base/bom', title: 'BOM管理', icon: 'List' },
       { path: '/base/bom-cost', title: 'BOM成本', icon: 'List' },
       { path: '/base/process-route', title: '工艺路线', icon: 'SetUp' },
-      { path: '/base/warehouse', title: '仓库管理', icon: 'OfficeBuilding' },
-      { path: '/base/workshop', title: '车间管理', icon: 'OfficeBuilding' },
-      { path: '/base/workstation', title: '工位管理', icon: 'Monitor' },
     ],
   },
   {
@@ -134,6 +131,9 @@ const menuItems: MenuNode[] = [
       { path: '/system/user', title: '用户管理', icon: 'UserFilled' },
       { path: '/system/role', title: '角色管理', icon: 'Key' },
       { path: '/system/log', title: '操作日志', icon: 'Document' },
+      { path: '/base/warehouse', title: '仓库管理', icon: 'OfficeBuilding' },
+      { path: '/base/workshop', title: '车间管理', icon: 'OfficeBuilding' },
+      { path: '/base/workstation', title: '工位管理', icon: 'Monitor' },
     ],
   },
 ]
