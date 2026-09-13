@@ -40,13 +40,24 @@ export interface PurchaseOrderInput {
 }
 
 export async function listPurchaseOrders(where: any) {
-  const { orderNo, supplierId, status, page = 1, pageSize = 20 } = where;
+  const { orderNo, supplierId, status, materialCode, materialName, specification, page = 1, pageSize = 20 } = where;
   const filters: Prisma.PurchaseOrderWhereInput = {};
   if (orderNo) filters.orderNo = { contains: orderNo };
   if (supplierId) filters.supplierId = Number(supplierId);
   if (status) {
     const arr = String(status).split(",").map((s) => s.trim()).filter(Boolean);
     filters.status = arr.length === 1 ? arr[0] : { in: arr };
+  }
+  if (materialCode || materialName || specification) {
+    filters.items = {
+      some: {
+        material: {
+          ...(materialCode && { code: { contains: materialCode } }),
+          ...(materialName && { name: { contains: materialName } }),
+          ...(specification && { specification: { contains: specification } }),
+        },
+      },
+    };
   }
 
   const [total, items] = await Promise.all([
