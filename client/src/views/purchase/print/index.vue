@@ -194,8 +194,10 @@ onMounted(async () => {
           <span class="po-upper">{{ upperTotal }}</span>
         </div>
         <div class="po-total-nums">
-          <span>未税合计 <b>{{ money(netTotal) }}</b></span>
-          <span>税额 <b>{{ money(taxTotal) }}</b></span>
+          <template v-if="taxTotal > 0">
+            <span>未税合计 <b>{{ money(netTotal) }}</b></span>
+            <span>税额 <b>{{ money(taxTotal) }}</b></span>
+          </template>
           <span class="po-gross">含税合计 <b>{{ money(grossTotal) }}</b></span>
         </div>
       </div>
