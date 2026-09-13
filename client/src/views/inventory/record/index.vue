@@ -111,7 +111,7 @@ onMounted(async () => {
         </el-table-column>
         <el-table-column label="事务类型" width="170">
           <template #default="{ row }">
-            <span v-if="row.transactionType">{{ row.transactionType.code }} - {{ row.transactionType.description }}</span>
+            <span v-if="row.transactionType">{{ row.transactionType.description }}</span>
             <span v-else>-</span>
           </template>
         </el-table-column>
@@ -149,8 +149,8 @@ onMounted(async () => {
       <el-form :model="form" label-width="100px">
         <el-form-item label="事务类型" required>
           <el-select v-model="form.transactionTypeId" filterable placeholder="选择事务类型（决定增/减）" style="width: 100%">
-            <el-option v-for="t in transactionTypes" :key="t.id" :label="`${t.code} - ${t.description}`" :value="t.id">
-              <span>{{ t.code }} - {{ t.description }}</span>
+            <el-option v-for="t in transactionTypes" :key="t.id" :label="t.description" :value="t.id">
+              <span>{{ t.description }}</span>
               <el-tag size="small" :type="t.direction === 'in' ? 'success' : 'danger'" style="float: right; margin-top: 5px">{{ t.direction === 'in' ? '增' : '减' }}</el-tag>
             </el-option>
           </el-select>
