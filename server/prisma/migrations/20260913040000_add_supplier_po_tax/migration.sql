@@ -1,0 +1,7 @@
+-- AlterTable
+ALTER TABLE "Supplier" ADD COLUMN "taxIncluded" BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE "Supplier" ADD COLUMN "taxRate" REAL NOT NULL DEFAULT 0;
+
+-- AlterTable
+ALTER TABLE "PurchaseOrder" ADD COLUMN "taxIncluded" BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE "PurchaseOrder" ADD COLUMN "taxRate" REAL NOT NULL DEFAULT 0;

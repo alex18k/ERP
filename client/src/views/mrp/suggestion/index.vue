@@ -1,0 +1,146 @@
+<script setup lang="ts">
+import { ref, onMounted } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { mrpApi, supplierApi } from '../../../api'
+
+const loading = ref(false)
+const run = ref<any>(null)
+const suggestions = ref<any[]>([])
+const suppliers = ref<any[]>([])
+const generating = ref(false)
+const selectedRows = ref<any[]>([])
+
+function onSelectionChange(rows: any[]) {
+  selectedRows.value = rows
+}
+
+function rowKey(row: any) {
+  return row.suggestionId ?? `${row.materialId}-${row.needDate ?? ''}`
+}
+
+function selectable(row: any) {
+  return row.status === 'pending'
+}
+
+async function loadData() {
+  loading.value = true
+  try {
+    const [res, supRes]: any[] = await Promise.all([
+      mrpApi.shortage(),
+      supplierApi.list({ pageSize: 200 }),
+    ])
+    suppliers.value = supRes.data.items
+    const latest = res.data.latestRun
+    if (latest) {
+      const detail: any = await mrpApi.getRun(latest.id)
+      run.value = detail.data
+      suggestions.value = res.data.suggestions || []
+    } else {
+      run.value = null
+      suggestions.value = []
+    }
+    selectedRows.value = []
+  } finally { loading.value = false }
+}
+
+async function handleGenerate() {
+  if (selectedRows.value.length === 0) {
+    ElMessage.warning('请先勾选要转换的采购建议')
+    return
+  }
+  const selected = selectedRows.value
+  const missing = selected.filter((s) => !s.supplierId)
+  const tip = missing.length > 0
+    ? `其中 ${missing.length} 条未指定供应商，将生成无供应商采购单。`
+    : ''
+  try {
+    await ElMessageBox.confirm(`将把勾选的 ${selected.length} 条采购建议生成采购订单，${tip}确定继续？`, '生成采购订单', { type: 'warning' })
+  } catch { return }
+  generating.value = true
+  try {
+    const suggestionIds = selected.map((s) => s.suggestionId).filter((id: any) => id != null)
+    const overrides: Record<number, number> = {}
+    for (const s of selected) if (s.supplierId) overrides[s.materialId] = s.supplierId
+    const res: any = await mrpApi.generatePurchase(suggestionIds, overrides)
+    ElMessage.success(res.message || `已生成 ${res.data?.orders?.length ?? 0} 张采购订单`)
+    loadData()
+  } catch {
+    /* error already shown */
+  } finally {
+    generating.value = false
+  }
+}
+
+onMounted(loadData)
+</script>
+
+<template>
+  <div class="page-container">
+    <el-card v-if="run" class="mb-16" shadow="never">
+      <el-descriptions :column="4" border size="small">
+        <el-descriptions-item label="最近MRP运行">#{{ run.runNo }}</el-descriptions-item>
+        <el-descriptions-item label="缺料总数">{{ (run.result.shortages || []).length }}</el-descriptions-item>
+        <el-descriptions-item label="采购建议">{{ suggestions.length }}</el-descriptions-item>
+        <el-descriptions-item label="生产建议">{{ (run.result.productionOrders || []).length }}</el-descriptions-item>
+      </el-descriptions>
+    </el-card>
+
+    <div class="page-card">
+      <div class="table-toolbar">
+        <span class="toolbar-title">采购建议清单</span>
+        <div style="flex: 1" />
+        <el-button type="primary" :loading="generating" @click="handleGenerate">
+          <el-icon><Files /></el-icon>生成采购订单
+        </el-button>
+        <el-button @click="loadData"><el-icon><Refresh /></el-icon>刷新</el-button>
+      </div>
+
+      <el-alert
+        type="info" :closable="false" show-icon
+        title="建议由MRP运算自动生成。勾选后可一键转为采购订单（草稿状态，需在采购订单页确认后方可收货）。"
+        style="margin-bottom: 16px"
+      />
+
+      <el-table :data="suggestions" v-loading="loading" stripe :row-key="rowKey" @selection-change="onSelectionChange">
+        <el-table-column type="selection" width="45" :selectable="selectable" />
+        <el-table-column label="物料" min-width="170">
+          <template #default="{ row }">
+            <span>{{ row.materialCode }} - {{ row.materialName }}</span>
+            <span v-if="row.specification" style="color: var(--el-text-color-secondary); margin-left: 6px">{{ row.specification }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="需求来源" min-width="180">
+          <template #default="{ row }">
+            <template v-if="row.sourceOrders && row.sourceOrders.length">
+              <el-tag v-for="o in row.sourceOrders" :key="o.orderId" size="small" style="margin: 0 4px 2px 0">
+                {{ o.orderNo }} ×{{ o.quantity }}
+              </el-tag>
+            </template>
+            <span v-else style="color: var(--el-text-color-secondary)">-</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="供应商" min-width="180">
+          <template #default="{ row }">
+            <el-select v-model="row.supplierId" filterable clearable placeholder="选择供应商" size="small" style="width: 100%">
+              <el-option v-for="s in suppliers" :key="s.id" :label="s.name" :value="s.id" />
+            </el-select>
+          </template>
+        </el-table-column>
+        <el-table-column prop="suggestedQty" label="建议采购量" width="110" />
+        <el-table-column label="建议需求日" width="120">
+          <template #default="{ row }">{{ row.needDate?.slice?.(0, 10) || '-' }}</template>
+        </el-table-column>
+        <el-table-column prop="leadTime" label="采购提前期" width="100">
+          <template #default="{ row }">{{ row.leadTime ?? '-' }} 天</template>
+        </el-table-column>
+        <el-table-column label="状态" width="100">
+          <template #default="{ row }">
+            <el-tag :type="row.status === 'converted' ? 'success' : 'warning'" size="small">
+              {{ row.status === 'converted' ? '已转采购单' : '待处理' }}
+            </el-tag>
+          </template>
+        </el-table-column>
+      </el-table>
+    </div>
+  </div>
+</template>
