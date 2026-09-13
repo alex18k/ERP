@@ -162,7 +162,7 @@ watch(() => route.query.id, (id) => {
 
       <el-card v-if="tracking" class="mb-16">
         <template #header>进度跟踪</template>
-        <el-table :data="tracking?.productionProgress || []" size="small" stripe>
+        <el-table :data="tracking?.productionProgress || []" size="small" stripe default-expand-all>
           <el-table-column type="expand">
             <template #default="{ row }">
               <el-table v-if="row.workOrders && row.workOrders.length" :data="row.workOrders" size="small" border style="margin: 4px 24px; width: auto">
