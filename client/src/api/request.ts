@@ -27,7 +27,9 @@ service.interceptors.response.use(
   (error) => {
     const status = error.response?.status
     const msg = error.response?.data?.message || error.message
-    if (status === 401) {
+    const url = error.config?.url || ''
+    const isLoginRequest = url.includes('/auth/login')
+    if (status === 401 && !isLoginRequest) {
       ElMessage.error('登录已过期，请重新登录')
       localStorage.removeItem('token')
       localStorage.removeItem('user')
