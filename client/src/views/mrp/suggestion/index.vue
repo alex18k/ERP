@@ -1,12 +1,11 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { mrpApi, supplierApi } from '../../../api'
+import { mrpApi } from '../../../api'
 
 const loading = ref(false)
 const run = ref<any>(null)
 const suggestions = ref<any[]>([])
-const suppliers = ref<any[]>([])
 const generating = ref(false)
 const safetyChecking = ref(false)
 const selectedRows = ref<any[]>([])
@@ -16,7 +15,6 @@ const pagedSuggestions = computed(() => {
   const start = (page.value - 1) * pageSize.value
   return suggestions.value.slice(start, start + pageSize.value)
 })
-const supplierOptions = computed(() => suppliers.value.map((s: any) => ({ label: s.name, value: s.id })))
 
 function onSelectionChange(rows: any[]) {
   selectedRows.value = rows
@@ -33,11 +31,7 @@ function selectable(row: any) {
 async function loadData() {
   loading.value = true
   try {
-    const [res, supRes]: any[] = await Promise.all([
-      mrpApi.shortage(),
-      supplierApi.list({ pageSize: 200 }),
-    ])
-    suppliers.value = supRes.data.items
+    const res: any = await mrpApi.shortage()
     const latest = res.data.latestRun
     if (latest) {
       const detail: any = await mrpApi.getRun(latest.id)
@@ -135,11 +129,7 @@ onMounted(loadData)
         <el-table-column prop="materialName" label="物料名称" min-width="150" />
         <el-table-column prop="specification" label="型号规格" min-width="140" />
         <el-table-column label="来源" width="100">
-          <template #default="{ row }">
-            <el-tag :type="row.source === 'safety' ? 'warning' : 'primary'" size="small" effect="plain">
-              {{ row.source === 'safety' ? '安全库存' : 'MRP需求' }}
-            </el-tag>
-          </template>
+          <template #default="{ row }">{{ row.source === 'safety' ? '安全库存' : 'MRP需求' }}</template>
         </el-table-column>
         <el-table-column label="需求来源" min-width="180">
           <template #default="{ row }">
@@ -149,11 +139,6 @@ onMounted(loadData)
               </el-tag>
             </template>
             <span v-else style="color: var(--el-text-color-secondary)">-</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="供应商" min-width="180">
-          <template #default="{ row }">
-            <el-select-v2 v-model="row.supplierId" :options="supplierOptions" filterable clearable placeholder="选择供应商" size="small" style="width: 100%" />
           </template>
         </el-table-column>
         <el-table-column prop="suggestedQty" label="建议采购量" width="110" />
