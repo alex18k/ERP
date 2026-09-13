@@ -645,7 +645,7 @@ export async function getBatchMaterials(batchId: number) {
       },
       materials: {
         include: {
-          material: { select: { id: true, code: true, name: true, specification: true, unit: true, defaultWarehouseId: true } },
+          material: { select: { id: true, code: true, name: true, specification: true, unit: true, location: true, defaultWarehouseId: true } },
         },
         orderBy: { id: "asc" },
       },
@@ -659,7 +659,7 @@ export async function getBatchMaterials(batchId: number) {
 export async function issueBatchMaterials(
   batchId: number,
   warehouseId: number,
-  items: { batchMaterialId: number; quantity: number }[],
+  items: { batchMaterialId: number; quantity: number; location?: string }[],
   userId: number
 ) {
   if (!warehouseId) throw new Error("请选择出库仓库");
@@ -721,6 +721,7 @@ export async function issueBatchMaterials(
           transactionTypeId: issueType?.id,
           documentNo: docNo,
           lineNo: lineNo++,
+          location: it.location || null,
           operatorId: userId,
           remark: `生产发料 批次${batch.batchNo}`,
         },

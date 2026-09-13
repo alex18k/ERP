@@ -2,6 +2,7 @@
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { productionApi, warehouseApi } from '../../../api'
+import { BASE_LOCATIONS } from '../../../utils/location'
 
 const loading = ref(false)
 const list = ref<any[]>([])
@@ -21,7 +22,15 @@ const submitting = ref(false)
 const currentOrder = ref<any>(null)
 const currentBatch = ref<any>(null)
 const detail = ref<any[]>([])
+const locationOptions = ref<{ code: string; name: string }[]>([])
 const form = reactive<any>({ batchId: null, warehouseId: null, issueQty: 0 })
+
+function buildLocationOptions() {
+  const map = new Map<string, string>()
+  for (const l of BASE_LOCATIONS) map.set(l.code, l.name)
+  for (const line of detail.value) if (line.location && !map.has(line.location)) map.set(line.location, '')
+  locationOptions.value = [...map.entries()].map(([code, name]) => ({ code, name }))
+}
 
 function statusLabel(s: string) {
   return statusOptions.find((o) => o.value === s)?.label || s
@@ -77,8 +86,10 @@ async function onBatchChange() {
     unit: m.unit || m.material?.unit,
     requiredQty: m.requiredQty,
     issuedQty: m.issuedQty ?? 0,
+    location: m.material?.location || '',
     issueQty: 0,
   }))
+  buildLocationOptions()
   form.issueQty = data.quantity ?? 0
   recalc()
 }
@@ -100,7 +111,7 @@ async function submit() {
   }
   const items = detail.value
     .filter((l) => Number(l.issueQty) > 0)
-    .map((l) => ({ batchMaterialId: l.batchMaterialId, quantity: l.issueQty }))
+    .map((l) => ({ batchMaterialId: l.batchMaterialId, quantity: l.issueQty, location: l.location || undefined }))
   if (items.length === 0) {
     ElMessage.warning('请填写发放数量')
     return
@@ -213,6 +224,13 @@ onMounted(async () => {
           </template>
         </el-table-column>
         <el-table-column prop="unit" label="单位" width="70" />
+        <el-table-column label="库位" width="130">
+          <template #default="{ row }">
+            <el-select v-model="row.location" size="small" filterable allow-create default-first-option clearable placeholder="库位" style="width: 100%">
+              <el-option v-for="l in locationOptions" :key="l.code" :label="l.name ? `${l.code} - ${l.name}` : l.code" :value="l.code" />
+            </el-select>
+          </template>
+        </el-table-column>
         <el-table-column prop="requiredQty" label="需求量" width="100" />
         <el-table-column prop="issuedQty" label="已发" width="90" />
         <el-table-column label="未发" width="90">
