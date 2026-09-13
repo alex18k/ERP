@@ -93,6 +93,7 @@ async function handleSave() {
     name: form.name,
     description: form.description,
     processes: form.processes.map((p: any, i: number) => ({
+      id: p.id,
       code: p.code || `OP${i + 1}`,
       name: p.name,
       sequence: p.sequence,

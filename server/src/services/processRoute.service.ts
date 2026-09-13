@@ -6,6 +6,7 @@ export interface ProcessRouteCreateInput {
   name: string;
   description?: string;
   processes: {
+    id?: number;
     code: string;
     name: string;
     sequence: number;
@@ -117,19 +118,29 @@ export async function updateProcessRoute(id: number, data: Partial<ProcessRouteC
     });
 
     if (data.processes) {
-      await tx.processStep.deleteMany({ where: { routeId: id } });
+      // 保留已有工序 id，就地更新，避免删除被加工单引用的工序（外键约束）
+      const incomingIds = data.processes.filter((p) => p.id).map((p) => p.id as number);
+      const existing = await tx.processStep.findMany({ where: { routeId: id }, select: { id: true } });
+      const toDelete = existing.filter((e) => !incomingIds.includes(e.id)).map((e) => e.id);
+      if (toDelete.length > 0) {
+        const referenced = await tx.processRouteAssignment.count({ where: { processStepId: { in: toDelete } } });
+        if (referenced > 0) throw new Error("该工艺路线的部分工序已被加工单使用，无法删除");
+        await tx.processStep.deleteMany({ where: { id: { in: toDelete } } });
+      }
       for (const p of data.processes) {
-        await tx.processStep.create({
-          data: {
-            routeId: id,
-            code: p.code,
-            name: p.name,
-            sequence: p.sequence,
-            workstationId: p.workstationId,
-            standardTime: p.standardTime ?? 0,
-            setupTime: p.setupTime ?? 0,
-          },
-        });
+        const stepData = {
+          code: p.code,
+          name: p.name,
+          sequence: p.sequence,
+          workstationId: p.workstationId,
+          standardTime: p.standardTime ?? 0,
+          setupTime: p.setupTime ?? 0,
+        };
+        if (p.id) {
+          await tx.processStep.update({ where: { id: p.id }, data: stepData });
+        } else {
+          await tx.processStep.create({ data: { routeId: id, ...stepData } });
+        }
       }
     }
 
