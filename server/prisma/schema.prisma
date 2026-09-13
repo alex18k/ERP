@@ -348,9 +348,27 @@ model ProductionOrder {
   updatedAt        DateTime                 @updatedAt
   workOrders       WorkOrder[]
   routeAssignments ProcessRouteAssignment[]
+  batches          ProductionBatch[]
 
   @@index([status])
   @@index([planEndDate])
+}
+
+model ProductionBatch {
+  id                Int             @id @default(autoincrement())
+  productionOrderId Int
+  productionOrder   ProductionOrder @relation(fields: [productionOrderId], references: [id])
+  batchNo           Int
+  quantity          Float
+  planStartDate     DateTime?
+  planEndDate       DateTime?
+  status            String          @default("planned") // planned, in_progress, completed, cancelled
+  remark            String?
+  createdAt         DateTime        @default(now())
+  workOrders        WorkOrder[]
+
+  @@unique([productionOrderId, batchNo])
+  @@index([productionOrderId])
 }
 
 model ProcessRouteAssignment {
@@ -374,6 +392,8 @@ model WorkOrder {
   orderNo           String                   @unique
   productionOrderId Int
   productionOrder   ProductionOrder          @relation(fields: [productionOrderId], references: [id])
+  batchId           Int?
+  batch             ProductionBatch?         @relation(fields: [batchId], references: [id])
   processRouteId    Int?
   workstationId     Int?
   workstation       Workstation?             @relation(fields: [workstationId], references: [id])
@@ -393,6 +413,7 @@ model WorkOrder {
 
   @@index([status])
   @@index([productionOrderId])
+  @@index([batchId])
 }
 
 model WorkReport {

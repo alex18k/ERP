@@ -40,6 +40,7 @@ export async function listProductionOrders(where: any) {
       include: {
         material: { select: { id: true, code: true, name: true, unit: true } },
         salesOrder: { select: { id: true, orderNo: true, customerName: true } },
+        batches: { orderBy: { batchNo: "asc" } },
         workOrders: {
           include: { workstation: { select: { id: true, code: true, name: true } } },
         },
@@ -125,6 +126,10 @@ export async function cancelProductionOrder(id: number) {
       where: { productionOrderId: id, status: { in: ["pending", "in_progress", "paused"] } },
       data: { status: "cancelled" },
     });
+    await tx.productionBatch.updateMany({
+      where: { productionOrderId: id, status: { in: ["planned", "in_progress"] } },
+      data: { status: "cancelled" },
+    });
 
     const updated = await tx.productionOrder.update({
       where: { id },
@@ -184,8 +189,19 @@ export async function updateProductionOrder(id: number, data: Partial<Production
   });
 }
 
-// ===== 排产：根据工艺路线生成加工单 =====
-export async function scheduleProduction(productionOrderId: number, userId: number) {
+// ===== 排产：根据工艺路线按批次生成加工单 =====
+export interface ScheduleBatchInput {
+  quantity: number;
+  planStartDate?: string;
+  planEndDate?: string;
+  remark?: string;
+}
+
+export async function scheduleProduction(
+  productionOrderId: number,
+  userId: number,
+  batches?: ScheduleBatchInput[]
+) {
   const order = await prisma.productionOrder.findUnique({
     where: { id: productionOrderId },
     include: { material: true },
@@ -199,21 +215,6 @@ export async function scheduleProduction(productionOrderId: number, userId: numb
   if (!order.planner) throw new Error("请先指定计划员");
   if (!order.releaseDate) throw new Error("请先维护下达日期");
 
-  // 已有未取消的加工单 => 已排产，避免重复排产
-  const activeWorkOrders = await prisma.workOrder.count({
-    where: { productionOrderId, status: { not: "cancelled" } },
-  });
-  if (activeWorkOrders > 0) throw new Error("该生产订单已排产，不能重复排产");
-
-  // 重新排产时需重建：已取消的加工单不能带报工记录，否则拒绝
-  const cancelledWorkOrders = await prisma.workOrder.findMany({
-    where: { productionOrderId, status: "cancelled" },
-    select: { id: true, _count: { select: { reports: true } } },
-  });
-  if (cancelledWorkOrders.some((w) => w._count.reports > 0)) {
-    throw new Error("该生产订单存在已报工的加工单，无法重新排产");
-  }
-
   const routeId = order.material.processRouteId;
   if (!routeId) throw new Error("该产品未指定工艺路线，无法排产");
 
@@ -225,49 +226,112 @@ export async function scheduleProduction(productionOrderId: number, userId: numb
   if (route.status !== "active") throw new Error("该产品的工艺路线未启用，无法排产");
   if (route.processes.length === 0) throw new Error("该产品的工艺路线没有工序，无法排产");
 
+  // 已排产量（未取消批次之和）
+  const scheduledAgg = await prisma.productionBatch.aggregate({
+    where: { productionOrderId, status: { not: "cancelled" } },
+    _sum: { quantity: true },
+  });
+  const scheduledQty = scheduledAgg._sum.quantity ?? 0;
+  const remaining = order.quantity - scheduledQty;
+
+  // 本次批次：未传则按剩余未排量建一个默认批次
+  let planBatches: ScheduleBatchInput[];
+  if (batches && batches.length > 0) {
+    planBatches = batches;
+  } else {
+    if (remaining <= 0) throw new Error("该生产订单已排满，不能重复排产");
+    planBatches = [
+      {
+        quantity: remaining,
+        planStartDate: order.planStartDate.toISOString(),
+        planEndDate: order.planEndDate.toISOString(),
+      },
+    ];
+  }
+
+  for (const b of planBatches) {
+    if (!Number.isFinite(b.quantity) || b.quantity <= 0) throw new Error("批次数量必须大于0");
+  }
+  const addQty = planBatches.reduce((s, b) => s + b.quantity, 0);
+  if (scheduledQty + addQty > order.quantity + 1e-6) {
+    throw new Error(`已排产 ${scheduledQty}，本次 ${addQty}，超过生产订单数量 ${order.quantity}`);
+  }
+
+  // 重建：已取消的加工单不能带报工记录，否则拒绝
+  const cancelledWorkOrders = await prisma.workOrder.findMany({
+    where: { productionOrderId, status: "cancelled" },
+    select: { id: true, _count: { select: { reports: true } } },
+  });
+  if (cancelledWorkOrders.some((w) => w._count.reports > 0)) {
+    throw new Error("该生产订单存在已报工的加工单，无法重新排产");
+  }
+
+  const maxBatch = await prisma.productionBatch.aggregate({
+    where: { productionOrderId },
+    _max: { batchNo: true },
+  });
+  let nextBatchNo = (maxBatch._max.batchNo ?? 0) + 1;
+
   return prisma.$transaction(async (tx) => {
-    // 重建：清理此前已取消的加工单及其工序分配
+    // 清理此前已取消的加工单及其工序分配
     if (cancelledWorkOrders.length > 0) {
       const oldIds = cancelledWorkOrders.map((w) => w.id);
       await tx.processRouteAssignment.deleteMany({ where: { workOrderId: { in: oldIds } } });
       await tx.workOrder.deleteMany({ where: { id: { in: oldIds } } });
     }
+    await tx.productionBatch.deleteMany({ where: { productionOrderId: order.id, status: "cancelled" } });
 
-    // 为每个工序创建加工单
-    const workOrders = [];
+    const workOrders: any[] = [];
+    const createdBatches: any[] = [];
     const totalTime = route.processes.reduce((sum, p) => sum + p.standardTime + p.setupTime, 0);
 
-    for (const p of route.processes) {
-      const dateStr = localDateCompact();
-      const count = await tx.workOrder.count({ where: { orderNo: { startsWith: `WO${dateStr}` } } });
-      const workOrder = await tx.workOrder.create({
-        data: {
-          orderNo: `WO${dateStr}${String(count + 1).padStart(4, "0")}`,
-          productionOrderId: order.id,
-          processRouteId: route.id,
-          workstationId: p.workstationId,
-          operatorId: userId,
-          plannedQty: order.quantity,
-          status: "pending",
-          startTime: order.planStartDate,
-        },
-      });
-
-      await tx.processRouteAssignment.create({
+    for (const b of planBatches) {
+      const batch = await tx.productionBatch.create({
         data: {
           productionOrderId: order.id,
-          workOrderId: workOrder.id,
-          processStepId: p.id,
-          status: "pending",
+          batchNo: nextBatchNo++,
+          quantity: b.quantity,
+          planStartDate: b.planStartDate ? new Date(b.planStartDate) : null,
+          planEndDate: b.planEndDate ? new Date(b.planEndDate) : null,
+          status: "planned",
+          remark: b.remark,
         },
       });
+      createdBatches.push(batch);
 
-      workOrders.push(workOrder);
+      for (const p of route.processes) {
+        const dateStr = localDateCompact();
+        const count = await tx.workOrder.count({ where: { orderNo: { startsWith: `WO${dateStr}` } } });
+        const workOrder = await tx.workOrder.create({
+          data: {
+            orderNo: `WO${dateStr}${String(count + 1).padStart(4, "0")}`,
+            productionOrderId: order.id,
+            batchId: batch.id,
+            processRouteId: route.id,
+            workstationId: p.workstationId,
+            operatorId: userId,
+            plannedQty: b.quantity,
+            status: "pending",
+            startTime: batch.planStartDate,
+          },
+        });
+
+        await tx.processRouteAssignment.create({
+          data: {
+            productionOrderId: order.id,
+            workOrderId: workOrder.id,
+            processStepId: p.id,
+            status: "pending",
+          },
+        });
+
+        workOrders.push(workOrder);
+      }
     }
 
     await tx.productionOrder.update({
       where: { id: order.id },
-      data: { status: "in_progress", actualStartDate: new Date() },
+      data: { status: "in_progress", actualStartDate: order.actualStartDate ?? new Date() },
     });
 
     // 关联销售订单状态更新
@@ -282,7 +346,7 @@ export async function scheduleProduction(productionOrderId: number, userId: numb
       });
     }
 
-    return { productionOrderId: order.id, workOrders, totalTime };
+    return { productionOrderId: order.id, batches: createdBatches, workOrders, totalTime };
   });
 }
 
@@ -337,30 +401,48 @@ export async function reportWork(workOrderId: number, data: {
       },
     });
 
-    // 如果所有加工单完成，更新生产订单
-    const allDone = await tx.workOrder.count({
-      where: { productionOrderId: workOrder.productionOrderId, status: { not: "completed" } },
-    });
-    if (allDone === 0) {
-      await tx.productionOrder.update({
-        where: { id: workOrder.productionOrderId },
-        data: { status: "completed", actualEndDate: new Date() },
+    // 同步所属批次状态
+    if (workOrder.batchId) {
+      const batchNotDone = await tx.workOrder.count({
+        where: { batchId: workOrder.batchId, status: { notIn: ["completed", "cancelled"] } },
       });
-      // 更新销售订单状态
+      await tx.productionBatch.update({
+        where: { id: workOrder.batchId },
+        data: { status: batchNotDone === 0 ? "completed" : "in_progress" },
+      });
+    }
+
+    // 所有加工单完成 且 已排产量≥生产订单数量 时，才关闭生产订单
+    const notDone = await tx.workOrder.count({
+      where: { productionOrderId: workOrder.productionOrderId, status: { notIn: ["completed", "cancelled"] } },
+    });
+    if (notDone === 0) {
+      const batchAgg = await tx.productionBatch.aggregate({
+        where: { productionOrderId: workOrder.productionOrderId, status: { not: "cancelled" } },
+        _sum: { quantity: true },
+      });
+      const scheduledQty = batchAgg._sum.quantity ?? 0;
       const po = await tx.productionOrder.findUnique({ where: { id: workOrder.productionOrderId } });
-      if (po?.salesOrderId) {
-        const allPoDone = await tx.productionOrder.count({
-          where: { salesOrderId: po.salesOrderId, status: { not: "completed" } },
+      if (po && scheduledQty >= po.quantity - 1e-6) {
+        await tx.productionOrder.update({
+          where: { id: po.id },
+          data: { status: "completed", actualEndDate: new Date() },
         });
-        if (allPoDone === 0) {
-          await tx.salesOrder.update({
-            where: { id: po.salesOrderId },
-            data: { status: "completed" },
+        // 更新销售订单状态
+        if (po.salesOrderId) {
+          const allPoDone = await tx.productionOrder.count({
+            where: { salesOrderId: po.salesOrderId, status: { not: "completed" } },
           });
-          await tx.salesOrderItem.updateMany({
-            where: { orderId: po.salesOrderId },
-            data: { status: "completed" },
-          });
+          if (allPoDone === 0) {
+            await tx.salesOrder.update({
+              where: { id: po.salesOrderId },
+              data: { status: "completed" },
+            });
+            await tx.salesOrderItem.updateMany({
+              where: { orderId: po.salesOrderId },
+              data: { status: "completed" },
+            });
+          }
         }
       }
     }
@@ -480,6 +562,7 @@ export async function listWorkOrders(where: any) {
       include: {
         workstation: true,
         operator: { select: { id: true, realName: true } },
+        batch: { select: { id: true, batchNo: true, quantity: true, planStartDate: true, planEndDate: true, status: true } },
         productionOrder: {
           include: { material: { select: { id: true, code: true, name: true, unit: true } } },
         },

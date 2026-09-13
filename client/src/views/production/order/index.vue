@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { productionApi, mrpApi } from '../../../api'
 
@@ -33,6 +33,28 @@ const editRules = {
   planEndDate: [{ required: true, message: '请选择计划结束日期', trigger: 'change' }],
   planner: [{ required: true, message: '请选择计划员', trigger: 'change' }],
   releaseDate: [{ required: true, message: '请选择下达日期', trigger: 'change' }],
+}
+
+const scheduleDialogVisible = ref(false)
+const scheduling = ref(false)
+const scheduleOrder = ref<any>(null)
+const scheduleBatches = ref<any[]>([])
+const scheduledQty = computed(() =>
+  (scheduleOrder.value?.batches || [])
+    .filter((b: any) => b.status !== 'cancelled')
+    .reduce((s: number, b: any) => s + b.quantity, 0)
+)
+const remainingQty = computed(() => Math.max(0, (scheduleOrder.value?.quantity || 0) - scheduledQty.value))
+const batchTotal = computed(() => scheduleBatches.value.reduce((s: number, b: any) => s + (Number(b.quantity) || 0), 0))
+
+function orderScheduledQty(row: any) {
+  return (row.batches || [])
+    .filter((b: any) => b.status !== 'cancelled')
+    .reduce((s: number, b: any) => s + b.quantity, 0)
+}
+
+function canSchedule(row: any) {
+  return row.status !== 'completed' && orderScheduledQty(row) < row.quantity - 1e-6
 }
 
 async function loadData() {
@@ -139,12 +161,50 @@ async function handleUpdate() {
 }
 
 async function handleSchedule(row: any) {
+  scheduleOrder.value = row
+  const scheduled = (row.batches || [])
+    .filter((b: any) => b.status !== 'cancelled')
+    .reduce((s: number, b: any) => s + b.quantity, 0)
+  const remain = Math.max(0, (row.quantity || 0) - scheduled)
+  scheduleBatches.value = [
+    { quantity: remain, planStartDate: row.planStartDate?.slice(0, 10) || '', planEndDate: row.planEndDate?.slice(0, 10) || '' },
+  ]
+  scheduleDialogVisible.value = true
+}
+
+function addBatch() {
+  scheduleBatches.value.push({ quantity: 0, planStartDate: '', planEndDate: '' })
+}
+
+function removeBatch(index: number) {
+  scheduleBatches.value.splice(index, 1)
+}
+
+async function submitSchedule() {
+  const batches = scheduleBatches.value
+  if (batches.length === 0) {
+    ElMessage.warning('请至少添加一个批次')
+    return
+  }
+  for (const b of batches) {
+    if (!b.quantity || b.quantity <= 0) {
+      ElMessage.warning('批次数量必须大于0')
+      return
+    }
+  }
+  if (batchTotal.value > remainingQty.value + 1e-6) {
+    ElMessage.warning(`本次批次合计 ${batchTotal.value} 超过剩余可排产量 ${remainingQty.value}`)
+    return
+  }
+  scheduling.value = true
   try {
-    await ElMessageBox.confirm(`对生产订单 ${row.orderNo} 执行排产？（将按工艺路线生成加工单并分配工位）`, '排产', { type: 'warning' })
-  } catch { return }
-  const res: any = await productionApi.schedule(row.id)
-  ElMessage.success(`排产完成，生成 ${res.data?.workOrders?.length ?? 0} 张加工单`)
-  loadData()
+    const res: any = await productionApi.schedule(scheduleOrder.value.id, { batches })
+    ElMessage.success(`排产完成，生成 ${res.data?.workOrders?.length ?? 0} 张加工单`)
+    scheduleDialogVisible.value = false
+    loadData()
+  } catch { /* error shown */ } finally {
+    scheduling.value = false
+  }
 }
 
 async function handleCancel(row: any) {
@@ -217,6 +277,12 @@ onMounted(() => {
         <el-table-column label="加工单" width="80">
           <template #default="{ row }">{{ row.workOrders?.length || 0 }}</template>
         </el-table-column>
+        <el-table-column label="批次/已排" width="120">
+          <template #default="{ row }">
+            <span v-if="(row.batches || []).length">{{ row.batches.length }} 批 / {{ orderScheduledQty(row) }}</span>
+            <span v-else>-</span>
+          </template>
+        </el-table-column>
         <el-table-column label="状态" width="90">
           <template #default="{ row }">
             <el-tag :type="statusType(row.status)" size="small">{{ statusLabel(row.status) }}</el-tag>
@@ -225,7 +291,7 @@ onMounted(() => {
         <el-table-column label="操作" width="210" fixed="right">
           <template #default="{ row }">
             <el-button size="small" type="primary" link @click="openEditDialog(row)">编辑</el-button>
-            <el-button v-if="['planned', 'cancelled'].includes(row.status)" size="small" type="success" link @click="handleSchedule(row)">排产</el-button>
+            <el-button v-if="canSchedule(row)" size="small" type="success" link @click="handleSchedule(row)">排产</el-button>
             <el-button v-if="['planned', 'in_progress'].includes(row.status)" size="small" type="danger" link @click="handleCancel(row)">取消</el-button>
           </template>
         </el-table-column>
@@ -297,6 +363,47 @@ onMounted(() => {
       <template #footer>
         <el-button @click="editDialogVisible = false">取消</el-button>
         <el-button type="primary" :loading="saving" @click="handleUpdate">保存</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="scheduleDialogVisible" title="排产（分批）" width="720px">
+      <el-descriptions :column="3" border size="small" style="margin-bottom: 12px">
+        <el-descriptions-item label="生产订单">{{ scheduleOrder?.orderNo }}</el-descriptions-item>
+        <el-descriptions-item label="数量">{{ scheduleOrder?.quantity }}</el-descriptions-item>
+        <el-descriptions-item label="已排 / 剩余">{{ scheduledQty }} / {{ remainingQty }}</el-descriptions-item>
+      </el-descriptions>
+      <div style="margin-bottom: 8px">
+        <el-button size="small" type="primary" plain @click="addBatch"><el-icon><Plus /></el-icon>添加批次</el-button>
+        <span style="margin-left: 12px; color: var(--el-text-color-secondary)">本次合计：{{ batchTotal }} / 剩余 {{ remainingQty }}</span>
+      </div>
+      <el-table :data="scheduleBatches" size="small" stripe>
+        <el-table-column label="批次" width="70">
+          <template #default="{ $index }">{{ $index + 1 }}</template>
+        </el-table-column>
+        <el-table-column label="数量" width="140">
+          <template #default="{ row }">
+            <el-input-number v-model="row.quantity" :min="0" :precision="2" :controls="false" style="width: 100%" />
+          </template>
+        </el-table-column>
+        <el-table-column label="计划开始" min-width="160">
+          <template #default="{ row }">
+            <el-date-picker v-model="row.planStartDate" type="date" value-format="YYYY-MM-DD" placeholder="开始日期" style="width: 100%" />
+          </template>
+        </el-table-column>
+        <el-table-column label="计划结束" min-width="160">
+          <template #default="{ row }">
+            <el-date-picker v-model="row.planEndDate" type="date" value-format="YYYY-MM-DD" placeholder="结束日期" style="width: 100%" />
+          </template>
+        </el-table-column>
+        <el-table-column width="60">
+          <template #default="{ $index }">
+            <el-button type="danger" link size="small" @click="removeBatch($index)">删除</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+      <template #footer>
+        <el-button @click="scheduleDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="scheduling" @click="submitSchedule">确认排产</el-button>
       </template>
     </el-dialog>
   </div>

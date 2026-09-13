@@ -92,6 +92,9 @@ onMounted(loadData)
             <el-tag size="small" effect="plain">{{ row.assignments?.[0]?.processStep?.name || '-' }}</el-tag>
           </template>
         </el-table-column>
+        <el-table-column label="批次" width="80">
+          <template #default="{ row }">{{ row.batch ? `第${row.batch.batchNo}批` : '-' }}</template>
+        </el-table-column>
         <el-table-column label="工位" width="110">
           <template #default="{ row }">{{ row.workstation?.name || '-' }}</template>
         </el-table-column>
