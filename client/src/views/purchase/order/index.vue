@@ -308,10 +308,10 @@ onMounted(loadData)
         <el-input v-model="query.specification" placeholder="型号规格" clearable style="width: 140px" />
         <el-button type="primary" @click="query.page = 1, loadData()"><el-icon><Search /></el-icon>查询</el-button>
         <el-button @click="Object.assign(query, { orderNo: '', supplierId: '', status: '', materialCode: '', materialName: '', specification: '', page: 1 }), loadData()">重置</el-button>
+        <el-button style="margin-left: auto" type="primary" @click="openDialog()"><el-icon><Plus /></el-icon>新增采购单</el-button>
       </div>
 
       <div class="table-toolbar">
-        <el-button type="primary" @click="openDialog()"><el-icon><Plus /></el-icon>新增采购单</el-button>
         <el-button @click="purchaseApi.exportCsv()"><el-icon><Download /></el-icon>导出</el-button>
       </div>
 
