@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { mrpApi, supplierApi } from '../../../api'
 
@@ -10,6 +10,13 @@ const suppliers = ref<any[]>([])
 const generating = ref(false)
 const safetyChecking = ref(false)
 const selectedRows = ref<any[]>([])
+const page = ref(1)
+const pageSize = ref(50)
+const pagedSuggestions = computed(() => {
+  const start = (page.value - 1) * pageSize.value
+  return suggestions.value.slice(start, start + pageSize.value)
+})
+const supplierOptions = computed(() => suppliers.value.map((s: any) => ({ label: s.name, value: s.id })))
 
 function onSelectionChange(rows: any[]) {
   selectedRows.value = rows
@@ -40,6 +47,7 @@ async function loadData() {
       run.value = null
       suggestions.value = []
     }
+    if ((page.value - 1) * pageSize.value >= suggestions.value.length) page.value = 1
     selectedRows.value = []
   } finally { loading.value = false }
 }
@@ -121,8 +129,8 @@ onMounted(loadData)
         style="margin-bottom: 16px"
       />
 
-      <el-table :data="suggestions" v-loading="loading" stripe :row-key="rowKey" @selection-change="onSelectionChange">
-        <el-table-column type="selection" width="45" :selectable="selectable" />
+      <el-table :data="pagedSuggestions" v-loading="loading" stripe :row-key="rowKey" @selection-change="onSelectionChange">
+        <el-table-column type="selection" width="45" :selectable="selectable" reserve-selection />
         <el-table-column label="物料" min-width="170">
           <template #default="{ row }">
             <span>{{ row.materialCode }} - {{ row.materialName }}</span>
@@ -148,9 +156,7 @@ onMounted(loadData)
         </el-table-column>
         <el-table-column label="供应商" min-width="180">
           <template #default="{ row }">
-            <el-select v-model="row.supplierId" filterable clearable placeholder="选择供应商" size="small" style="width: 100%">
-              <el-option v-for="s in suppliers" :key="s.id" :label="s.name" :value="s.id" />
-            </el-select>
+            <el-select-v2 v-model="row.supplierId" :options="supplierOptions" filterable clearable placeholder="选择供应商" size="small" style="width: 100%" />
           </template>
         </el-table-column>
         <el-table-column prop="suggestedQty" label="建议采购量" width="110" />
@@ -168,6 +174,10 @@ onMounted(loadData)
           </template>
         </el-table-column>
       </el-table>
+
+      <div class="pagination-wrap">
+        <el-pagination v-model:current-page="page" v-model:page-size="pageSize" :total="suggestions.length" :page-sizes="[20, 50, 100]" layout="total, sizes, prev, pager, next" />
+      </div>
     </div>
   </div>
 </template>
