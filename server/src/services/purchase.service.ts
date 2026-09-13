@@ -351,7 +351,6 @@ export async function receivePurchaseOrder(
           location: options?.location || null,
           effectiveDate: options?.effectiveDate ? new Date(options.effectiveDate) : null,
           operatorId: userId,
-          remark: `采购订单 ${po.orderNo} 收货`,
         },
       });
     }
