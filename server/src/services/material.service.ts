@@ -133,7 +133,7 @@ export async function listMaterialOptions(where: MaterialOptionWhere) {
   }
   return prisma.material.findMany({
     where: filters,
-    select: { id: true, code: true, name: true, specification: true, unit: true, location: true, category: true },
+    select: { id: true, code: true, name: true, specification: true, unit: true, location: true, unitPrice: true, category: true },
     orderBy: { code: "asc" },
     take: Math.min(Number(limit) || 50, 500),
   });

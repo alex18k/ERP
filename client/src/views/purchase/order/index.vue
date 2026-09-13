@@ -217,6 +217,7 @@ function onMaterialChange(row: any, materialId: number) {
   if (!m) return
   if (m.unit) row.unit = m.unit
   row.location = m.location || headerLocation.value || ''
+  row.unitPrice = m.unitPrice ?? 0
 }
 function removeItem(index: number) {
   form.items.splice(index, 1)
@@ -451,7 +452,7 @@ onMounted(loadData)
               </el-table-column>
               <el-table-column label="单价" width="90">
                 <template #default="{ row }">
-                  <el-input-number v-model="row.unitPrice" :min="0" :precision="2" :controls="false" style="width: 100%" />
+                  <el-input-number v-model="row.unitPrice" :min="0" :precision="5" :controls="false" style="width: 100%" />
                 </template>
               </el-table-column>
               <el-table-column label="金额" width="85" align="right">
