@@ -45,9 +45,7 @@ const menuItems: MenuNode[] = [
       { path: '/base/bom', title: 'BOM管理', icon: 'List' },
       { path: '/base/bom-cost', title: 'BOM成本', icon: 'List' },
       { path: '/base/process-route', title: '工艺路线', icon: 'SetUp' },
-      { path: '/base/supplier', title: '供应商管理', icon: 'Van' },
       { path: '/base/warehouse', title: '仓库管理', icon: 'OfficeBuilding' },
-      { path: '/base/customer', title: '客户管理', icon: 'User' },
       { path: '/base/workshop', title: '车间管理', icon: 'OfficeBuilding' },
       { path: '/base/workstation', title: '工位管理', icon: 'Monitor' },
     ],
@@ -58,6 +56,7 @@ const menuItems: MenuNode[] = [
     children: [
       { path: '/order/sales', title: '销售订单', icon: 'Tickets' },
       { path: '/order/tracking', title: '订单跟踪', icon: 'Position' },
+      { path: '/base/customer', title: '客户管理', icon: 'User' },
     ],
   },
   {
@@ -85,6 +84,7 @@ const menuItems: MenuNode[] = [
     children: [
       { path: '/purchase/order', title: '采购订单', icon: 'List' },
       { path: '/purchase/arrival', title: '到货跟踪', icon: 'Van' },
+      { path: '/base/supplier', title: '供应商管理', icon: 'Van' },
     ],
   },
   {
