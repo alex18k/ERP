@@ -40,7 +40,7 @@ export interface PurchaseOrderInput {
 }
 
 export async function listPurchaseOrders(where: any) {
-  const { orderNo, supplierId, status, materialCode, materialName, specification, page = 1, pageSize = 20 } = where;
+  const { orderNo, supplierId, status, materialKeyword, materialCode, materialName, specification, page = 1, pageSize = 20 } = where;
   const filters: Prisma.PurchaseOrderWhereInput = {};
   if (orderNo) filters.orderNo = { contains: orderNo };
   if (supplierId) filters.supplierId = Number(supplierId);
@@ -48,7 +48,19 @@ export async function listPurchaseOrders(where: any) {
     const arr = String(status).split(",").map((s) => s.trim()).filter(Boolean);
     filters.status = arr.length === 1 ? arr[0] : { in: arr };
   }
-  if (materialCode || materialName || specification) {
+  if (materialKeyword) {
+    filters.items = {
+      some: {
+        material: {
+          OR: [
+            { code: { contains: materialKeyword } },
+            { name: { contains: materialKeyword } },
+            { specification: { contains: materialKeyword } },
+          ],
+        },
+      },
+    };
+  } else if (materialCode || materialName || specification) {
     filters.items = {
       some: {
         material: {

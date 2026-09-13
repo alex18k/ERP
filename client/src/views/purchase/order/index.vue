@@ -9,7 +9,7 @@ const loading = ref(false)
 const list = ref<any[]>([])
 const total = ref(0)
 const router = useRouter()
-const query = reactive({ page: 1, pageSize: 20, orderNo: '', supplierId: '', status: '', materialCode: '', materialName: '', specification: '' })
+const query = reactive({ page: 1, pageSize: 20, orderNo: '', supplierId: '', status: '', materialKeyword: '' })
 
 const statusOptions = [
   { label: '草稿', value: 'draft', type: 'info' },
@@ -303,11 +303,9 @@ onMounted(loadData)
         <el-select v-model="query.status" placeholder="状态" clearable style="width: 120px">
           <el-option v-for="o in statusOptions" :key="o.value" :label="o.label" :value="o.value" />
         </el-select>
-        <el-input v-model="query.materialCode" placeholder="物料编码" clearable style="width: 130px" />
-        <el-input v-model="query.materialName" placeholder="物料名称" clearable style="width: 140px" />
-        <el-input v-model="query.specification" placeholder="型号规格" clearable style="width: 140px" />
+        <el-input v-model="query.materialKeyword" placeholder="物料编码/名称/规格" clearable style="width: 200px" />
         <el-button type="primary" @click="query.page = 1, loadData()"><el-icon><Search /></el-icon>查询</el-button>
-        <el-button @click="Object.assign(query, { orderNo: '', supplierId: '', status: '', materialCode: '', materialName: '', specification: '', page: 1 }), loadData()">重置</el-button>
+        <el-button @click="Object.assign(query, { orderNo: '', supplierId: '', status: '', materialKeyword: '', page: 1 }), loadData()">重置</el-button>
         <el-button style="margin-left: auto" type="primary" @click="openDialog()"><el-icon><Plus /></el-icon>新增采购单</el-button>
       </div>
 
