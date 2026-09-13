@@ -311,6 +311,11 @@ export async function receivePurchaseOrder(
         },
       });
 
+      // 采购件成本：按最近一次采购单价回写物料成本
+      if (item.unitPrice != null && item.unitPrice > 0) {
+        await tx.material.update({ where: { id: item.materialId }, data: { cost: item.unitPrice } });
+      }
+
       // 更新库存：优先记入库位对应的仓库（库位编码 = 仓库编码）
       const targetWarehouseId = locationWarehouse?.id ?? null;
       let warehouseId: number;
