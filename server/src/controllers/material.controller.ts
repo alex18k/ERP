@@ -87,3 +87,11 @@ export async function importHandler(req: Request, res: Response) {
     return fail(res, 400, error.message);
   }
 }
+export async function recalcCostHandler(_req: Request, res: Response) {
+  try {
+    const data = await materialService.recalcManufactureCosts();
+    return success(res, data, `已重算 ${data.updated} 个制造件成本`);
+  } catch (error: any) {
+    return fail(res, 400, error.message);
+  }
+}

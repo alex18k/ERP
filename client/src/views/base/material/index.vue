@@ -172,6 +172,17 @@ async function handleDelete(row: any) {
   } catch { /* canceled */ }
 }
 
+async function handleRecalcCost() {
+  try {
+    await ElMessageBox.confirm('将按 BOM 子件成本重算所有制造件成本，确定继续？', '重算成本', { type: 'warning' })
+  } catch { return }
+  try {
+    const res: any = await materialApi.recalcCost()
+    ElMessage.success(res.message || `已重算 ${res.data?.updated ?? 0} 个制造件成本`)
+    loadData()
+  } catch { /* error shown */ }
+}
+
 onMounted(() => {
   loadData()
   loadTypeOptions()
@@ -190,6 +201,7 @@ onMounted(() => {
         <el-button type="primary" @click="handleSearch"><el-icon><Search /></el-icon>查询</el-button>
         <el-button @click="handleReset">重置</el-button>
         <el-button style="margin-left: auto" type="primary" @click="openDialog()"><el-icon><Plus /></el-icon>新增物料</el-button>
+        <el-button @click="handleRecalcCost">重算成本</el-button>
         <el-button @click="materialApi.exportCsv()"><el-icon><Download /></el-icon>导出</el-button>
       </div>
 

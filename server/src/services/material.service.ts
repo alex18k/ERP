@@ -199,3 +199,60 @@ export async function importMaterials(rows: MaterialCreateInput[]) {
   }
   return results;
 }
+// 制造件成本 = BOM 子件成本之和 × 用量（含损耗） + 工艺成本（路线总工时 × 工时费率）
+// 工时费率取环境变量 LABOR_RATE（每小时），默认 0（不计工艺成本）
+export async function recalcManufactureCosts() {
+  const laborRate = Number(process.env.LABOR_RATE ?? 0) || 0;
+
+  const [materials, boms, routes] = await Promise.all([
+    prisma.material.findMany({ select: { id: true, category: true, cost: true, processRouteId: true } }),
+    prisma.bom.findMany({
+      where: { status: "active" },
+      include: { items: { select: { materialId: true, quantity: true, lossRate: true } } },
+    }),
+    prisma.processRoute.findMany({ select: { id: true, totalTime: true } }),
+  ]);
+
+  const materialById = new Map(materials.map((m) => [m.id, m]));
+  const bomByProduct = new Map(boms.map((b) => [b.productId, b]));
+  const routeById = new Map(routes.map((r) => [r.id, r]));
+  const cache = new Map<number, number>();
+
+  const compute = (id: number, visiting: Set<number>): number => {
+    if (cache.has(id)) return cache.get(id)!;
+    const base = materialById.get(id)?.cost ?? 0;
+    const bom = bomByProduct.get(id);
+    if (!bom) {
+      cache.set(id, base);
+      return base;
+    }
+    if (visiting.has(id)) return base; // 循环引用保护
+    visiting.add(id);
+    let cost = 0;
+    for (const item of bom.items) {
+      cost += compute(item.materialId, visiting) * item.quantity * (1 + (item.lossRate ?? 0));
+    }
+    visiting.delete(id);
+    const mat = materialById.get(id);
+    if (mat?.processRouteId) {
+      const route = routeById.get(mat.processRouteId);
+      if (route) cost += route.totalTime * laborRate;
+    }
+    const rounded = Math.round(cost * 100) / 100;
+    cache.set(id, rounded);
+    return rounded;
+  };
+
+  let updated = 0;
+  let total = 0;
+  for (const m of materials) {
+    if (m.category !== "manufacture") continue;
+    total++;
+    const newCost = compute(m.id, new Set());
+    if (Math.abs(newCost - m.cost) > 1e-6) {
+      await prisma.material.update({ where: { id: m.id }, data: { cost: newCost } });
+      updated++;
+    }
+  }
+  return { updated, total };
+}

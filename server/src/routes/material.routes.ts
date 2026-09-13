@@ -12,6 +12,7 @@ router.get("/types", requirePermission("material:view"), materialController.type
 router.get("/options", requirePermission("material:view"), materialController.optionHandler);
 router.get("/:id", requirePermission("material:view"), materialController.getHandler);
 router.post("/", requirePermission("material:create"), materialController.createHandler);
+router.post("/recalc-cost", requirePermission("material:edit"), materialController.recalcCostHandler);
 router.put("/:id", requirePermission("material:edit"), materialController.updateHandler);
 router.delete("/:id", requirePermission("material:delete"), materialController.deleteHandler);
 router.post("/import", requirePermission("material:create"), materialController.importHandler);

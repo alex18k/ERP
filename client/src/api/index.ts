@@ -26,6 +26,7 @@ export const materialApi = {
   update: (id: number, data: any) => request.put(`/materials/${id}`, data),
   remove: (id: number) => request.delete(`/materials/${id}`),
   importData: (rows: any[]) => request.post('/materials/import', rows),
+  recalcCost: () => request.post('/materials/recalc-cost'),
   exportCsv: () => downloadCsv('/materials/export', '物料数据'),
 }
 
