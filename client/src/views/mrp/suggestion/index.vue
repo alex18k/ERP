@@ -134,9 +134,9 @@ onMounted(loadData)
         <el-table-column label="需求来源" min-width="180">
           <template #default="{ row }">
             <template v-if="row.sourceOrders && row.sourceOrders.length">
-              <el-tag v-for="o in row.sourceOrders" :key="o.orderId" size="small" style="margin: 0 4px 2px 0">
+              <span v-for="o in row.sourceOrders" :key="o.orderId" style="margin-right: 8px">
                 {{ o.orderNo }} ×{{ o.quantity }}
-              </el-tag>
+              </span>
             </template>
             <span v-else style="color: var(--el-text-color-secondary)">-</span>
           </template>
