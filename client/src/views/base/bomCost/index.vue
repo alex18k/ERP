@@ -140,12 +140,12 @@ async function handlePrint(row: any) {
   col.cost { width: 9%; } col.amt { width: 10%; }
   tfoot td { font-weight: bold; background: #fafafa; }
 </style></head><body>
+  <h1>物料清单（BOM）</h1>
   <div class="head">
     <span>型号: ${esc(product.code || row.code)}</span>
     <span class="mid">规格: ${esc(product.specification || '')}</span>
     <span>打印日期: ${printDate}</span>
   </div>
-  <h1>物料清单（BOM）</h1>
   <table>
     <colgroup>
       <col class="no" /><col class="code" /><col class="name" />
