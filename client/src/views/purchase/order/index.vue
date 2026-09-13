@@ -350,7 +350,7 @@ onMounted(loadData)
             <el-tag v-else :type="statusType(row.status)" size="small">{{ statusLabel(row.status) }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="220" fixed="right">
+        <el-table-column label="操作" width="180" fixed="right">
           <template #default="{ row }">
             <el-button v-if="['draft', 'confirmed'].includes(row.status)" size="small" type="primary" link @click="editOrder(row.orderId)">编辑</el-button>
             <el-button v-if="row.status === 'draft'" size="small" type="success" link @click="handleConfirm(row)">确认</el-button>

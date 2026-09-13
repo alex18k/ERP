@@ -85,6 +85,12 @@ async function handleSubmit() {
   } catch { /* error shown by interceptor */ }
 }
 
+function signedQty(row: any) {
+  if (row.type === 'out') return `-${row.quantity}`
+  if (row.type === 'in') return `+${row.quantity}`
+  return String(row.quantity)
+}
+
 async function loadData() {
   loading.value = true
   try {
@@ -148,8 +154,8 @@ onMounted(async () => {
         </el-table-column>
         <el-table-column label="数量" width="100">
           <template #default="{ row }">
-            <span :style="{ color: row.quantity < 0 ? 'var(--el-color-danger)' : 'var(--el-color-success)', fontWeight: 600 }">
-              {{ row.quantity > 0 ? '+' : '' }}{{ row.quantity }}
+            <span :style="{ color: row.type === 'out' ? 'var(--el-color-danger)' : 'var(--el-color-success)', fontWeight: 600 }">
+              {{ signedQty(row) }}
             </span>
           </template>
         </el-table-column>
