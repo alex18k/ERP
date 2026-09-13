@@ -8,6 +8,7 @@ const run = ref<any>(null)
 const suggestions = ref<any[]>([])
 const suppliers = ref<any[]>([])
 const generating = ref(false)
+const safetyChecking = ref(false)
 const selectedRows = ref<any[]>([])
 
 function onSelectionChange(rows: any[]) {
@@ -71,6 +72,22 @@ async function handleGenerate() {
   }
 }
 
+async function handleSafetyCheck() {
+  try {
+    await ElMessageBox.confirm('将检查所有采购件「现存量 + 在途」低于安全库存的情况，并生成采购建议（已有待处理建议的物料会跳过）。确定继续？', '安全库存检查', { type: 'warning' })
+  } catch { return }
+  safetyChecking.value = true
+  try {
+    const res: any = await mrpApi.safetyStockSuggest()
+    ElMessage.success(res.message || `已生成 ${res.data?.created?.length ?? 0} 条采购建议`)
+    loadData()
+  } catch {
+    /* error shown */
+  } finally {
+    safetyChecking.value = false
+  }
+}
+
 onMounted(loadData)
 </script>
 
@@ -89,6 +106,9 @@ onMounted(loadData)
       <div class="table-toolbar">
         <span class="toolbar-title">采购建议清单</span>
         <div style="flex: 1" />
+        <el-button :loading="safetyChecking" @click="handleSafetyCheck">
+          <el-icon><Search /></el-icon>安全库存检查
+        </el-button>
         <el-button type="primary" :loading="generating" @click="handleGenerate">
           <el-icon><Files /></el-icon>生成采购订单
         </el-button>
@@ -107,6 +127,13 @@ onMounted(loadData)
           <template #default="{ row }">
             <span>{{ row.materialCode }} - {{ row.materialName }}</span>
             <span v-if="row.specification" style="color: var(--el-text-color-secondary); margin-left: 6px">{{ row.specification }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="来源" width="100">
+          <template #default="{ row }">
+            <el-tag :type="row.source === 'safety' ? 'warning' : 'primary'" size="small" effect="plain">
+              {{ row.source === 'safety' ? '安全库存' : 'MRP需求' }}
+            </el-tag>
           </template>
         </el-table-column>
         <el-table-column label="需求来源" min-width="180">

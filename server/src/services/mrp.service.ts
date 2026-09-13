@@ -477,11 +477,38 @@ export async function listShortages() {
     select: { id: true, status: true, convertedOrderId: true },
   });
   const statusMap = new Map(dbSuggestions.map((s) => [s.id, s]));
+  const jsonIds = new Set(rawSuggestions.map((s) => s.suggestionId));
   const suggestions = rawSuggestions.map((s) => ({
     ...s,
+    source: "mrp",
     status: statusMap.get(s.suggestionId)?.status ?? "pending",
     convertedOrderId: statusMap.get(s.suggestionId)?.convertedOrderId ?? null,
   }));
+
+  // 追加数据库中的待处理采购建议（如安全库存补货建议），不依赖运行结果JSON
+  const extraSuggestions = await prisma.purchaseSuggestion.findMany({
+    where: { status: "pending", id: { notIn: [...jsonIds] } },
+    include: {
+      material: { select: { id: true, code: true, name: true, specification: true, unit: true, supplierId: true, leadTime: true, unitPrice: true } },
+    },
+  });
+  for (const s of extraSuggestions) {
+    suggestions.push({
+      suggestionId: s.id,
+      materialId: s.materialId,
+      materialCode: s.material.code,
+      materialName: s.material.name,
+      specification: s.material.specification,
+      suggestedQty: s.suggestedQty,
+      supplierId: s.supplierId ?? s.material.supplierId,
+      leadTime: s.leadTime ?? s.material.leadTime,
+      needDate: s.needDate,
+      sourceOrders: [],
+      source: "safety",
+      status: s.status,
+      convertedOrderId: s.convertedOrderId,
+    });
+  }
 
   return {
     latestRun: {
@@ -620,4 +647,69 @@ export async function generatePurchaseOrders(
   return {
     orders: createdOrders,
   };
+}
+// ===== 安全库存检查：采购件可用量低于安全库存时生成采购建议 =====
+export async function createSafetyStockSuggestions() {
+  const latestRun = await prisma.mrpRun.findFirst({ orderBy: { startedAt: "desc" } });
+  if (!latestRun) throw new Error("请先执行MRP运算");
+
+  // 现存量：启用仓库库存合计
+  const stocks = await prisma.stock.findMany({ where: { warehouse: { status: 1 } } });
+  const stockMap = new Map<number, number>();
+  for (const s of stocks) stockMap.set(s.materialId, (stockMap.get(s.materialId) ?? 0) + s.quantity);
+
+  // 在途：未取消采购单未收数量
+  const inTransitRows = await prisma.purchaseOrderItem.findMany({
+    where: { status: { in: ["pending", "partial_received"] }, order: { status: { not: "cancelled" } } },
+  });
+  const inTransitMap = new Map<number, number>();
+  for (const r of inTransitRows) {
+    inTransitMap.set(r.materialId, (inTransitMap.get(r.materialId) ?? 0) + (r.quantity - r.receivedQty));
+  }
+
+  // 候选：启用中的采购件，安全库存>0
+  const materials = await prisma.material.findMany({
+    where: { category: "purchase", safetyStock: { gt: 0 }, status: 1 },
+  });
+
+  // 去重：已有待处理采购建议的物料跳过
+  const pending = await prisma.purchaseSuggestion.findMany({ where: { status: "pending" }, select: { materialId: true } });
+  const pendingSet = new Set(pending.map((p) => p.materialId));
+
+  const created: { suggestionId: number; materialId: number; materialCode: string; materialName: string; suggestedQty: number }[] = [];
+  const skipped: { materialId: number; materialCode: string; materialName: string; reason: string }[] = [];
+
+  for (const m of materials) {
+    const available = (stockMap.get(m.id) ?? 0) + (inTransitMap.get(m.id) ?? 0);
+    const shortage = m.safetyStock - available;
+    if (shortage <= 1e-6) continue;
+    if (pendingSet.has(m.id)) {
+      skipped.push({ materialId: m.id, materialCode: m.code, materialName: m.name, reason: "已有待处理采购建议" });
+      continue;
+    }
+    const needDate = new Date();
+    needDate.setDate(needDate.getDate() + (m.leadTime ?? 0));
+    const suggestion = await prisma.purchaseSuggestion.create({
+      data: {
+        runId: latestRun.id,
+        materialId: m.id,
+        suggestedQty: Math.ceil(shortage * 100) / 100,
+        unitPrice: m.unitPrice ?? 0,
+        supplierId: m.supplierId,
+        leadTime: m.leadTime,
+        needDate,
+        status: "pending",
+      },
+    });
+    created.push({
+      suggestionId: suggestion.id,
+      materialId: m.id,
+      materialCode: m.code,
+      materialName: m.name,
+      suggestedQty: suggestion.suggestedQty,
+    });
+    pendingSet.add(m.id);
+  }
+
+  return { created, skipped };
 }

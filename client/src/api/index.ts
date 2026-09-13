@@ -111,6 +111,7 @@ export const mrpApi = {
   shortage: () => request.get('/mrp/shortage'),
   generatePurchase: (suggestionIds?: number[], supplierOverrides?: Record<number, number>) =>
     request.post('/mrp/suggestion/generate-purchase', { suggestionIds, supplierOverrides }),
+  safetyStockSuggest: () => request.post('/mrp/safety-stock-suggest'),
 }
 
 // ===== 生产 =====
