@@ -7,7 +7,7 @@ const loading = ref(false)
 const list = ref<any[]>([])
 const total = ref(0)
 const warehouses = ref<any[]>([])
-const query = reactive({ page: 1, pageSize: 20, materialId: '', warehouseId: '', startDate: '', endDate: '' })
+const query = reactive({ page: 1, pageSize: 20, materialId: null, warehouseId: '', startDate: '', endDate: '', documentNo: '' })
 
 // ===== 增加库存事务 =====
 const dialogVisible = ref(false)
@@ -107,14 +107,17 @@ onMounted(async () => {
     <div class="page-card">
       <div class="search-bar">
         <el-button type="primary" @click="openDialog()"><el-icon><Plus /></el-icon>增加</el-button>
-        <el-input v-model="query.materialId" placeholder="物料ID" clearable style="width: 90px" />
+        <el-input v-model="query.documentNo" placeholder="单号" clearable style="width: 150px" />
+        <el-select v-model="query.materialId" filterable remote reserve-keyword :remote-method="searchMaterials" :loading="materialLoading" clearable placeholder="物料编码/名称" style="width: 180px">
+          <el-option v-for="m in materials" :key="m.id" :label="`${m.code} - ${m.name}`" :value="m.id" />
+        </el-select>
         <el-select v-model="query.warehouseId" placeholder="仓库" clearable style="width: 150px">
           <el-option v-for="w in warehouses" :key="w.id" :label="w.name" :value="w.id" />
         </el-select>
         <el-input v-model="query.startDate" type="date" placeholder="开始" clearable style="width: 150px" />
         <el-input v-model="query.endDate" type="date" placeholder="结束" clearable style="width: 150px" />
         <el-button type="primary" @click="query.page = 1, loadData()"><el-icon><Search /></el-icon>查询</el-button>
-        <el-button @click="Object.assign(query, { materialId: '', warehouseId: '', startDate: '', endDate: '', page: 1 }), loadData()">重置</el-button>
+        <el-button @click="Object.assign(query, { materialId: null, warehouseId: '', startDate: '', endDate: '', documentNo: '', page: 1 }), loadData()">重置</el-button>
       </div>
 
       <el-table :data="list" v-loading="loading" stripe>
@@ -133,8 +136,14 @@ onMounted(async () => {
             <span v-else>-</span>
           </template>
         </el-table-column>
-        <el-table-column label="物料" min-width="160">
-          <template #default="{ row }">{{ row.material?.code }} - {{ row.material?.name }}</template>
+        <el-table-column label="物料编码" width="110">
+          <template #default="{ row }">{{ row.material?.code }}</template>
+        </el-table-column>
+        <el-table-column label="物料名称" min-width="140">
+          <template #default="{ row }">{{ row.material?.name }}</template>
+        </el-table-column>
+        <el-table-column label="型号规格" min-width="130">
+          <template #default="{ row }">{{ row.material?.specification }}</template>
         </el-table-column>
         <el-table-column label="库位" width="120">
           <template #default="{ row }">{{ row.warehouse?.name }}</template>

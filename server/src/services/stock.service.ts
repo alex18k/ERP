@@ -56,12 +56,14 @@ export async function listStocks(where: any) {
 }
 
 export async function listStockRecords(where: any) {
-  const { materialId, warehouseId, type, startDate, endDate, page = 1, pageSize = 20 } = where;
+  const { materialId, warehouseId, type, startDate, endDate, documentNo, page = 1, pageSize = 20 } = where;
 
   const filters: any = {};
-  if (materialId) filters.materialId = Number(materialId);
+  const mid = Number(materialId);
+  if (materialId && !Number.isNaN(mid)) filters.materialId = mid;
   if (warehouseId) filters.warehouseId = Number(warehouseId);
   if (type) filters.type = type;
+  if (documentNo) filters.documentNo = { contains: documentNo };
   if (startDate || endDate) {
     filters.createdAt = {
       gte: startDate ? new Date(startDate) : undefined,
