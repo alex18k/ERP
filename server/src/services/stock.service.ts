@@ -56,11 +56,16 @@ export async function listStocks(where: any) {
 }
 
 export async function listStockRecords(where: any) {
-  const { materialId, warehouseId, type, startDate, endDate, documentNo, page = 1, pageSize = 20 } = where;
+  const { materialId, materialKeyword, warehouseId, type, startDate, endDate, documentNo, page = 1, pageSize = 20 } = where;
 
   const filters: any = {};
   const mid = Number(materialId);
   if (materialId && !Number.isNaN(mid)) filters.materialId = mid;
+  if (materialKeyword) {
+    filters.material = {
+      OR: [{ code: { contains: materialKeyword } }, { name: { contains: materialKeyword } }],
+    };
+  }
   if (warehouseId) filters.warehouseId = Number(warehouseId);
   if (type) filters.type = type;
   if (documentNo) filters.documentNo = { contains: documentNo };
