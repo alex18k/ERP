@@ -144,6 +144,7 @@ async function openDialog(row?: any) {
       quantity: i.quantity,
       unit: i.unit || i.material?.unit || '',
       unitPrice: i.unitPrice,
+      unitPriceText: i.unitPrice != null && i.unitPrice !== 0 ? String(i.unitPrice) : '',
       taxIncluded: !!i.taxIncluded,
       taxRate: i.taxRate ?? 0,
       location: i.location || i.material?.location || '',
@@ -197,7 +198,7 @@ function applyExpectedDateToItems() {
 }
 
 function addItem() {
-  form.items.push({ materialId: null, quantity: 1, unit: '', unitPrice: 0, taxIncluded: !!form.taxIncluded, taxRate: form.taxRate ?? 0, location: headerLocation.value || 'A01', expectedDate: form.expectedDate || '', remark: '' })
+  form.items.push({ materialId: null, quantity: 1, unit: '', unitPrice: 0, unitPriceText: '', taxIncluded: !!form.taxIncluded, taxRate: form.taxRate ?? 0, location: headerLocation.value || 'A01', expectedDate: form.expectedDate || '', remark: '' })
 }
 
 function buildItemOptions() {
@@ -218,16 +219,17 @@ function onMaterialChange(row: any, materialId: number) {
   if (m.unit) row.unit = m.unit
   row.location = m.location || headerLocation.value || ''
   row.unitPrice = m.unitPrice ?? 0
+  row.unitPriceText = m.unitPrice ? String(m.unitPrice) : ''
+}
+
+function onUnitPriceInput(row: any) {
+  const n = Number(row.unitPriceText)
+  row.unitPrice = Number.isNaN(n) ? 0 : n
 }
 
 function fmtPrice(v: any) {
   const n = Number(v)
   return n ? String(n) : ''
-}
-
-function parsePrice(v: any) {
-  const n = Number(v)
-  return Number.isNaN(n) ? 0 : n
 }
 function removeItem(index: number) {
   form.items.splice(index, 1)
@@ -251,7 +253,17 @@ async function handleSave() {
     taxIncluded: !!form.taxIncluded,
     taxRate: form.taxRate ?? 0,
     remark: form.remark,
-    items: form.items,
+    items: form.items.map((i: any) => ({
+      materialId: i.materialId,
+      quantity: i.quantity,
+      unit: i.unit,
+      unitPrice: Number(i.unitPriceText) || 0,
+      taxIncluded: i.taxIncluded,
+      taxRate: i.taxRate,
+      location: i.location,
+      expectedDate: i.expectedDate,
+      remark: i.remark,
+    })),
   }
   try {
     if (isEditLoad.value) {
@@ -464,7 +476,7 @@ onMounted(loadData)
               </el-table-column>
               <el-table-column label="单价" width="90">
                 <template #default="{ row }">
-                  <el-input-number v-model="row.unitPrice" :min="0" :precision="5" :controls="false" :formatter="fmtPrice" :parser="parsePrice" style="width: 100%" />
+                  <el-input v-model="row.unitPriceText" size="small" placeholder="" style="width: 100%" @input="onUnitPriceInput(row)" />
                 </template>
               </el-table-column>
               <el-table-column label="金额" width="85" align="right">
