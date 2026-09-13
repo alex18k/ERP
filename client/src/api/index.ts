@@ -137,6 +137,7 @@ export const productionApi = {
 // ===== 采购 =====
 export const purchaseApi = {
   list: (params: PageParams) => request.get('/purchase', { params }),
+  buyers: () => request.get('/purchase/buyers'),
   get: (id: number) => request.get(`/purchase/${id}`),
   create: (data: any) => request.post('/purchase', data),
   update: (id: number, data: any) => request.put(`/purchase/${id}`, data),

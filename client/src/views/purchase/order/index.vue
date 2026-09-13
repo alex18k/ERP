@@ -2,7 +2,7 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { purchaseApi, supplierApi, materialApi, systemApi } from '../../../api'
+import { purchaseApi, supplierApi, materialApi } from '../../../api'
 import { BASE_LOCATIONS } from '../../../utils/location'
 
 const loading = ref(false)
@@ -117,9 +117,8 @@ function onSupplierChange() {
 
 async function loadBuyers() {
   try {
-    const res: any = await systemApi.users({ pageSize: 100, status: 1 })
-    const items: any[] = res.data.items || res.data || []
-    buyerOptions.value = [...new Set(items.map((u: any) => u.realName || u.username).filter(Boolean))]
+    const res: any = await purchaseApi.buyers()
+    buyerOptions.value = (res.data || []).map((u: any) => u.realName || u.username).filter(Boolean)
   } catch {
     buyerOptions.value = []
   }
@@ -163,7 +162,7 @@ async function openDialog(row?: any) {
     form.taxIncluded = false
     form.taxRate = 0
     form.items = []
-    headerLocation.value = ''
+    headerLocation.value = 'A01'
   }
   buildItemOptions()
   loadBuyers()
@@ -193,8 +192,12 @@ function applyLocationToItems() {
   for (const it of form.items) it.location = headerLocation.value || ''
 }
 
+function applyExpectedDateToItems() {
+  for (const it of form.items) if (!it.expectedDate) it.expectedDate = form.expectedDate || ''
+}
+
 function addItem() {
-  form.items.push({ materialId: null, quantity: 1, unit: '', unitPrice: 0, taxIncluded: !!form.taxIncluded, taxRate: form.taxRate ?? 0, location: headerLocation.value || '', expectedDate: '', remark: '' })
+  form.items.push({ materialId: null, quantity: 1, unit: '', unitPrice: 0, taxIncluded: !!form.taxIncluded, taxRate: form.taxRate ?? 0, location: headerLocation.value || 'A01', expectedDate: form.expectedDate || '', remark: '' })
 }
 
 function buildItemOptions() {
@@ -389,7 +392,7 @@ onMounted(loadData)
           </el-col>
           <el-col :span="8">
             <el-form-item label="截止日期" prop="expectedDate">
-              <el-date-picker v-model="form.expectedDate" type="date" value-format="YYYY-MM-DD" style="width: 100%" placeholder="选择截止日期" />
+              <el-date-picker v-model="form.expectedDate" type="date" value-format="YYYY-MM-DD" style="width: 100%" placeholder="选择截止日期" @change="applyExpectedDateToItems" />
             </el-form-item>
           </el-col>
           <el-col :span="8">

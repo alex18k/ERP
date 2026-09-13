@@ -396,3 +396,11 @@ export async function getArrivalTracking() {
     isOverdue: item.expectedDate ? item.expectedDate < today : false,
   }));
 }
+// 采购员下拉：采购人员角色的启用用户
+export async function listBuyers() {
+  return prisma.user.findMany({
+    where: { status: 1, userRoles: { some: { role: { code: "PURCHASE" } } } },
+    select: { id: true, username: true, realName: true },
+    orderBy: { id: "asc" },
+  });
+}
