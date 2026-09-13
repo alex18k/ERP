@@ -32,7 +32,7 @@
   /* ---- 语义色 ---- */
   --erp-amber:      #a57113;
   --erp-amber-deep: #8a5c0e;
-  --erp-red:        #b3402e;
+  --erp-red:        #4a86b8;   /* 警示色：浅蓝 */
   --erp-green:      #2e7d5b;
 
   /* ---- 字体 ---- */
@@ -64,11 +64,11 @@
 
   --el-color-danger:             var(--erp-red);
   --el-color-error:              var(--erp-red);
-  --el-color-danger-light-3:     #c9695e;
-  --el-color-danger-light-5:     #da958c;
-  --el-color-danger-light-7:     #ebc1bb;
-  --el-color-danger-light-9:     #f7e8e5;
-  --el-color-danger-dark-2:      #922e22;
+  --el-color-danger-light-3:     color-mix(in srgb, var(--erp-red) 70%, #fff);
+  --el-color-danger-light-5:     color-mix(in srgb, var(--erp-red) 50%, #fff);
+  --el-color-danger-light-7:     color-mix(in srgb, var(--erp-red) 30%, #fff);
+  --el-color-danger-light-9:     color-mix(in srgb, var(--erp-red) 10%, #fff);
+  --el-color-danger-dark-2:      #3a6b95;
 
   --el-bg-color:                 var(--erp-surface);
   --el-bg-color-page:            var(--erp-paper);

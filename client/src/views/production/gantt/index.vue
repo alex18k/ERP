@@ -10,7 +10,7 @@ const statusColor: Record<string, string> = {
   pending: '#909399',
   in_progress: '#e6a23c',
   completed: '#67c23a',
-  cancelled: '#f56c6c',
+  cancelled: '#4a86b8',
   paused: '#e6a23c',
 }
 
