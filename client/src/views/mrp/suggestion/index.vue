@@ -131,12 +131,9 @@ onMounted(loadData)
 
       <el-table :data="pagedSuggestions" v-loading="loading" stripe :row-key="rowKey" @selection-change="onSelectionChange">
         <el-table-column type="selection" width="45" :selectable="selectable" reserve-selection />
-        <el-table-column label="物料" min-width="170">
-          <template #default="{ row }">
-            <span>{{ row.materialCode }} - {{ row.materialName }}</span>
-            <span v-if="row.specification" style="color: var(--el-text-color-secondary); margin-left: 6px">{{ row.specification }}</span>
-          </template>
-        </el-table-column>
+        <el-table-column prop="materialCode" label="物料编码" width="110" />
+        <el-table-column prop="materialName" label="物料名称" min-width="150" />
+        <el-table-column prop="specification" label="型号规格" min-width="140" />
         <el-table-column label="来源" width="100">
           <template #default="{ row }">
             <el-tag :type="row.source === 'safety' ? 'warning' : 'primary'" size="small" effect="plain">
