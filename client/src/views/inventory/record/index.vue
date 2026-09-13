@@ -97,9 +97,6 @@ onMounted(async () => {
       </div>
 
       <el-table :data="list" v-loading="loading" stripe>
-        <el-table-column label="时间" width="170">
-          <template #default="{ row }">{{ row.createdAt }}</template>
-        </el-table-column>
         <el-table-column label="生效日期" width="120">
           <template #default="{ row }">{{ row.effectiveDate?.slice(0, 10) || '-' }}</template>
         </el-table-column>
@@ -136,6 +133,9 @@ onMounted(async () => {
         </el-table-column>
         <el-table-column prop="remark" label="备注" min-width="140">
           <template #default="{ row }">{{ row.remark || '-' }}</template>
+        </el-table-column>
+        <el-table-column label="时间" width="170">
+          <template #default="{ row }">{{ row.createdAt }}</template>
         </el-table-column>
       </el-table>
 
