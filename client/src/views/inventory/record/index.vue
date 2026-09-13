@@ -12,6 +12,8 @@ const query = reactive({ page: 1, pageSize: 20, materialId: '', warehouseId: '',
 // ===== 增加库存事务 =====
 const dialogVisible = ref(false)
 const materials = ref<any[]>([])
+const materialLoading = ref(false)
+const materialMap = new Map<number, any>()
 const transactionTypes = ref<any[]>([])
 const form = reactive<any>({ materialId: null, warehouseId: null, quantity: 1, transactionTypeId: null, effectiveDate: todayStr(), documentNo: '', lineNo: null, remark: '' })
 
@@ -21,12 +23,29 @@ function todayStr() {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
 }
 
+function registerMaterials(items: any[]) {
+  for (const m of items) if (m?.id) materialMap.set(m.id, m)
+  materials.value = [...materialMap.values()]
+}
+
+async function searchMaterials(keyword: string) {
+  materialLoading.value = true
+  try {
+    const res: any = await materialApi.options({ keyword, limit: 50 })
+    registerMaterials(res.data || [])
+  } catch {
+    /* ignore */
+  } finally {
+    materialLoading.value = false
+  }
+}
+
 async function loadOptions() {
-  const [mRes, tRes] = await Promise.all([
-    materialApi.list({ pageSize: 200 }),
+  const [mRes, tRes]: any[] = await Promise.all([
+    materialApi.options({ limit: 50 }),
     stockTransactionTypeApi.list({ pageSize: 200 }),
   ])
-  materials.value = mRes.data.items
+  registerMaterials(mRes.data || [])
   transactionTypes.value = tRes.data.items
 }
 
@@ -158,8 +177,8 @@ onMounted(async () => {
           </el-select>
         </el-form-item>
         <el-form-item label="物料" required>
-          <el-select v-model="form.materialId" filterable placeholder="选择物料" style="width: 100%">
-            <el-option v-for="m in materials" :key="m.id" :label="`${m.code} - ${m.name}`" :value="m.id" />
+          <el-select v-model="form.materialId" filterable remote reserve-keyword :remote-method="searchMaterials" :loading="materialLoading" placeholder="输入编码/名称搜索物料" style="width: 100%">
+            <el-option v-for="m in materials" :key="m.id" :label="`${m.code} - ${m.name}${m.specification ? ' / ' + m.specification : ''}`" :value="m.id" />
           </el-select>
         </el-form-item>
         <el-form-item label="仓库" required>
