@@ -578,9 +578,10 @@ export async function listWorkReports(where: any) {
 
 // ===== 加工单列表 =====
 export async function listWorkOrders(where: any) {
-  const { orderNo, status, workstationId, page = 1, pageSize = 20 } = where;
+  const { orderNo, productionOrderNo, status, workstationId, page = 1, pageSize = 20 } = where;
   const filters: Prisma.WorkOrderWhereInput = {};
   if (orderNo) filters.orderNo = { contains: orderNo };
+  if (productionOrderNo) filters.productionOrder = { orderNo: { contains: productionOrderNo } };
   if (status) filters.status = status;
   if (workstationId) filters.workstationId = Number(workstationId);
 

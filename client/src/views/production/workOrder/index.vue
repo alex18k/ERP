@@ -6,7 +6,7 @@ import { productionApi } from '../../../api'
 const loading = ref(false)
 const list = ref<any[]>([])
 const total = ref(0)
-const query = reactive({ page: 1, pageSize: 20, orderNo: '', status: '' })
+const query = reactive({ page: 1, pageSize: 20, orderNo: '', productionOrderNo: '', status: '' })
 
 const statusOptions = [
   { label: '待开工', value: 'pending', type: 'info' },
@@ -67,11 +67,12 @@ onMounted(loadData)
     <div class="page-card">
       <div class="search-bar">
         <el-input v-model="query.orderNo" placeholder="加工单号" clearable style="width: 170px" />
+        <el-input v-model="query.productionOrderNo" placeholder="生产订单号" clearable style="width: 170px" />
         <el-select v-model="query.status" placeholder="状态" clearable style="width: 130px">
           <el-option v-for="o in statusOptions" :key="o.value" :label="o.label" :value="o.value" />
         </el-select>
         <el-button type="primary" @click="query.page = 1, loadData()"><el-icon><Search /></el-icon>查询</el-button>
-        <el-button @click="Object.assign(query, { orderNo: '', status: '', page: 1 }), loadData()">重置</el-button>
+        <el-button @click="Object.assign(query, { orderNo: '', productionOrderNo: '', status: '', page: 1 }), loadData()">重置</el-button>
       </div>
 
       <div class="table-toolbar">
