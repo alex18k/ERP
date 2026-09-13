@@ -233,12 +233,12 @@ async function handlePrint(row: any) {
   col.pos { width: 9%; } col.spec { width: 34%; } col.qty { width: 7%; }
   col.unit { width: 7%; } col.remark { width: 8%; }
 </style></head><body>
+  <h1>物料清单（BOM）</h1>
   <div class="head">
     <span>型号: ${esc(product.code || row.code)}</span>
     <span class="mid">规格: ${esc(product.specification || '')}</span>
     <span>打印日期: ${printDate}</span>
   </div>
-  <h1>物料清单（BOM）</h1>
   <table>
     <colgroup>
       <col class="no" /><col class="code" /><col class="name" /><col class="pos" />
