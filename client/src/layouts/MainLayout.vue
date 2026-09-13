@@ -328,7 +328,6 @@ async function handleLogout() {
   background: linear-gradient(90deg, rgba(162, 87, 42, 0.14), rgba(162, 87, 42, 0.05));
   color: #7c3d1b;
   font-weight: 600;
-  box-shadow: inset 3px 0 0 var(--erp-blue);
 }
 
 .side-menu :deep(.el-menu-item.is-active .el-icon) {
@@ -346,7 +345,6 @@ async function handleLogout() {
 .side-menu :deep(.el-sub-menu .el-menu-item.is-active) {
   background: linear-gradient(90deg, rgba(162, 87, 42, 0.12), rgba(162, 87, 42, 0.04));
   color: #7c3d1b;
-  box-shadow: inset 3px 0 0 var(--erp-blue);
 }
 
 .aside-foot {
