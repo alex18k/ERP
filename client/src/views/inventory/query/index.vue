@@ -50,11 +50,14 @@ onMounted(async () => {
       </div>
 
       <el-table :data="list" v-loading="loading" stripe>
-        <el-table-column label="物料" min-width="170">
-          <template #default="{ row }">
-            <div>{{ row.material?.code }} - {{ row.material?.name }}</div>
-            <small style="color: var(--el-text-color-secondary)">{{ row.material?.specification }}</small>
-          </template>
+        <el-table-column label="物料编码" width="110">
+          <template #default="{ row }">{{ row.material?.code }}</template>
+        </el-table-column>
+        <el-table-column label="物料名称" min-width="150">
+          <template #default="{ row }">{{ row.material?.name }}</template>
+        </el-table-column>
+        <el-table-column label="型号规格" min-width="140">
+          <template #default="{ row }">{{ row.material?.specification }}</template>
         </el-table-column>
         <el-table-column label="类别" width="90">
           <template #default="{ row }">
