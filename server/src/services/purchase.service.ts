@@ -66,7 +66,7 @@ export async function listPurchaseOrders(where: any) {
       where: filters,
       include: {
         supplier: { select: { id: true, name: true, code: true } },
-        items: { include: { material: { select: { id: true, code: true, name: true, specification: true, unit: true } } } },
+        items: { include: { material: { select: { id: true, code: true, name: true, specification: true, unit: true, location: true } } } },
       },
       orderBy: { createdAt: "desc" },
       skip: (Number(page) - 1) * Number(pageSize),
@@ -250,7 +250,8 @@ export async function cancelPurchaseOrder(id: number) {
 export async function receivePurchaseOrder(
   id: number,
   userId: number,
-  receipts?: { itemId: number; quantity: number }[]
+  receipts?: { itemId: number; quantity: number }[],
+  options?: { effectiveDate?: string; location?: string }
 ) {
   const po = await prisma.purchaseOrder.findUnique({
     where: { id },
@@ -326,6 +327,8 @@ export async function receivePurchaseOrder(
           transactionTypeId: receiptType?.id,
           documentNo: po.orderNo,
           lineNo: idx + 1,
+          location: options?.location || null,
+          effectiveDate: options?.effectiveDate ? new Date(options.effectiveDate) : null,
           operatorId: userId,
           remark: `采购订单 ${po.orderNo} 收货`,
         },

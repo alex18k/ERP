@@ -2,6 +2,7 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { purchaseApi } from '../../../api'
+import { BASE_LOCATIONS } from '../../../utils/location'
 
 const loading = ref(false)
 const list = ref<any[]>([])
@@ -12,6 +13,14 @@ const receiveVisible = ref(false)
 const receiving = ref(false)
 const currentOrder = ref<any>(null)
 const receiveItems = ref<any[]>([])
+const receiveForm = reactive({ effectiveDate: '', location: '' })
+const locationOptions = BASE_LOCATIONS
+
+function todayStr() {
+  const d = new Date()
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+}
 
 // 平铺明细行：每行 = 一个采购明细
 const rows = computed(() => {
@@ -67,6 +76,9 @@ function openReceive(row: any) {
     remaining: it.quantity - (it.receivedQty ?? 0),
     receiveQty: it.quantity - (it.receivedQty ?? 0),
   }))
+  receiveForm.effectiveDate = todayStr()
+  const locs = new Set<string>((row.items || []).map((it: any) => it.material?.location).filter(Boolean))
+  receiveForm.location = locs.size === 1 ? [...locs][0] : ''
   receiveVisible.value = true
 }
 
@@ -85,7 +97,11 @@ async function submitReceive() {
   }
   receiving.value = true
   try {
-    await purchaseApi.receive(currentOrder.value.id, { items })
+    await purchaseApi.receive(currentOrder.value.id, {
+      items,
+      effectiveDate: receiveForm.effectiveDate || undefined,
+      location: receiveForm.location || undefined,
+    })
     ElMessage.success('收货完成')
     receiveVisible.value = false
     loadData()
@@ -152,7 +168,18 @@ onMounted(loadData)
     </div>
 
     <!-- 收货弹窗 -->
-    <el-dialog v-model="receiveVisible" :title="`采购收货 - ${currentOrder?.orderNo || ''}`" width="680px" destroy-on-close>
+    <el-dialog v-model="receiveVisible" :title="`采购收货 - ${currentOrder?.orderNo || ''}`" width="720px" destroy-on-close>
+      <el-descriptions :column="3" border size="small" style="margin-bottom: 12px">
+        <el-descriptions-item label="供应商">{{ currentOrder?.supplier?.name || '未指定' }}</el-descriptions-item>
+        <el-descriptions-item label="生效日期">
+          <el-date-picker v-model="receiveForm.effectiveDate" type="date" value-format="YYYY-MM-DD" size="small" style="width: 150px" />
+        </el-descriptions-item>
+        <el-descriptions-item label="库位">
+          <el-select v-model="receiveForm.location" filterable allow-create default-first-option clearable placeholder="选择或输入库位" size="small" style="width: 160px">
+            <el-option v-for="l in locationOptions" :key="l.code" :label="l.name ? `${l.code} - ${l.name}` : l.code" :value="l.code" />
+          </el-select>
+        </el-descriptions-item>
+      </el-descriptions>
       <el-table :data="receiveItems" size="small" stripe>
         <el-table-column label="物料" min-width="180">
           <template #default="{ row }">{{ row.materialCode }} - {{ row.materialName }}</template>
