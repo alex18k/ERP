@@ -19,10 +19,11 @@ router.post("/orders/:id/schedule", requirePermission("production:manage"), prod
 router.get("/work-orders", requirePermission("production:view"), productionController.listWorkOrderHandler);
 router.post("/work-orders/:workOrderId/report", requirePermission("production:report"), productionController.reportWorkHandler);
 
-// 批次物料清单 / 领料 / 入库
+// 批次物料清单 / 发料 / 入库
 router.get("/batch-materials", requirePermission("production:view"), productionController.batchMaterialsHandler);
-router.post("/batch-materials/issue", requirePermission("stock:edit"), productionController.issueBatchMaterialsHandler);
 router.get("/batches/receivable", requirePermission("production:view"), productionController.receivableBatchesHandler);
+router.get("/batches/:id/materials", requirePermission("production:view"), productionController.batchMaterialsDetailHandler);
+router.post("/batches/:id/issue", requirePermission("stock:edit"), productionController.issueBatchMaterialsHandler);
 router.post("/batches/:id/receive", requirePermission("stock:edit"), productionController.receiveBatchHandler);
 
 // 导出（加工单）

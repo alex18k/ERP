@@ -636,56 +636,96 @@ export async function listBatchMaterials(where: any) {
   return { total, page: Number(page), pageSize: Number(pageSize), items };
 }
 
+export async function getBatchMaterials(batchId: number) {
+  const batch = await prisma.productionBatch.findUnique({
+    where: { id: batchId },
+    include: {
+      productionOrder: {
+        include: { material: { select: { id: true, code: true, name: true, unit: true, defaultWarehouseId: true } } },
+      },
+      materials: {
+        include: {
+          material: { select: { id: true, code: true, name: true, specification: true, unit: true, defaultWarehouseId: true } },
+        },
+        orderBy: { id: "asc" },
+      },
+    },
+  });
+  if (!batch) throw new Error("批次不存在");
+  return batch;
+}
+
+// 批量发料：异常行（数量非法/超未发/库存不足）跳过，其余正常出库
 export async function issueBatchMaterials(
-  items: { batchMaterialId: number; quantity: number; warehouseId: number }[],
+  batchId: number,
+  warehouseId: number,
+  items: { batchMaterialId: number; quantity: number }[],
   userId: number
 ) {
-  if (!items || items.length === 0) throw new Error("请填写领料数量");
+  if (!warehouseId) throw new Error("请选择出库仓库");
+  if (!items || items.length === 0) throw new Error("请填写发放数量");
+  const batch = await prisma.productionBatch.findUnique({ where: { id: batchId } });
+  if (!batch) throw new Error("批次不存在");
+  if (batch.status === "cancelled") throw new Error("批次已取消，不能发料");
+  const warehouse = await prisma.warehouse.findUnique({ where: { id: warehouseId } });
+  if (!warehouse) throw new Error("仓库不存在");
+
   const rows = await prisma.productionBatchMaterial.findMany({
-    where: { id: { in: items.map((i) => i.batchMaterialId) } },
-    include: { material: { select: { id: true, code: true, name: true } }, batch: { select: { id: true, batchNo: true } } },
+    where: { batchId, id: { in: items.map((i) => i.batchMaterialId) } },
+    include: { material: { select: { id: true, code: true, name: true } } },
   });
   const map = new Map(rows.map((r) => [r.id, r]));
   const issueType = await prisma.stockTransactionType.findUnique({ where: { code: "ISS-WO" } });
   const docNo = await generateStockDocNo();
 
-  return prisma.$transaction(async (tx) => {
+  const issued: { batchMaterialId: number; materialCode: string; materialName: string; quantity: number }[] = [];
+  const skipped: { batchMaterialId: number; materialCode: string; materialName: string; quantity: number; reason: string }[] = [];
+
+  await prisma.$transaction(async (tx) => {
     let lineNo = 1;
     for (const it of items) {
-      if (!Number.isFinite(it.quantity) || it.quantity <= 0) throw new Error("领料数量必须大于0");
-      if (!it.warehouseId) throw new Error("请选择出库仓库");
       const row = map.get(it.batchMaterialId);
-      if (!row) throw new Error("批次物料不存在");
+      const qty = Number(it.quantity);
+      if (!row) {
+        skipped.push({ batchMaterialId: it.batchMaterialId, materialCode: "", materialName: "", quantity: qty, reason: "物料行不存在" });
+        continue;
+      }
+      const base = { batchMaterialId: row.id, materialCode: row.material.code, materialName: row.material.name, quantity: qty };
+      if (!Number.isFinite(qty) || qty <= 0) {
+        skipped.push({ ...base, reason: "数量必须大于0" });
+        continue;
+      }
       const remain = row.requiredQty - row.issuedQty;
-      if (it.quantity > remain + 1e-6) {
-        throw new Error(`${row.material.name} 领料数量超过未领数量（${remain}）`);
+      if (qty > remain + 1e-6) {
+        skipped.push({ ...base, reason: `超过未发数量（${remain}）` });
+        continue;
       }
-      const stock = await tx.stock.findFirst({
-        where: { materialId: row.materialId, warehouseId: it.warehouseId },
-      });
-      if (!stock || stock.quantity < it.quantity) {
-        throw new Error(`${row.material.name} 库存不足，当前库存 ${stock?.quantity ?? 0}`);
+      const stock = await tx.stock.findFirst({ where: { materialId: row.materialId, warehouseId } });
+      if (!stock || stock.quantity < qty) {
+        skipped.push({ ...base, reason: `库存不足（当前 ${stock?.quantity ?? 0}）` });
+        continue;
       }
+
       await tx.stock.update({
         where: { id: stock.id },
-        data: { quantity: stock.quantity - it.quantity, lastOutDate: new Date() },
+        data: { quantity: stock.quantity - qty, lastOutDate: new Date() },
       });
       await tx.stockRecord.create({
         data: {
           materialId: row.materialId,
-          warehouseId: it.warehouseId,
+          warehouseId,
           type: "out",
-          quantity: it.quantity,
+          quantity: qty,
           relatedType: "ProductionBatch",
-          relatedId: row.batchId,
+          relatedId: batchId,
           transactionTypeId: issueType?.id,
           documentNo: docNo,
           lineNo: lineNo++,
           operatorId: userId,
-          remark: `生产领料 批次${row.batch.batchNo}`,
+          remark: `生产发料 批次${batch.batchNo}`,
         },
       });
-      const newIssued = row.issuedQty + it.quantity;
+      const newIssued = row.issuedQty + qty;
       await tx.productionBatchMaterial.update({
         where: { id: row.id },
         data: {
@@ -693,9 +733,12 @@ export async function issueBatchMaterials(
           status: newIssued >= row.requiredQty - 1e-6 ? "issued" : "partial",
         },
       });
+      row.issuedQty = newIssued;
+      issued.push(base);
     }
-    return { success: true, documentNo: docNo };
   });
+
+  return { documentNo: docNo, issued, skipped };
 }
 
 export async function listReceivableBatches(where: any) {

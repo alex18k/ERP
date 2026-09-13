@@ -138,8 +138,22 @@ export async function batchMaterialsHandler(req: Request, res: Response) {
 export async function issueBatchMaterialsHandler(req: AuthRequest, res: Response) {
   try {
     const items = Array.isArray(req.body?.items) ? req.body.items : [];
-    const data = await productionService.issueBatchMaterials(items, req.user!.id);
-    return success(res, data, "领料出库成功");
+    const data = await productionService.issueBatchMaterials(
+      Number(req.params.id),
+      Number(req.body?.warehouseId),
+      items,
+      req.user!.id
+    );
+    return success(res, data, "发料完成");
+  } catch (error: any) {
+    return fail(res, 400, error.message);
+  }
+}
+
+export async function batchMaterialsDetailHandler(req: Request, res: Response) {
+  try {
+    const data = await productionService.getBatchMaterials(Number(req.params.id));
+    return success(res, data);
   } catch (error: any) {
     return fail(res, 400, error.message);
   }
