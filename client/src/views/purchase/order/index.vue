@@ -219,6 +219,16 @@ function onMaterialChange(row: any, materialId: number) {
   row.location = m.location || headerLocation.value || ''
   row.unitPrice = m.unitPrice ?? 0
 }
+
+function fmtPrice(v: any) {
+  const n = Number(v)
+  return n ? String(n) : ''
+}
+
+function parsePrice(v: any) {
+  const n = Number(v)
+  return Number.isNaN(n) ? 0 : n
+}
 function removeItem(index: number) {
   form.items.splice(index, 1)
 }
@@ -330,7 +340,9 @@ onMounted(loadData)
         <el-table-column prop="specification" label="型号规格" min-width="140" />
         <el-table-column prop="quantity" label="数量" width="90" />
         <el-table-column prop="receivedQty" label="已收" width="80" />
-        <el-table-column prop="unitPrice" label="单价" width="80" />
+        <el-table-column label="单价" width="80">
+          <template #default="{ row }">{{ fmtPrice(row.unitPrice) }}</template>
+        </el-table-column>
         <el-table-column label="金额" width="100">
           <template #default="{ row }">¥{{ (row.amount ?? (row.quantity * (row.unitPrice || 0))).toLocaleString() }}</template>
         </el-table-column>
@@ -452,7 +464,7 @@ onMounted(loadData)
               </el-table-column>
               <el-table-column label="单价" width="90">
                 <template #default="{ row }">
-                  <el-input-number v-model="row.unitPrice" :min="0" :precision="5" :controls="false" style="width: 100%" />
+                  <el-input-number v-model="row.unitPrice" :min="0" :precision="5" :controls="false" :formatter="fmtPrice" :parser="parsePrice" style="width: 100%" />
                 </template>
               </el-table-column>
               <el-table-column label="金额" width="85" align="right">
