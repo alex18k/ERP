@@ -380,6 +380,14 @@ export async function getOrderTrack(id: number) {
       completedQty: po.workOrders.reduce((s, w) => s + w.actualQty, 0),
       status: po.status,
       workOrderCount: po.workOrders.length,
+      workOrders: po.workOrders.map((w) => ({
+        orderNo: w.orderNo,
+        processStep: w.assignments?.[0]?.processStep?.name ?? "",
+        workstation: w.workstation?.name ?? "",
+        plannedQty: w.plannedQty,
+        actualQty: w.actualQty,
+        status: w.status,
+      })),
     })),
   };
 }

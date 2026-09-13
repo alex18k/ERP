@@ -60,7 +60,7 @@ async function handleShip() {
 function statusLabel(s: string) {
   return {
     draft: '草稿', confirmed: '已确认', in_production: '生产中', completed: '已完工', shipped: '已发货', cancelled: '已取消',
-    planned: '已计划', scheduled: '已排产', in_progress: '加工中', quality_check: '质检中', reported: '已报工', closed: '已关闭',
+    planned: '已计划', scheduled: '已排产', in_progress: '加工中', pending: '待开工', paused: '已暂停', quality_check: '质检中', reported: '已报工', closed: '已关闭',
   }[s] || s
 }
 
@@ -163,6 +163,23 @@ watch(() => route.query.id, (id) => {
       <el-card v-if="tracking" class="mb-16">
         <template #header>进度跟踪</template>
         <el-table :data="tracking?.productionProgress || []" size="small" stripe>
+          <el-table-column type="expand">
+            <template #default="{ row }">
+              <el-table v-if="row.workOrders && row.workOrders.length" :data="row.workOrders" size="small" border style="margin: 4px 24px; width: auto">
+                <el-table-column prop="orderNo" label="加工单号" width="150" />
+                <el-table-column prop="processStep" label="工序" width="110" />
+                <el-table-column prop="workstation" label="工位" width="110" />
+                <el-table-column prop="plannedQty" label="计划量" width="90" />
+                <el-table-column prop="actualQty" label="实际量" width="90" />
+                <el-table-column label="状态" width="100">
+                  <template #default="{ row: w }">
+                    <el-tag :type="statusType(w.status)" size="small">{{ statusLabel(w.status) }}</el-tag>
+                  </template>
+                </el-table-column>
+              </el-table>
+              <div v-else style="padding: 8px 24px; color: var(--el-text-color-secondary)">未排产，暂无加工单</div>
+            </template>
+          </el-table-column>
           <el-table-column prop="productionOrderNo" label="生产订单号" width="140" />
           <el-table-column prop="materialCode" label="物料编码" width="110" />
           <el-table-column prop="materialName" label="物料名称" min-width="140" />
