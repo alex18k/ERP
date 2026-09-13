@@ -118,7 +118,7 @@ onMounted(async () => {
         <el-table-column label="物料" min-width="160">
           <template #default="{ row }">{{ row.material?.code }} - {{ row.material?.name }}</template>
         </el-table-column>
-        <el-table-column label="仓库" width="120">
+        <el-table-column label="库位" width="120">
           <template #default="{ row }">{{ row.warehouse?.name }}</template>
         </el-table-column>
         <el-table-column label="数量" width="100">
