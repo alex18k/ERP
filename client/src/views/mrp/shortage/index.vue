@@ -18,12 +18,6 @@ async function loadData() {
   } finally { loading.value = false }
 }
 
-function fontColor(n: number) {
-  if (n >= 50) return 'var(--el-color-danger)'
-  if (n >= 10) return 'var(--el-color-warning)'
-  return 'var(--el-color-success)'
-}
-
 function statusLabel(s: string) {
   return { pending: '待处理', suggested: '已建议', purchased: '已采购', closed: '已关闭' }[s] || s
 }
@@ -73,16 +67,14 @@ onMounted(loadData)
         <el-table-column prop="inTransit" label="在途量" width="80" />
         <el-table-column prop="safetyStock" label="安全库存" width="90" />
         <el-table-column label="净需求" width="110">
-          <template #default="{ row }">
-            <span :style="{ color: fontColor(row.netDemand), fontWeight: 600 }">{{ row.netDemand }}</span>
-          </template>
+          <template #default="{ row }">{{ row.netDemand }}</template>
         </el-table-column>
         <el-table-column label="受影响订单" min-width="180">
           <template #default="{ row }">
-            <el-tag v-for="o in row.affectedOrders" :key="o.orderId" size="small" type="info" style="margin-right: 4px">
-              {{ o.orderNo }} ×{{ o.quantity }}
-            </el-tag>
-            <el-tag v-if="!row.affectedOrders?.length" size="small" type="info" effect="plain">-</el-tag>
+            <template v-if="row.affectedOrders?.length">
+              <span v-for="o in row.affectedOrders" :key="o.orderId" style="margin-right: 8px">{{ o.orderNo }} ×{{ o.quantity }}</span>
+            </template>
+            <span v-else style="color: var(--el-text-color-secondary)">-</span>
           </template>
         </el-table-column>
         <el-table-column label="状态" width="100">
