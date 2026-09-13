@@ -320,12 +320,9 @@ onMounted(loadData)
           <template #default="{ row }">{{ row.orderDate?.slice(0, 10) || '-' }}</template>
         </el-table-column>
         <el-table-column prop="settleMethod" label="结算方式" width="100" />
-        <el-table-column label="物料" min-width="200">
-          <template #default="{ row }">
-            <span>{{ row.materialCode }} - {{ row.materialName }}</span>
-            <span v-if="row.specification" style="color: var(--el-text-color-secondary); margin-left: 6px">{{ row.specification }}</span>
-          </template>
-        </el-table-column>
+        <el-table-column prop="materialCode" label="物料编码" width="110" />
+        <el-table-column prop="materialName" label="物料名称" min-width="150" />
+        <el-table-column prop="specification" label="型号规格" min-width="140" />
         <el-table-column prop="quantity" label="数量" width="90" />
         <el-table-column prop="receivedQty" label="已收" width="80" />
         <el-table-column prop="unitPrice" label="单价" width="80" />
