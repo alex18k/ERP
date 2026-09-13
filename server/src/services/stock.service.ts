@@ -88,7 +88,7 @@ export async function listStockRecords(where: any) {
   return { total, page: Number(page), pageSize: Number(pageSize), items };
 }
 
-export async function stockIn(data: { materialId: number; quantity: number; warehouseId: number; relatedType?: string; relatedId?: number; transactionTypeId?: number; effectiveDate?: string; remark?: string }, userId: number) {
+export async function stockIn(data: { materialId: number; quantity: number; warehouseId: number; relatedType?: string; relatedId?: number; transactionTypeId?: number; effectiveDate?: string; documentNo?: string; lineNo?: number; remark?: string }, userId: number) {
   if (data.quantity <= 0) throw new Error("入库数量必须大于0");
 
   const material = await prisma.material.findUnique({ where: { id: data.materialId } });
@@ -97,7 +97,7 @@ export async function stockIn(data: { materialId: number; quantity: number; ware
   const warehouse = await prisma.warehouse.findUnique({ where: { id: data.warehouseId } });
   if (!warehouse) throw new Error("仓库不存在");
 
-  const docNo = await generateStockDocNo();
+  const docNo = data.documentNo || (await generateStockDocNo());
 
   return prisma.$transaction(async (tx) => {
     const stock = await tx.stock.findFirst({
@@ -130,7 +130,7 @@ export async function stockIn(data: { materialId: number; quantity: number; ware
         relatedId: data.relatedId,
         transactionTypeId: data.transactionTypeId,
         documentNo: docNo,
-        lineNo: 1,
+        lineNo: data.lineNo ?? 1,
         effectiveDate: data.effectiveDate ? new Date(data.effectiveDate) : null,
         operatorId: userId,
         remark: data.remark,
@@ -141,7 +141,7 @@ export async function stockIn(data: { materialId: number; quantity: number; ware
   });
 }
 
-export async function stockOut(data: { materialId: number; quantity: number; warehouseId: number; relatedType?: string; relatedId?: number; transactionTypeId?: number; effectiveDate?: string; remark?: string }, userId: number) {
+export async function stockOut(data: { materialId: number; quantity: number; warehouseId: number; relatedType?: string; relatedId?: number; transactionTypeId?: number; effectiveDate?: string; documentNo?: string; lineNo?: number; remark?: string }, userId: number) {
   if (data.quantity <= 0) throw new Error("出库数量必须大于0");
 
   const stock = await prisma.stock.findFirst({
@@ -151,7 +151,7 @@ export async function stockOut(data: { materialId: number; quantity: number; war
     throw new Error(`库存不足，当前库存 ${stock?.quantity ?? 0}`);
   }
 
-  const docNo = await generateStockDocNo();
+  const docNo = data.documentNo || (await generateStockDocNo());
 
   return prisma.$transaction(async (tx) => {
     await tx.stock.update({
@@ -169,7 +169,7 @@ export async function stockOut(data: { materialId: number; quantity: number; war
         relatedId: data.relatedId,
         transactionTypeId: data.transactionTypeId,
         documentNo: docNo,
-        lineNo: 1,
+        lineNo: data.lineNo ?? 1,
         effectiveDate: data.effectiveDate ? new Date(data.effectiveDate) : null,
         operatorId: userId,
         remark: data.remark,

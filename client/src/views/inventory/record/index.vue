@@ -13,7 +13,7 @@ const query = reactive({ page: 1, pageSize: 20, materialId: '', warehouseId: '',
 const dialogVisible = ref(false)
 const materials = ref<any[]>([])
 const transactionTypes = ref<any[]>([])
-const form = reactive<any>({ materialId: null, warehouseId: null, quantity: 1, transactionTypeId: null, effectiveDate: todayStr(), remark: '' })
+const form = reactive<any>({ materialId: null, warehouseId: null, quantity: 1, transactionTypeId: null, effectiveDate: todayStr(), documentNo: '', lineNo: null, remark: '' })
 
 function todayStr() {
   const d = new Date()
@@ -31,7 +31,7 @@ async function loadOptions() {
 }
 
 function openDialog() {
-  Object.assign(form, { materialId: null, warehouseId: null, quantity: 1, transactionTypeId: null, effectiveDate: todayStr(), remark: '' })
+  Object.assign(form, { materialId: null, warehouseId: null, quantity: 1, transactionTypeId: null, effectiveDate: todayStr(), documentNo: '', lineNo: null, remark: '' })
   dialogVisible.value = true
 }
 
@@ -48,6 +48,8 @@ async function handleSubmit() {
     quantity: form.quantity,
     transactionTypeId: form.transactionTypeId,
     effectiveDate: form.effectiveDate,
+    documentNo: form.documentNo || undefined,
+    lineNo: form.lineNo ?? undefined,
     remark: form.remark,
   }
 
@@ -170,6 +172,12 @@ onMounted(async () => {
         </el-form-item>
         <el-form-item label="生效日期">
           <el-input v-model="form.effectiveDate" type="date" style="width: 100%" />
+        </el-form-item>
+        <el-form-item label="单号">
+          <el-input v-model="form.documentNo" placeholder="留空自动生成" clearable />
+        </el-form-item>
+        <el-form-item label="行号">
+          <el-input-number v-model="form.lineNo" :min="1" :controls="false" placeholder="默认1" style="width: 100%" />
         </el-form-item>
         <el-form-item label="备注">
           <el-input v-model="form.remark" type="textarea" :rows="2" />
