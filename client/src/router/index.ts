@@ -22,6 +22,7 @@ const routes = [
       // 基础数据
       { path: 'base/material', name: 'Material', component: () => import('../views/base/material/index.vue'), meta: { title: '物料管理' } },
       { path: 'base/bom', name: 'Bom', component: () => import('../views/base/bom/index.vue'), meta: { title: 'BOM管理' } },
+      { path: 'base/bom-cost', name: 'BomCost', component: () => import('../views/base/bomCost/index.vue'), meta: { title: 'BOM成本' } },
       { path: 'base/process-route', name: 'ProcessRoute', component: () => import('../views/base/processRoute/index.vue'), meta: { title: '工艺路线' } },
       { path: 'base/supplier', name: 'Supplier', component: () => import('../views/base/supplier/index.vue'), meta: { title: '供应商管理' } },
       { path: 'base/warehouse', name: 'Warehouse', component: () => import('../views/base/warehouse/index.vue'), meta: { title: '仓库管理' } },

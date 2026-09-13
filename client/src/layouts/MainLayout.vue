@@ -43,6 +43,7 @@ const menuItems: MenuNode[] = [
     children: [
       { path: '/base/material', title: '物料管理', icon: 'Box' },
       { path: '/base/bom', title: 'BOM管理', icon: 'List' },
+      { path: '/base/bom-cost', title: 'BOM成本', icon: 'List' },
       { path: '/base/process-route', title: '工艺路线', icon: 'SetUp' },
       { path: '/base/supplier', title: '供应商管理', icon: 'Van' },
       { path: '/base/warehouse', title: '仓库管理', icon: 'OfficeBuilding' },
