@@ -1,6 +1,7 @@
 import prisma from "../config/prisma";
 import { Prisma } from "@prisma/client";
 import { localDateCompact } from "../utils/date";
+import { generateStockDocNo } from "./stock.service";
 
 // ===== 生产订单 =====
 export async function generateProductionOrderNo(): Promise<string> {
@@ -226,6 +227,15 @@ export async function scheduleProduction(
   if (route.status !== "active") throw new Error("该产品的工艺路线未启用，无法排产");
   if (route.processes.length === 0) throw new Error("该产品的工艺路线没有工序，无法排产");
 
+  // 批次物料清单来源：产品启用中的 BOM（一层）；无 BOM 拒绝排产
+  const bom = await prisma.bom.findFirst({
+    where: { productId: order.materialId, status: "active" },
+    include: { items: { include: { material: { select: { unit: true } } } } },
+  });
+  if (!bom || bom.items.length === 0) {
+    throw new Error("该产品未维护启用的BOM，无法排产");
+  }
+
   // 已排产量（未取消批次之和）
   const scheduledAgg = await prisma.productionBatch.aggregate({
     where: { productionOrderId, status: { not: "cancelled" } },
@@ -298,6 +308,19 @@ export async function scheduleProduction(
         },
       });
       createdBatches.push(batch);
+
+      // 按产品 BOM 生成批次物料清单（一层）
+      for (const item of bom.items) {
+        await tx.productionBatchMaterial.create({
+          data: {
+            batchId: batch.id,
+            materialId: item.materialId,
+            requiredQty: b.quantity * item.quantity * (1 + (item.lossRate ?? 0)),
+            unit: item.unit || item.material?.unit || null,
+            status: "pending",
+          },
+        });
+      }
 
       for (const p of route.processes) {
         const dateStr = localDateCompact();
@@ -575,4 +598,183 @@ export async function listWorkOrders(where: any) {
   ]);
 
   return { total, page: Number(page), pageSize: Number(pageSize), items };
+}
+// ===== 批次物料清单 / 领料 / 入库 =====
+export async function listBatchMaterials(where: any) {
+  const { materialKeyword, orderNo, onlyUnissued, page = 1, pageSize = 20 } = where;
+  const filters: Prisma.ProductionBatchMaterialWhereInput = {};
+  if (materialKeyword) {
+    filters.material = {
+      OR: [{ code: { contains: materialKeyword } }, { name: { contains: materialKeyword } }],
+    };
+  }
+  const batchFilter: Prisma.ProductionBatchWhereInput = { status: { not: "cancelled" } };
+  if (orderNo) batchFilter.productionOrder = { orderNo: { contains: orderNo } };
+  filters.batch = batchFilter;
+  if (onlyUnissued === "true" || onlyUnissued === true) {
+    filters.status = { in: ["pending", "partial"] };
+  }
+
+  const [total, items] = await Promise.all([
+    prisma.productionBatchMaterial.count({ where: filters }),
+    prisma.productionBatchMaterial.findMany({
+      where: filters,
+      include: {
+        material: { select: { id: true, code: true, name: true, specification: true, unit: true, defaultWarehouseId: true } },
+        batch: {
+          include: {
+            productionOrder: { include: { material: { select: { code: true, name: true } } } },
+          },
+        },
+      },
+      orderBy: { id: "asc" },
+      skip: (Number(page) - 1) * Number(pageSize),
+      take: Number(pageSize),
+    }),
+  ]);
+
+  return { total, page: Number(page), pageSize: Number(pageSize), items };
+}
+
+export async function issueBatchMaterials(
+  items: { batchMaterialId: number; quantity: number; warehouseId: number }[],
+  userId: number
+) {
+  if (!items || items.length === 0) throw new Error("请填写领料数量");
+  const rows = await prisma.productionBatchMaterial.findMany({
+    where: { id: { in: items.map((i) => i.batchMaterialId) } },
+    include: { material: { select: { id: true, code: true, name: true } }, batch: { select: { id: true, batchNo: true } } },
+  });
+  const map = new Map(rows.map((r) => [r.id, r]));
+  const issueType = await prisma.stockTransactionType.findUnique({ where: { code: "ISS-WO" } });
+  const docNo = await generateStockDocNo();
+
+  return prisma.$transaction(async (tx) => {
+    let lineNo = 1;
+    for (const it of items) {
+      if (!Number.isFinite(it.quantity) || it.quantity <= 0) throw new Error("领料数量必须大于0");
+      if (!it.warehouseId) throw new Error("请选择出库仓库");
+      const row = map.get(it.batchMaterialId);
+      if (!row) throw new Error("批次物料不存在");
+      const remain = row.requiredQty - row.issuedQty;
+      if (it.quantity > remain + 1e-6) {
+        throw new Error(`${row.material.name} 领料数量超过未领数量（${remain}）`);
+      }
+      const stock = await tx.stock.findFirst({
+        where: { materialId: row.materialId, warehouseId: it.warehouseId },
+      });
+      if (!stock || stock.quantity < it.quantity) {
+        throw new Error(`${row.material.name} 库存不足，当前库存 ${stock?.quantity ?? 0}`);
+      }
+      await tx.stock.update({
+        where: { id: stock.id },
+        data: { quantity: stock.quantity - it.quantity, lastOutDate: new Date() },
+      });
+      await tx.stockRecord.create({
+        data: {
+          materialId: row.materialId,
+          warehouseId: it.warehouseId,
+          type: "out",
+          quantity: it.quantity,
+          relatedType: "ProductionBatch",
+          relatedId: row.batchId,
+          transactionTypeId: issueType?.id,
+          documentNo: docNo,
+          lineNo: lineNo++,
+          operatorId: userId,
+          remark: `生产领料 批次${row.batch.batchNo}`,
+        },
+      });
+      const newIssued = row.issuedQty + it.quantity;
+      await tx.productionBatchMaterial.update({
+        where: { id: row.id },
+        data: {
+          issuedQty: newIssued,
+          status: newIssued >= row.requiredQty - 1e-6 ? "issued" : "partial",
+        },
+      });
+    }
+    return { success: true, documentNo: docNo };
+  });
+}
+
+export async function listReceivableBatches(where: any) {
+  const { orderNo, onlyReceivable, page = 1, pageSize = 20 } = where;
+  const filters: Prisma.ProductionBatchWhereInput = { status: { not: "cancelled" } };
+  if (orderNo) filters.productionOrder = { orderNo: { contains: orderNo } };
+  if (onlyReceivable === "true" || onlyReceivable === true) {
+    filters.receivedQty = { lt: prisma.productionBatch.fields.quantity };
+  }
+
+  const [total, items] = await Promise.all([
+    prisma.productionBatch.count({ where: filters }),
+    prisma.productionBatch.findMany({
+      where: filters,
+      include: {
+        productionOrder: {
+          include: { material: { select: { id: true, code: true, name: true, unit: true, defaultWarehouseId: true } } },
+        },
+      },
+      orderBy: { id: "desc" },
+      skip: (Number(page) - 1) * Number(pageSize),
+      take: Number(pageSize),
+    }),
+  ]);
+
+  return { total, page: Number(page), pageSize: Number(pageSize), items };
+}
+
+export async function receiveBatchProduct(
+  batchId: number,
+  quantity: number,
+  warehouseId: number,
+  userId: number
+) {
+  if (!Number.isFinite(quantity) || quantity <= 0) throw new Error("入库数量必须大于0");
+  if (!warehouseId) throw new Error("请选择入库仓库");
+  const batch = await prisma.productionBatch.findUnique({
+    where: { id: batchId },
+    include: { productionOrder: { include: { material: true } } },
+  });
+  if (!batch) throw new Error("批次不存在");
+  if (batch.status === "cancelled") throw new Error("批次已取消，不能入库");
+  const remain = batch.quantity - batch.receivedQty;
+  if (quantity > remain + 1e-6) throw new Error(`入库数量超过剩余可入库数量（${remain}）`);
+  const material = batch.productionOrder.material;
+  const warehouse = await prisma.warehouse.findUnique({ where: { id: warehouseId } });
+  if (!warehouse) throw new Error("仓库不存在");
+  const receiveType = await prisma.stockTransactionType.findUnique({ where: { code: "RCT-WO" } });
+  const docNo = await generateStockDocNo();
+
+  return prisma.$transaction(async (tx) => {
+    const stock = await tx.stock.findFirst({ where: { materialId: material.id, warehouseId } });
+    if (stock) {
+      await tx.stock.update({
+        where: { id: stock.id },
+        data: { quantity: stock.quantity + quantity, lastInDate: new Date() },
+      });
+    } else {
+      await tx.stock.create({
+        data: { materialId: material.id, warehouseId, quantity, lastInDate: new Date() },
+      });
+    }
+    await tx.stockRecord.create({
+      data: {
+        materialId: material.id,
+        warehouseId,
+        type: "in",
+        quantity,
+        relatedType: "ProductionBatch",
+        relatedId: batch.id,
+        transactionTypeId: receiveType?.id,
+        documentNo: docNo,
+        lineNo: 1,
+        operatorId: userId,
+        remark: `生产入库 ${material.name}`,
+      },
+    });
+    const newReceived = batch.receivedQty + quantity;
+    await tx.productionBatch.update({ where: { id: batch.id }, data: { receivedQty: newReceived } });
+    return { success: true, documentNo: docNo, receivedQty: newReceived };
+  });
 }

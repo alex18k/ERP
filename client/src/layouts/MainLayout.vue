@@ -93,6 +93,8 @@ const menuItems: MenuNode[] = [
       { path: '/inventory/query', title: '库存查询', icon: 'Search' },
       { path: '/inventory/record', title: '库存事务记录', icon: 'Clock' },
       { path: '/inventory/receive', title: '采购收货', icon: 'Download' },
+      { path: '/inventory/issue', title: '生产领料', icon: 'Upload' },
+      { path: '/inventory/production-receive', title: '生产入库', icon: 'Download' },
       { path: '/inventory/transaction-type', title: '事务类型维护', icon: 'SetUp' },
     ],
   },

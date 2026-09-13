@@ -2,7 +2,7 @@ import prisma from "../config/prisma";
 import { localDateCompact } from "../utils/date";
 
 // 生成库存事务单号：ST+日期+序号
-async function generateStockDocNo(): Promise<string> {
+export async function generateStockDocNo(): Promise<string> {
   const dateStr = localDateCompact();
   const prefix = `ST${dateStr}`;
   const existing = await prisma.stockRecord.findMany({

@@ -125,3 +125,46 @@ export async function listReportHandler(req: Request, res: Response) {
     return fail(res, 500, error.message, 500);
   }
 }
+// ===== 批次物料清单 / 领料 / 入库 =====
+export async function batchMaterialsHandler(req: Request, res: Response) {
+  try {
+    const data = await productionService.listBatchMaterials(req.query as any);
+    return success(res, data);
+  } catch (error: any) {
+    return fail(res, 500, error.message, 500);
+  }
+}
+
+export async function issueBatchMaterialsHandler(req: AuthRequest, res: Response) {
+  try {
+    const items = Array.isArray(req.body?.items) ? req.body.items : [];
+    const data = await productionService.issueBatchMaterials(items, req.user!.id);
+    return success(res, data, "领料出库成功");
+  } catch (error: any) {
+    return fail(res, 400, error.message);
+  }
+}
+
+export async function receivableBatchesHandler(req: Request, res: Response) {
+  try {
+    const data = await productionService.listReceivableBatches(req.query as any);
+    return success(res, data);
+  } catch (error: any) {
+    return fail(res, 500, error.message, 500);
+  }
+}
+
+export async function receiveBatchHandler(req: AuthRequest, res: Response) {
+  try {
+    const { quantity, warehouseId } = req.body || {};
+    const data = await productionService.receiveBatchProduct(
+      Number(req.params.id),
+      Number(quantity),
+      Number(warehouseId),
+      req.user!.id
+    );
+    return success(res, data, "生产入库成功");
+  } catch (error: any) {
+    return fail(res, 400, error.message);
+  }
+}
