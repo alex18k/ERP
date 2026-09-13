@@ -198,7 +198,7 @@ onMounted(async () => {
             <span>未税合计 <b>{{ money(netTotal) }}</b></span>
             <span>税额 <b>{{ money(taxTotal) }}</b></span>
           </template>
-          <span class="po-gross">含税合计 <b>{{ money(grossTotal) }}</b></span>
+          <span class="po-gross">合计 <b>{{ money(grossTotal) }}</b></span>
         </div>
       </div>
 
