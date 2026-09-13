@@ -106,7 +106,7 @@ function recalc() {
 
 async function submit() {
   if (!form.warehouseId) {
-    ElMessage.warning('请选择出库仓库')
+    ElMessage.warning('请选择库位')
     return
   }
   const items = detail.value
@@ -206,8 +206,8 @@ onMounted(async () => {
             <el-option v-for="b in batchList(currentOrder)" :key="b.id" :label="`第${b.batchNo}批（${b.quantity}）`" :value="b.id" />
           </el-select>
         </el-form-item>
-        <el-form-item label="出库仓库">
-          <el-select v-model="form.warehouseId" style="width: 220px" placeholder="选择仓库">
+        <el-form-item label="库位">
+          <el-select v-model="form.warehouseId" style="width: 220px" placeholder="选择库位">
             <el-option v-for="w in warehouses" :key="w.id" :label="`${w.code} - ${w.name}`" :value="w.id" />
           </el-select>
         </el-form-item>
