@@ -214,9 +214,20 @@ export async function updatePurchaseOrder(id: number, data: PurchaseOrderInput) 
 }
 
 export async function confirmPurchaseOrder(id: number) {
-  const exists = await prisma.purchaseOrder.findUnique({ where: { id } });
+  const exists = await prisma.purchaseOrder.findUnique({ where: { id }, include: { items: true } });
   if (!exists) throw new Error("采购单不存在");
   if (exists.status !== "draft") throw new Error("仅草稿状态可确认");
+
+  // 确认前校验必填项（与保存逻辑一致）
+  if (!exists.supplierId) throw new Error("请先选择供应商");
+  if (!exists.orderDate) throw new Error("请先选择订货日期");
+  if (!exists.expectedDate) throw new Error("请先选择截止日期");
+  if (!exists.buyer) throw new Error("请先填写采购员");
+  if (!exists.items || exists.items.length === 0) throw new Error("采购单至少需要一个明细");
+  for (const it of exists.items) {
+    if (!it.materialId) throw new Error("采购明细缺少物料");
+    if (!it.quantity || it.quantity <= 0) throw new Error("采购明细数量必须大于0");
+  }
 
   return prisma.purchaseOrder.update({ where: { id }, data: { status: "confirmed" } });
 }
