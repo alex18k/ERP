@@ -94,10 +94,10 @@ const shortcuts = [
   padding: 18px 20px;
   margin-bottom: 18px;
   background:
-    linear-gradient(90deg, rgba(47, 94, 140, 0.08), transparent 60%),
+    linear-gradient(90deg, rgba(162, 87, 42, 0.08), transparent 60%),
     var(--erp-surface);
   border: 1px solid var(--erp-hairline);
-  border-radius: 2px;
+  border-radius: 10px;
   border-left: 3px solid var(--erp-blue);
 }
 
@@ -113,9 +113,9 @@ const shortcuts = [
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(180deg, #2f5e8c, #24507c);
-  border-radius: 3px;
-  color: #eaf2f9;
+  background: linear-gradient(180deg, #b06a3f, #8f4820);
+  border-radius: 8px;
+  color: #fff;
 }
 
 .strip-title {
@@ -140,7 +140,7 @@ const shortcuts = [
   letter-spacing: 0.04em;
   padding: 6px 14px;
   border: 1px solid var(--erp-hairline);
-  border-radius: 2px;
+  border-radius: 6px;
   background: #f7faf8;
 }
 
@@ -171,10 +171,10 @@ const shortcuts = [
 
 .shortcut {
   text-align: center;
-  padding: 22px 10px 18px;
+  padding: 20px 10px 16px;
   background: var(--erp-surface);
   border: 1px solid var(--erp-hairline);
-  border-radius: 2px;
+  border-radius: 8px;
   cursor: pointer;
   position: relative;
   transition: border-color 0.15s ease;

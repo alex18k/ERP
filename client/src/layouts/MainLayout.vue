@@ -240,101 +240,113 @@ async function handleLogout() {
   height: 100vh;
 }
 
-/* ---------- 侧边栏：枪铁色仪表导轨 ---------- */
+/* ---------- 侧边栏：银灰色 ---------- */
 .aside {
-  background: var(--erp-ink);
+  background: linear-gradient(180deg, #eef0f3 0%, #e3e6ea 100%);
+  border-right: 1px solid #cfd3d9;
   overflow-y: auto;
-  border-right: 1px solid rgba(255, 255, 255, 0.04);
   display: flex;
   flex-direction: column;
 }
 
 .aside::-webkit-scrollbar { width: 4px; }
-.aside::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.12); }
+.aside::-webkit-scrollbar-thumb { background: rgba(0, 0, 0, 0.15); }
 
 .logo {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 16px 18px;
-  color: #e7ecf2;
+  padding: 14px 16px;
+  color: #2b3238;
   font-weight: 700;
   font-size: 15px;
   letter-spacing: 0.02em;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  border-bottom: 1px solid #d3d7dc;
   flex-shrink: 0;
 }
 
 .logo-mark {
-  width: 32px;
-  height: 32px;
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(180deg, #2f5e8c, #24507c);
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: 3px;
-  color: #dceaf5;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.15);
+  background: linear-gradient(180deg, #b06a3f, #8f4820);
+  border-radius: 8px;
+  color: #fff;
 }
 
 .logo-text { white-space: nowrap; }
 
 .logo-tick {
   margin-left: auto;
-  color: var(--erp-amber);
+  color: #b5733f;
   opacity: 0.9;
 }
 
 .side-menu {
+  flex: 1;
   border-right: none;
   background: transparent;
-  /* 覆盖 Element 默认 #fff：子菜单内联层继承透明，不留白底 */
+  padding: 8px 0;
   --el-menu-bg-color: transparent;
-  /* 悬停/激活高亮用暗透明白，避免近白色块 */
-  --el-menu-hover-bg-color: rgba(255, 255, 255, 0.08);
-  --el-menu-item-hover-bg-color: rgba(255, 255, 255, 0.07);
-  --el-menu-sub-menu-hover-bg-color: rgba(255, 255, 255, 0.05);
-  --el-menu-text-color: #a9b3c0;
-  --el-menu-hover-text-color: #e7ecf2;
-  --el-menu-active-color: #ffffff;
-  flex: 1;
+  --el-menu-text-color: #4a525a;
+  --el-menu-hover-bg-color: rgba(255, 255, 255, 0.8);
+  --el-menu-active-color: #7c3d1b;
+  --el-menu-item-height: 40px;
+  --el-menu-sub-item-height: 38px;
 }
 
-/* 顶层本级文字 */
+.side-menu :deep(.el-menu-item),
 .side-menu :deep(.el-sub-menu__title) {
-  font-weight: 600;
-  letter-spacing: 0.04em;
+  height: 40px;
+  line-height: 40px;
+  margin: 1px 8px;
+  border-radius: 8px;
+  color: #4a525a;
+  font-size: 13.5px;
 }
 
-/* 子项：毛细管 + 琥珀激活刻线 */
-.side-menu :deep(.el-menu-item) {
-  position: relative;
+.side-menu :deep(.el-menu-item .el-icon),
+.side-menu :deep(.el-sub-menu__title .el-icon) {
+  color: #8a9199;
+}
+
+.side-menu :deep(.el-menu-item:hover),
+.side-menu :deep(.el-sub-menu__title:hover) {
+  background: rgba(255, 255, 255, 0.85);
+  color: #1d2622;
+}
+
+.side-menu :deep(.el-menu-item:hover .el-icon),
+.side-menu :deep(.el-sub-menu__title:hover .el-icon) {
+  color: #1d2622;
 }
 
 .side-menu :deep(.el-menu-item.is-active) {
-  color: #ffffff;
-}
-
-.side-menu :deep(.el-menu-item.is-active::before) {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 8px;
-  bottom: 8px;
-  width: 3px;
-  border-radius: 0 2px 2px 0;
-  background: var(--erp-amber);
+  background: linear-gradient(90deg, rgba(162, 87, 42, 0.14), rgba(162, 87, 42, 0.05));
+  color: #7c3d1b;
+  font-weight: 600;
+  box-shadow: inset 3px 0 0 var(--erp-blue);
 }
 
 .side-menu :deep(.el-menu-item.is-active .el-icon) {
-  color: var(--erp-amber);
+  color: var(--erp-blue);
 }
 
-.side-menu :deep(.el-menu-item) {
-  border-left: 1px solid rgba(255, 255, 255, 0.05);
-  margin-left: 18px;
-  padding-left: 26px !important;
+/* 子菜单内联层 */
+.side-menu :deep(.el-sub-menu .el-menu) { background: transparent; }
+.side-menu :deep(.el-sub-menu .el-menu-item) {
+  background: rgba(0, 0, 0, 0.03);
+  margin: 1px 8px;
+  padding-left: 34px !important;
+}
+
+.side-menu :deep(.el-sub-menu .el-menu-item.is-active) {
+  background: linear-gradient(90deg, rgba(162, 87, 42, 0.12), rgba(162, 87, 42, 0.04));
+  color: #7c3d1b;
+  box-shadow: inset 3px 0 0 var(--erp-blue);
 }
 
 .aside-foot {
@@ -342,11 +354,11 @@ async function handleLogout() {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 12px 18px;
+  padding: 12px 16px;
   font-size: 12px;
-  color: #6d7785;
+  color: #8a9199;
   letter-spacing: 0.08em;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  border-top: 1px solid #d3d7dc;
 }
 
 .foot-lamp,
@@ -355,7 +367,7 @@ async function handleLogout() {
   height: 8px;
   border-radius: 50%;
   background: var(--erp-green);
-  box-shadow: 0 0 6px rgba(62, 124, 79, 0.9);
+  box-shadow: 0 0 6px rgba(46, 125, 91, 0.55);
   animation: lamp-pulse 2.4s ease-in-out infinite;
 }
 
@@ -364,7 +376,7 @@ async function handleLogout() {
   50% { opacity: 0.45; }
 }
 
-/* ---------- 头部：机电饰条 ---------- */
+/* ---------- 头部 ---------- */
 .body-wrap {
   min-width: 0;
 }
@@ -373,11 +385,10 @@ async function handleLogout() {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  height: 56px;
+  height: 52px;
   padding: 0 20px;
   background: var(--erp-surface);
   border-bottom: 1px solid var(--erp-hairline);
-  box-shadow: 0 1px 2px rgba(28, 33, 41, 0.03);
 }
 
 .header :deep(.el-breadcrumb) {
@@ -396,7 +407,7 @@ async function handleLogout() {
 .header-right {
   display: flex;
   align-items: center;
-  gap: 22px;
+  gap: 20px;
 }
 
 .sys-status {
@@ -405,7 +416,7 @@ async function handleLogout() {
   gap: 7px;
   padding: 5px 12px;
   border: 1px solid var(--erp-hairline);
-  border-radius: 2px;
+  border-radius: 6px;
   background: #f7faf8;
 }
 
@@ -431,7 +442,7 @@ async function handleLogout() {
 }
 
 .user-avatar {
-  background: var(--erp-blue);
+  background: linear-gradient(180deg, #b06a3f, #8f4820);
   font-size: 14px;
   font-weight: 600;
 }

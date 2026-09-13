@@ -18,7 +18,7 @@ const { mount, clear } = useECharts()
 const statusMeta: Record<string, { name: string; color: string }> = {
   draft: { name: '草稿', color: '#6b7684' },
   confirmed: { name: '已确认', color: '#3a7ca5' },
-  in_production: { name: '生产中', color: '#c77c1e' },
+  in_production: { name: '生产中', color: '#a2572a' },
   completed: { name: '已完成', color: '#3e7c4f' },
   shipped: { name: '已发货', color: '#7f8c3d' },
   cancelled: { name: '已取消', color: '#a84a4a' },
@@ -62,7 +62,7 @@ function renderCharts() {
     grid: gridOpt,
     xAxis: { type: 'value', axisLabel: axisLabelStyle, splitLine: splitLineStyle },
     yAxis: { type: 'category', data: customerRank.map((r: any) => r.name).reverse(), axisLabel: axisLabelStyle },
-    series: [{ type: 'bar', barMaxWidth: 18, data: customerRank.map((r: any) => r.value).reverse(), itemStyle: { color: '#c77c1e', borderRadius: [0, 3, 3, 0] } }],
+    series: [{ type: 'bar', barMaxWidth: 18, data: customerRank.map((r: any) => r.value).reverse(), itemStyle: { color: '#a2572a', borderRadius: [0, 3, 3, 0] } }],
   })
 
   mount(rateRef.value, {

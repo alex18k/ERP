@@ -1,7 +1,7 @@
 /* =====================================================================
-   ERP生产管理系统 — 工业控制台主题
-   设计语言：机床控制室 / 仪表面板。冷钢色系 + 信号灯琥珀，
-   数据即信噪。耳语留白，信号清晰。
+   ERP生产管理系统 — 明快浅色主题（参考庆华QH设计系统）
+   · 银灰纸面 + 铜色主色，克制、数据密度优先
+   · 卡片圆角、紧凑表格、简约素雅
    ===================================================================== */
 
 * {
@@ -11,76 +11,87 @@
 }
 
 :root {
-  /* ---- 主题令牌（ERP 专属） ---- */
-  --erp-ink:        #1c2129;   /* 枪铁色：导航/暗区域 */
-  --erp-ink-2:      #232a35;   /* 暗区域浮起层 */
-  --erp-ink-deep:   #161a21;   /* 最深（登录机台） */
-  --erp-paper:      #f2f4f6;   /* 画布，冷灰纸 */
-  --erp-surface:    #ffffff;   /* 面板 */
-  --erp-steel:      #6b7684;   /* 次级文本/图标 */
-  --erp-inktext:    #252a31;   /* 主文本 */
-  --erp-blue:       #2f5e8c;   /* 机床蓝：主色 */
-  --erp-blue-deep:  #24507c;   /* 主色加深（按钮压感） */
-  --erp-amber:      #c77c1e;   /* 信号琥珀：导轨/指示灯 */
-  --erp-amber-deep: #a86410;
-  --erp-red:        #c0392b;   /* 报警红 */
-  --erp-green:      #3e7c4f;   /* 通行绿 */
-  --erp-hairline:   #e1e6eb;   /* 面板发丝线 */
-  --erp-hairline-2: #eef1f4;
-  --erp-grid:       #2b3646;   /* 暗区栅格线 */
+  /* ---- 画布 & 中性色（QH 银灰纸面） ---- */
+  --erp-paper:      #eef0eb;
+  --erp-surface:    #ffffff;
+  --erp-hairline:   #dce0da;
+  --erp-hairline-2: #e6e9e4;
+  --erp-grid:       #9aa39c;
 
+  /* ---- 文字 ---- */
+  --erp-ink:        #1d2622;   /* 深墨（导航/标题文字） */
+  --erp-ink-2:      #232a29;
+  --erp-ink-deep:   #16231e;
+  --erp-inktext:    #3a4440;   /* 正文主色 */
+  --erp-steel:      #6d7670;   /* 次级文字 */
+
+  /* ---- 品牌主色：铜（QH copper） ---- */
+  --erp-blue:       #a2572a;
+  --erp-blue-deep:  #8f4820;
+
+  /* ---- 语义色 ---- */
+  --erp-amber:      #a57113;
+  --erp-amber-deep: #8a5c0e;
+  --erp-red:        #b3402e;
+  --erp-green:      #2e7d5b;
+
+  /* ---- 字体 ---- */
   --erp-font: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
               "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", sans-serif;
 
-  /* ---- Element Plus 主题映射 ---- */
+  /* ============ Element Plus 主题映射 ============ */
   --el-color-primary:            var(--erp-blue);
-  --el-color-primary-light-3:    #5c83a6;
-  --el-color-primary-light-5:    #8ba7be;
-  --el-color-primary-light-7:    #b9cad6;
-  --el-color-primary-light-8:    #d0dde5;
-  --el-color-primary-light-9:    #e8eef3;
   --el-color-primary-dark-2:     var(--erp-blue-deep);
+  --el-color-primary-light-3:    color-mix(in srgb, var(--erp-blue) 72%, #fff);
+  --el-color-primary-light-5:    color-mix(in srgb, var(--erp-blue) 52%, #fff);
+  --el-color-primary-light-7:    color-mix(in srgb, var(--erp-blue) 32%, #fff);
+  --el-color-primary-light-8:    color-mix(in srgb, var(--erp-blue) 22%, #fff);
+  --el-color-primary-light-9:    color-mix(in srgb, var(--erp-blue) 12%, #fff);
 
   --el-color-success:            var(--erp-green);
-  --el-color-success-light-3:    #6e9a7c;
-  --el-color-success-light-5:    #9bbaa5;
-  --el-color-success-light-7:    #c8d9cd;
-  --el-color-success-light-8:    #dce6df;
-  --el-color-success-light-9:    #eff4f1;
-  --el-color-success-dark-2:     #31623f;
+  --el-color-success-light-3:    color-mix(in srgb, var(--erp-green) 70%, #fff);
+  --el-color-success-light-5:    color-mix(in srgb, var(--erp-green) 50%, #fff);
+  --el-color-success-light-7:    color-mix(in srgb, var(--erp-green) 30%, #fff);
+  --el-color-success-light-9:    color-mix(in srgb, var(--erp-green) 10%, #fff);
+  --el-color-success-dark-2:     #1f6e4e;
 
   --el-color-warning:            var(--erp-amber);
-  --el-color-warning-light-3:    #d99d5a;
-  --el-color-warning-light-5:    #e4bb8c;
-  --el-color-warning-light-7:    #efd8bd;
-  --el-color-warning-light-9:    #f9f0e4;
-  --el-color-warning-dark-2:     #9c6317;
+  --el-color-warning-light-3:    #c49335;
+  --el-color-warning-light-5:    #d9b670;
+  --el-color-warning-light-7:    #edd6a8;
+  --el-color-warning-light-9:    #f9f0e2;
+  --el-color-warning-dark-2:     #7c5613;
 
   --el-color-danger:             var(--erp-red);
   --el-color-error:              var(--erp-red);
-  --el-color-danger-light-3:     #d07369;
-  --el-color-danger-light-5:     #dfa098;
-  --el-color-danger-light-7:     #eec8c4;
-  --el-color-danger-light-9:     #f8ecea;
-  --el-color-danger-dark-2:      #992e22;
-
-  --el-border-radius-base:       3px;
-  --el-border-radius-small:      2px;
-
-  --el-text-color-primary:       var(--erp-inktext);
-  --el-text-color-regular:       #3a4350;
-  --el-text-color-secondary:     var(--erp-steel);
-  --el-text-color-placeholder:   #9aa3ad;
-
-  --el-border-color:             #cdd4db;
-  --el-border-color-light:       var(--erp-hairline);
-  --el-border-color-lighter:     var(--erp-hairline-2);
-  --el-border-color-extra-light: #f5f7f9;
+  --el-color-danger-light-3:     #c9695e;
+  --el-color-danger-light-5:     #da958c;
+  --el-color-danger-light-7:     #ebc1bb;
+  --el-color-danger-light-9:     #f7e8e5;
+  --el-color-danger-dark-2:      #922e22;
 
   --el-bg-color:                 var(--erp-surface);
   --el-bg-color-page:            var(--erp-paper);
   --el-bg-color-overlay:         var(--erp-surface);
-  --el-fill-color-light:         #f4f6f8;
+  --el-fill-color-light:         #f4f6f3;
+  --el-fill-color-lighter:       #fafbf9;
+  --el-fill-color-blank:         var(--erp-surface);
+
+  --el-text-color-primary:       var(--erp-ink);
+  --el-text-color-regular:       var(--erp-inktext);
+  --el-text-color-secondary:     var(--erp-steel);
+  --el-text-color-placeholder:   #9aa3ad;
+
+  --el-border-color:             var(--erp-hairline);
+  --el-border-color-light:       var(--erp-hairline);
+  --el-border-color-lighter:     var(--erp-hairline-2);
+  --el-border-color-extra-light: #eef0ec;
+
+  --el-border-radius-base:       6px;
+  --el-border-radius-small:      4px;
+  --el-border-radius-round:      20px;
+
+  --el-font-family:              var(--erp-font);
 }
 
 html, body, #app {
@@ -90,30 +101,28 @@ html, body, #app {
   color: var(--erp-inktext);
   font-size: 14px;
   -webkit-font-smoothing: antialiased;
+  line-height: 1.55;
 }
 
 ::selection {
-  background: rgba(47, 94, 140, 0.18);
+  background: rgba(162, 87, 42, 0.18);
 }
 
-/* =====================================================================
-   通用工具栏：查询条 / 面板标题 / 分页
-   ===================================================================== */
+/* ============ 页面骨架 ============ */
 
 .page-container {
-  padding: 12px;
+  padding: 14px;
 }
 
 .page-card {
   background: var(--erp-surface);
   border: 1px solid var(--erp-hairline);
-  border-radius: 2px;
-  padding: 12px;
+  border-radius: 10px;
+  padding: 14px;
   margin-bottom: 12px;
-  box-shadow: 0 1px 2px rgba(28, 33, 41, 0.04);
 }
 
-/* 面板标题：带琥珀信号刻线的仪表型抬头 */
+/* 面板标题：铜色左侧刻线 */
 .toolbar-title {
   position: relative;
   padding-left: 12px;
@@ -131,8 +140,8 @@ html, body, #app {
   top: 3px;
   bottom: 3px;
   width: 3px;
-  background: var(--erp-amber);
   border-radius: 2px;
+  background: var(--erp-blue);
 }
 
 .search-bar {
@@ -160,46 +169,23 @@ html, body, #app {
 
 .mb-16 { margin-bottom: 12px; }
 
-/* =====================================================================
-   状态色工具类
-   ===================================================================== */
+/* ============ 状态文字 ============ */
 
 .text-overdue { color: var(--erp-red); font-weight: 600; }
-.text-muted   { color: var(--el-text-color-secondary); }
+.text-muted   { color: var(--erp-steel); }
 .text-low     { color: var(--erp-red); }
 .text-success { color: var(--erp-green); }
 .text-warning { color: var(--erp-amber); }
 
-/* =====================================================================
-   指标卡（仪表读数）— 去除通病灰阴影，改用刻线与琥珀刻度
-   ===================================================================== */
+/* ============ 仪表卡（简约无刻线） ============ */
 
 .stat-card {
-  position: relative;
   background: var(--erp-surface);
   border: 1px solid var(--erp-hairline);
-  border-radius: 2px;
-  padding: 12px 14px;
-  overflow: hidden;
+  border-radius: 10px;
+  padding: 14px 16px;
 }
 
-/* 左上刻度：一根琥珀短刻线，模拟仪表刻度 */
-.stat-card::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: 3px;
-  background: var(--erp-blue);
-}
-
-.stat-card.green::before  { background: var(--erp-green); }
-.stat-card.red::before    { background: var(--erp-red); }
-.stat-card.orange::before { background: var(--erp-amber); }
-.stat-card.purple::before { background: #6b7684; }
-
-/* 通用变体 .title/.value / .stat-label/.stat-value */
 .stat-card .title,
 .stat-card .stat-label {
   color: var(--erp-steel);
@@ -210,7 +196,7 @@ html, body, #app {
 
 .stat-card .value,
 .stat-card .stat-value {
-  font-size: 26px;
+  font-size: 24px;
   font-weight: 700;
   line-height: 1.1;
   color: var(--erp-inktext);
@@ -227,7 +213,7 @@ html, body, #app {
 
 .dashboard-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
   gap: 12px;
   margin-bottom: 12px;
 }
@@ -238,74 +224,60 @@ html, body, #app {
   min-height: 260px;
 }
 
-/* =====================================================================
-   Element Plus 组件润色（仪表质感）
-   ===================================================================== */
+/* ============ 表格 ============ */
 
-/* 表格：表头钢灰底盘 + 强行分隔，密集但不糊 */
 .el-table {
-  --el-table-header-bg-color: #f4f6f8;
-  --el-table-header-text-color: #4a5562;
+  --el-table-header-bg-color: #f4f6f2;
+  --el-table-header-text-color: #4a5550;
   --el-table-border-color: var(--erp-hairline);
-  --el-table-row-hover-bg-color: #f7fafd;
+  --el-table-row-hover-bg-color: #f7f3ed;
   font-size: 13px;
-  font-variant-numeric: tabular-nums;
+  border-radius: 8px;
 }
 
 .el-table th.el-table__cell {
+  padding: 6px 0;
+  color: var(--erp-inktext);
   font-weight: 600;
+  font-size: 12px;
   letter-spacing: 0.02em;
-  padding: 8px 0;
 }
 
-.el-table .el-table__cell {
+.el-table td.el-table__cell {
   padding: 5px 0;
 }
 
-.el-table .el-table__cell .cell {
+.el-table td.el-table__cell .cell {
   line-height: 1.35;
 }
 
-/* 弹窗=浮起卡片：暗场下沉、标题刻线、浅灰头尾收条 */
+.el-table--striped .el-table__body tr.el-table__row--striped td.el-table__cell {
+  background: #fafbf8;
+}
+
+/* ============ 弹窗 ============ */
+
 .el-overlay {
-  background-color: rgba(22, 26, 33, 0.55);
+  background-color: rgba(29, 38, 34, 0.42);
 }
 
 .el-dialog {
-  border-radius: 6px;
+  border-radius: 14px;
   border: 1px solid var(--erp-hairline);
-  box-shadow:
-    0 4px 12px rgba(22, 26, 33, 0.12),
-    0 20px 48px rgba(22, 26, 33, 0.22);
+  box-shadow: 0 4px 20px rgba(29, 38, 34, 0.10), 0 16px 56px rgba(29, 38, 34, 0.12);
   overflow: hidden;
 }
 
 .el-dialog__header {
   margin-right: 0;
-  padding: 13px 20px;
-  background: linear-gradient(180deg, #fbfcfd, #f2f5f8);
+  padding: 14px 20px;
   border-bottom: 1px solid var(--erp-hairline);
 }
 
 .el-dialog__title {
-  position: relative;
-  display: inline-block;
-  padding-left: 10px;
   font-weight: 600;
-  letter-spacing: 0.01em;
   color: var(--erp-inktext);
-  line-height: 1.4;
-}
-
-.el-dialog__title::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 2px;
-  bottom: 2px;
-  width: 3px;
-  border-radius: 2px;
-  background: var(--erp-amber);
+  font-size: 15px;
 }
 
 .el-dialog__body {
@@ -313,67 +285,79 @@ html, body, #app {
 }
 
 .el-dialog__footer {
-  padding: 12px 20px;
+  padding: 12px 20px 16px;
   border-top: 1px solid var(--erp-hairline-2);
-  background: #fbfcfd;
-  margin-top: 12px;
 }
 
 .el-dialog .el-form-item {
   margin-bottom: 14px;
 }
 
-/* 卡片：去默认圆角柔和感 */
+/* ============ 卡片 ============ */
+
 .el-card {
   --el-card-border-color: var(--erp-hairline);
-  --el-card-border-radius: 2px;
+  --el-card-border-radius: 10px;
   --el-card-padding: 14px;
 }
 
-/* 输入框/下拉：直角瘦边框 */
+/* ============ 输入框 / 下拉 ============ */
+
 .el-input__wrapper,
 .el-select__wrapper {
-  --el-input-border-radius: 2px;
-  --el-input-border-color: var(--erp-hairline);
+  border-radius: 6px;
 }
 
-/* 标签：细边框、无大字重 */
+.el-input__wrapper.is-focus {
+  box-shadow: 0 0 0 1px var(--erp-blue) inset;
+}
+
+.el-select__wrapper.is-focused {
+  box-shadow: 0 0 0 1px var(--erp-blue) inset;
+}
+
+/* ============ 标签 ============ */
+
 .el-tag {
-  border-radius: 2px;
+  border-radius: 6px;
   font-variant-numeric: tabular-nums;
 }
 
-/* 分页当前页强化为机床蓝 */
+/* ============ 分页 ============ */
+
 .el-pagination.is-background .el-pager li.is-active {
   background: var(--erp-blue);
 }
 
-/* 按钮主色压感 */
+/* ============ 按钮 ============ */
+
 .el-button--primary {
-  --el-button-hover-bg-color: #3a6d9e;
+  --el-button-hover-bg-color: #b06a3f;
   --el-button-active-bg-color: var(--erp-blue-deep);
 }
 
-/* 空状态：说明性文案走沉稳灰 */
-.el-empty__description p {
-  color: var(--erp-steel);
-}
+/* ============ 表单 ============ */
 
-/* 表单校验错误不喧宾夺主 */
 .el-form-item__error {
   color: var(--erp-red);
 }
 
-/* 滚动条：细、低调 */
+.el-empty__description p {
+  color: var(--erp-steel);
+}
+
+/* ============ 滚动条 ============ */
+
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-thumb {
-  background: #c3cbd4;
+  background: #c4cbc2;
   border-radius: 4px;
 }
-::-webkit-scrollbar-thumb:hover { background: #aab4bf; }
+::-webkit-scrollbar-thumb:hover { background: #aeb7ac; }
 ::-webkit-scrollbar-track { background: transparent; }
 
-/* 尊重「减弱动态效果」偏好 */
+/* ============ 减弱动效 ============ */
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.001s !important;
@@ -381,13 +365,10 @@ html, body, #app {
   }
 }
 
-/* =====================================================================
-   打印：隐藏应用外壳，只打印内容
-   ===================================================================== */
-@page {
-  size: A4;
-  margin: 0; /* 去除浏览器打印的页眉/页脚（标题/日期/网址/页码） */
-}
+/* ============ 打印 ============ */
+
+@page { size: A4; margin: 0; }
+
 @media print {
   .aside,
   .header,

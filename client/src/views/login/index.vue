@@ -40,9 +40,6 @@ async function handleLogin() {
 
 <template>
   <div class="login-page">
-    <div class="login-grid" aria-hidden="true"></div>
-    <div class="scanline" aria-hidden="true"></div>
-
     <div class="login-panel">
       <div class="panel-status">
         <span class="status-lamp"></span>
@@ -94,55 +91,23 @@ async function handleLogin() {
   align-items: center;
   justify-content: center;
   background:
-    radial-gradient(1200px 700px at 20% -10%, rgba(47, 94, 140, 0.32), transparent 60%),
-    radial-gradient(1000px 600px at 90% 110%, rgba(199, 124, 30, 0.10), transparent 55%),
-    linear-gradient(160deg, #1b212b 0%, #161a21 55%, #15181f 100%);
+    radial-gradient(900px 520px at 15% -10%, rgba(162, 87, 42, 0.14), transparent 60%),
+    radial-gradient(800px 480px at 95% 115%, rgba(165, 113, 19, 0.10), transparent 55%),
+    linear-gradient(160deg, #eef0eb 0%, #e4e7e0 100%);
   overflow: hidden;
-}
-
-/* 机台栅格：细网格暗示控制台 */
-.login-grid {
-  position: absolute;
-  inset: 0;
-  background-image:
-    linear-gradient(rgba(255, 255, 255, 0.025) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.025) 1px, transparent 1px);
-  background-size: 36px 36px;
-  mask-image: radial-gradient(720px 520px at 50% 50%, #000 30%, transparent 78%);
-  -webkit-mask-image: radial-gradient(720px 520px at 50% 50%, #000 30%, transparent 78%);
-}
-
-/* 装载时的单次扫线 */
-.scanline {
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 0;
-  height: 2px;
-  background: linear-gradient(90deg, transparent, rgba(199, 124, 30, 0.55), transparent);
-  animation: scan 3.2s ease-in-out 1;
-}
-
-@keyframes scan {
-  from { transform: translateY(-10px); opacity: 0; }
-  8%  { opacity: 1; }
-  to   { transform: translateY(100vh); opacity: 0; }
 }
 
 .login-panel {
   position: relative;
   width: 400px;
   padding: 0;
-  background: var(--erp-ink-2);
-  border: 1px solid rgba(255, 255, 255, 0.09);
-  border-radius: 4px;
-  box-shadow:
-    0 24px 64px rgba(0, 0, 0, 0.45),
-    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  background: var(--erp-surface);
+  border: 1px solid var(--erp-hairline);
+  border-radius: 14px;
+  box-shadow: 0 6px 24px rgba(29, 38, 34, 0.08), 0 24px 72px rgba(29, 38, 34, 0.10);
   overflow: hidden;
 }
 
-/* 顶缘：琥珀指示灯条 */
 .panel-status {
   display: flex;
   align-items: center;
@@ -150,9 +115,9 @@ async function handleLogin() {
   padding: 10px 20px;
   font-size: 11px;
   letter-spacing: 0.12em;
-  color: #98a3b0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
-  background: rgba(0, 0, 0, 0.18);
+  color: var(--erp-steel);
+  border-bottom: 1px solid var(--erp-hairline);
+  background: #fafbf9;
 }
 
 .status-lamp {
@@ -160,7 +125,7 @@ async function handleLogin() {
   height: 8px;
   border-radius: 50%;
   background: var(--erp-green);
-  box-shadow: 0 0 8px rgba(62, 124, 79, 0.9);
+  box-shadow: 0 0 8px rgba(46, 125, 91, 0.55);
   animation: pulse 2.4s ease-in-out infinite;
 }
 
@@ -171,7 +136,7 @@ async function handleLogin() {
 
 .status-right {
   margin-left: auto;
-  color: #5a6472;
+  color: var(--erp-steel);
 }
 
 .panel-brand {
@@ -186,23 +151,21 @@ async function handleLogin() {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(180deg, #2f5e8c, #24507c);
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  border-radius: 6px;
-  color: #eaf2f9;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18);
+  background: linear-gradient(180deg, #b06a3f, #8f4820);
+  border-radius: 12px;
+  color: #fff;
 }
 
 .panel-brand h1 {
   font-size: 21px;
   font-weight: 700;
   letter-spacing: 0.04em;
-  color: #eef2f7;
+  color: var(--erp-ink);
   margin: 0 0 8px;
 }
 
 .panel-brand p {
-  color: #8a95a3;
+  color: var(--erp-steel);
   font-size: 12px;
   letter-spacing: 0.06em;
 }
@@ -211,7 +174,7 @@ async function handleLogin() {
   width: 44px;
   height: 2px;
   margin: 20px auto 0;
-  background: var(--erp-amber);
+  background: var(--erp-blue);
   border-radius: 1px;
   opacity: 0.85;
 }
@@ -220,28 +183,12 @@ async function handleLogin() {
   padding: 0 36px;
 }
 
-/* 暗底输入：凹刻感 */
 .login-panel :deep(.el-input__wrapper) {
-  background: #1a1f27;
-  box-shadow: inset 0 1px 0 rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(255, 255, 255, 0.08);
-  border-radius: 3px;
-}
-
-.login-panel :deep(.el-input__wrapper.is-focus) {
-  box-shadow: inset 0 1px 0 rgba(0, 0, 0, 0.35), 0 0 0 1px var(--erp-blue);
-}
-
-.login-panel :deep(.el-input__inner) {
-  color: #e6ebf1;
-  font-variant-numeric: tabular-nums;
-}
-
-.login-panel :deep(.el-input__inner::placeholder) {
-  color: #6a7482;
+  border-radius: 6px;
 }
 
 .login-panel :deep(.el-input__prefix) {
-  color: #a3adba;
+  color: var(--erp-steel);
 }
 
 .login-panel :deep(.el-form-item) {
@@ -254,15 +201,6 @@ async function handleLogin() {
   font-size: 15px;
   font-weight: 600;
   letter-spacing: 0.2em;
-  background: linear-gradient(180deg, #2f5e8c, #24507c);
-}
-
-.login-btn:hover {
-  filter: brightness(1.08);
-}
-
-.login-btn.is-loading {
-  filter: none;
 }
 
 .login-hint {
@@ -275,17 +213,17 @@ async function handleLogin() {
 }
 
 .hint-key {
-  color: #6a7482;
+  color: var(--erp-steel);
   letter-spacing: 0.08em;
 }
 
 .hint-val {
-  color: #a9b4c1;
+  color: var(--erp-inktext);
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.04em;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 2px;
+  background: var(--erp-hairline-2);
+  border: 1px solid var(--erp-hairline);
+  border-radius: 6px;
   padding: 2px 8px;
 }
 </style>

@@ -24,7 +24,7 @@ function mountPie() {
       label: { formatter: '{b}: {c}' },
       data: [
         { value: orderStats.total - orderStats.completed - orderStats.inProgress, name: '未开始', itemStyle: { color: '#6b7684' } },
-        { value: orderStats.inProgress, name: '生产中', itemStyle: { color: '#c77c1e' } },
+        { value: orderStats.inProgress, name: '生产中', itemStyle: { color: '#a2572a' } },
         { value: orderStats.completed, name: '已完成', itemStyle: { color: '#3e7c4f' } },
       ],
     }],
