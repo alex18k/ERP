@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { bomApi, materialApi } from '../../../api'
+import { bomApi } from '../../../api'
 
 const loading = ref(false)
 const list = ref<any[]>([])
@@ -37,88 +37,6 @@ function resetQuery() {
   loadData()
 }
 
-// ===== 新增/编辑 =====
-const dialogVisible = ref(false)
-const isEdit = ref(false)
-const formRef = ref()
-const products = ref<any[]>([])
-const matList = ref<any[]>([])
-const form = reactive<any>({
-  id: null,
-  productId: null,
-  version: '1.0',
-  items: [],
-})
-
-const rules = {
-  productId: [{ required: true, message: '请选择父零件', trigger: 'change' }],
-}
-
-async function openDialog(row?: any) {
-  isEdit.value = !!row
-  if (row) {
-    Object.assign(form, row)
-    form.items = row.items?.map((i: any) => ({ ...i })) || []
-    matList.value = (form.items || [])
-      .map((i: any) => i.material && { id: i.material.id, code: i.material.code, name: i.material.name, unit: i.material.unit })
-      .filter((m: any) => !!m)
-    products.value = row.product ? [{ ...row.product }] : []
-  } else {
-    Object.keys(form).forEach((k) => { form[k] = null })
-    form.version = '1.0'
-    form.items = []
-    matList.value = []
-    const res: any = await bomApi.productOptions()
-    products.value = res.data as any[]
-  }
-
-  const activeRes: any = await bomApi.list({ pageSize: 500, status: 'active' })
-  activeBomProducts.value = new Set((activeRes.data.items as any[]).map((b: any) => b.productId))
-
-  dialogVisible.value = true
-}
-
-function addItem() {
-  form.items.push({ materialId: null, quantity: 1, unit: '', lossRate: 0, sortOrder: form.items.length + 1 })
-}
-
-function removeItem(index: number) {
-  form.items.splice(index, 1)
-}
-
-async function handleSave() {
-  try {
-    await formRef.value.validate()
-  } catch {
-    return
-  }
-  if (form.items.length === 0) {
-    ElMessage.warning('请至少添加一个子零件')
-    return
-  }
-  const payload = {
-    productId: form.productId,
-    version: form.version,
-    items: form.items.map((i: any) => ({
-      materialId: i.materialId,
-      quantity: i.quantity,
-      unit: i.unit,
-      lossRate: i.lossRate ?? 0,
-      sortOrder: i.sortOrder,
-    })),
-  }
-
-  if (isEdit.value) {
-    await bomApi.update(form.id, payload)
-    ElMessage.success('更新成功')
-  } else {
-    await bomApi.create(payload)
-    ElMessage.success('创建成功，已自动启用')
-  }
-  dialogVisible.value = false
-  loadData()
-}
-
 async function handleActivate(row: any) {
   try {
     await ElMessageBox.confirm(`确认启用BOM「${row.name}」？同产品其他BOM将被停用。`, '提示', { type: 'warning' })
@@ -126,30 +44,6 @@ async function handleActivate(row: any) {
     ElMessage.success('启用成功')
     loadData()
   } catch { /* canceled */ }
-}
-
-async function handleDelete(row: any) {
-  const tip = row.status === 'active'
-    ? `BOM「${row.name}」当前为启用状态，删除后将影响 MRP 运算，确定删除？`
-    : `确定删除BOM「${row.name}」吗？`
-  try {
-    await ElMessageBox.confirm(tip, '提示', { type: 'warning' })
-    await bomApi.remove(row.id)
-    ElMessage.success('删除成功')
-    loadData()
-  } catch { /* canceled */ }
-}
-
-async function queryMaterials(keyword: string) {
-  const res: any = await materialApi.list({ pageSize: 50, keyword })
-  matList.value = res.data.items
-}
-
-function onItemMaterialChange(item: any, val: any) {
-  const mat = matList.value.find((m) => m.id === val)
-  if (mat) {
-    item.unit = mat.unit
-  }
 }
 
 // ===== 结构树 =====
@@ -263,13 +157,6 @@ async function handlePrint(row: any) {
   w.document.close()
 }
 
-// ===== 编辑对话框：标记有激活子BOM的物料 =====
-const activeBomProducts = ref<Set<number>>(new Set())
-
-function hasActiveBom(materialId: number | null) {
-  return materialId != null && activeBomProducts.value.has(materialId)
-}
-
 onMounted(loadData)
 </script>
 
@@ -281,7 +168,6 @@ onMounted(loadData)
         <el-input v-model="query.name" placeholder="BOM名称" clearable style="width: 180px" />
         <el-button type="primary" @click="handleSearch"><el-icon><Search /></el-icon>查询</el-button>
         <el-button @click="resetQuery">重置</el-button>
-        <el-button style="margin-left: auto" type="primary" @click="openDialog()"><el-icon><Plus /></el-icon>新增BOM</el-button>
       </div>
 
       <el-table :data="list" v-loading="loading" stripe>
@@ -299,13 +185,11 @@ onMounted(loadData)
             <el-tag :type="statusType(row.status)">{{ formatStatus(row.status) }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="290" fixed="right">
+        <el-table-column label="操作" width="200" fixed="right">
           <template #default="{ row }">
-            <el-button size="small" type="primary" link @click="openDialog(row)">编辑</el-button>
             <el-button size="small" type="info" link @click="openTree(row)">结构树</el-button>
             <el-button size="small" type="warning" link @click="handlePrint(row)">打印</el-button>
             <el-button v-if="row.status !== 'active'" size="small" type="success" link @click="handleActivate(row)">启用</el-button>
-            <el-button size="small" type="danger" link @click="handleDelete(row)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -321,82 +205,6 @@ onMounted(loadData)
         />
       </div>
     </div>
-
-    <!-- 新增/编辑对话框 -->
-    <el-dialog v-model="dialogVisible" :title="isEdit ? '编辑BOM' : '新增BOM'" width="820px" destroy-on-close>
-      <el-form ref="formRef" :model="form" :rules="rules" label-width="100px">
-        <el-row :gutter="16">
-          <el-col :span="12">
-            <el-form-item label="父零件" prop="productId">
-              <el-select v-model="form.productId" filterable :disabled="isEdit" style="width: 100%">
-                <el-option v-for="p in products" :key="p.id" :label="`${p.code} - ${p.name}`" :value="p.id" />
-              </el-select>
-              <div style="color: #909399; font-size: 12px; line-height: 1.4; margin-top: 4px">
-                {{ isEdit ? '父零件已锁定，仅可修改版本与明细' : 'BOM编码和名称默认取所选物料的零件号，保存后自动启用' }}
-              </div>
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="版本号">
-              <el-input v-model="form.version" />
-            </el-form-item>
-          </el-col>
-        </el-row>
-
-        <el-form-item label="子零件">
-          <div style="width: 100%">
-            <el-button size="small" type="primary" plain @click="addItem">
-              <el-icon><Plus /></el-icon>添加子零件
-            </el-button>
-            <el-table :data="form.items" size="small" style="margin-top: 8px; width: 100%">
-              <el-table-column label="序号" width="55" type="index" />
-              <el-table-column label="物料" min-width="200">
-                <template #default="{ row }">
-                  <div style="display: flex; gap: 8px; align-items: center">
-                    <el-select
-                      v-model="row.materialId"
-                      filterable
-                      remote
-                      :remote-method="queryMaterials"
-                      placeholder="搜索选择物料"
-                      style="width: 100%"
-                      @change="(v: any) => onItemMaterialChange(row, v)"
-                    >
-                      <el-option v-for="m in matList" :key="m.id" :label="`${m.code} - ${m.name}`" :value="m.id" />
-                    </el-select>
-                    <el-tag v-if="hasActiveBom(row.materialId)" size="small" type="success" style="flex-shrink: 0">子BOM</el-tag>
-                  </div>
-                </template>
-              </el-table-column>
-              <el-table-column label="用量" width="110">
-                <template #default="{ row }">
-                  <el-input-number v-model="row.quantity" :min="0.001" :precision="2" size="small" style="width: 100%" />
-                </template>
-              </el-table-column>
-              <el-table-column label="单位" width="70">
-                <template #default="{ row }">
-                  <el-input v-model="row.unit" size="small" />
-                </template>
-              </el-table-column>
-              <el-table-column label="损耗率" width="100">
-                <template #default="{ row }">
-                  <el-input-number v-model="row.lossRate" :min="0" :max="1" :step="0.01" :precision="2" size="small" style="width: 100%" />
-                </template>
-              </el-table-column>
-              <el-table-column width="60">
-                <template #default="{ $index }">
-                  <el-button type="danger" link size="small" @click="removeItem($index)">删除</el-button>
-                </template>
-              </el-table-column>
-            </el-table>
-          </div>
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="handleSave">保存</el-button>
-      </template>
-    </el-dialog>
 
     <!-- 产品结构树对话框 -->
     <el-dialog v-model="treeVisible" :title="`产品结构树 - ${treeTitle}`" width="760px">
