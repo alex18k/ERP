@@ -275,6 +275,11 @@ export async function receivePurchaseOrder(
   }
   if (receiveMap.size === 0) throw new Error("请填写收货数量");
 
+  // 库位映射到仓库（库位编码 = 仓库编码），将收货库存记入指定库位对应的仓库
+  const locationWarehouse = options?.location
+    ? await prisma.warehouse.findUnique({ where: { code: options.location } })
+    : null;
+
   return prisma.$transaction(async (tx) => {
     for (const [idx, item] of po.items.entries()) {
       const qty = receiveMap.get(item.id) ?? 0;
@@ -294,32 +299,36 @@ export async function receivePurchaseOrder(
         },
       });
 
-      // 更新库存
-      const stock = await tx.stock.findFirst({
-        where: { materialId: item.materialId },
-      });
+      // 更新库存：优先记入库位对应的仓库（库位编码 = 仓库编码）
+      const targetWarehouseId = locationWarehouse?.id ?? null;
+      let warehouseId: number;
+      const stock = targetWarehouseId
+        ? await tx.stock.findFirst({ where: { materialId: item.materialId, warehouseId: targetWarehouseId } })
+        : await tx.stock.findFirst({ where: { materialId: item.materialId } });
       if (stock) {
         await tx.stock.update({
           where: { id: stock.id },
           data: { quantity: stock.quantity + qty, lastInDate: new Date() },
         });
+        warehouseId = stock.warehouseId;
       } else {
-        const wh = await tx.warehouse.findFirst();
+        const wh = targetWarehouseId ?? (await tx.warehouse.findFirst({ where: { status: 1 } }))?.id ?? 1;
         await tx.stock.create({
           data: {
             materialId: item.materialId,
-            warehouseId: wh?.id ?? 1,
+            warehouseId: wh,
             quantity: qty,
             lastInDate: new Date(),
           },
         });
+        warehouseId = wh;
       }
 
       // 库存流水
       await tx.stockRecord.create({
         data: {
           materialId: item.materialId,
-          warehouseId: stock?.warehouseId ?? 1,
+          warehouseId,
           type: "in",
           quantity: qty,
           relatedType: "PurchaseOrder",

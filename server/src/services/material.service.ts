@@ -57,7 +57,7 @@ export async function listMaterials(where: MaterialWhere) {
       where: filters,
       include: {
         supplier: { select: { id: true, name: true } },
-        stock: { select: { quantity: true, reservedQty: true } },
+        stocks: { select: { quantity: true, reservedQty: true } },
         processRoute: { select: { id: true, code: true, name: true } },
       },
       orderBy: { code: "asc" },
@@ -66,19 +66,39 @@ export async function listMaterials(where: MaterialWhere) {
     }),
   ]);
 
-  return { total, page: Number(page), pageSize: Number(pageSize), items };
+  return {
+    total,
+    page: Number(page),
+    pageSize: Number(pageSize),
+    items: items.map(({ stocks, ...m }) => ({
+      ...m,
+      stock: {
+        quantity: stocks.reduce((s, x) => s + x.quantity, 0),
+        reservedQty: stocks.reduce((s, x) => s + x.reservedQty, 0),
+      },
+    })),
+  };
 }
 
 export async function getMaterial(id: number) {
-  return prisma.material.findUnique({
+  const material = await prisma.material.findUnique({
     where: { id },
     include: {
       supplier: true,
-      stock: true,
+      stocks: true,
       processRoute: true,
       bomProducts: { include: { items: { include: { material: true } } } },
     },
   });
+  if (!material) return null;
+  const { stocks, ...m } = material;
+  return {
+    ...m,
+    stock: {
+      quantity: stocks.reduce((s, x) => s + x.quantity, 0),
+      reservedQty: stocks.reduce((s, x) => s + x.reservedQty, 0),
+    },
+  };
 }
 
 export async function listMaterialTypes(): Promise<string[]> {

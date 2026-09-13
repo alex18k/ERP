@@ -32,7 +32,13 @@ export async function getExecutiveDashboard() {
   const alertStocks = await prisma.stock.findMany({
     include: { material: true },
   });
-  const lowStockCount = alertStocks.filter((s) => s.material.safetyStock > 0 && s.quantity <= s.material.safetyStock).length;
+  const stockByMaterial = new Map<number, { qty: number; safety: number }>();
+  for (const s of alertStocks) {
+    const cur = stockByMaterial.get(s.materialId) ?? { qty: 0, safety: s.material.safetyStock };
+    cur.qty += s.quantity;
+    stockByMaterial.set(s.materialId, cur);
+  }
+  const lowStockCount = [...stockByMaterial.values()].filter((x) => x.safety > 0 && x.qty <= x.safety).length;
 
   // 生产中工单数
   const activeWorkOrders = await prisma.workOrder.count({

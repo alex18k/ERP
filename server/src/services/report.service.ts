@@ -321,17 +321,27 @@ export async function getInventoryReport(q: ReportQuery) {
     else outByBucket.set(key, (outByBucket.get(key) ?? 0) + r.quantity);
   }
 
-  const lowStock = stocks
-    .filter((s) => s.material.safetyStock > 0 && s.quantity <= s.material.safetyStock)
-    .map((s) => ({
-      materialId: s.materialId,
-      materialCode: s.material.code,
-      materialName: s.material.name,
-      category: s.material.category,
-      warehouseName: s.warehouse.name,
-      quantity: s.quantity,
-      safetyStock: s.material.safetyStock,
-      shortageQty: round(s.material.safetyStock - s.quantity),
+  // 按物料汇总（同一物料可能存在多个仓库/库位的库存行）
+  const byMaterial = new Map<number, { material: (typeof stocks)[number]["material"]; qty: number; warehouses: string[] }>();
+  for (const s of stocks) {
+    const cur = byMaterial.get(s.materialId) ?? { material: s.material, qty: 0, warehouses: [] };
+    cur.qty += s.quantity;
+    if (s.quantity !== 0) cur.warehouses.push(s.warehouse.name);
+    byMaterial.set(s.materialId, cur);
+  }
+  const materialAgg = [...byMaterial.values()];
+
+  const lowStock = materialAgg
+    .filter((x) => x.material.safetyStock > 0 && x.qty <= x.material.safetyStock)
+    .map((x) => ({
+      materialId: x.material.id,
+      materialCode: x.material.code,
+      materialName: x.material.name,
+      category: x.material.category,
+      warehouseName: x.warehouses.join("、"),
+      quantity: x.qty,
+      safetyStock: x.material.safetyStock,
+      shortageQty: round(x.material.safetyStock - x.qty),
     }));
 
   const allPeriods = [...new Set([...inByBucket.keys(), ...outByBucket.keys()])].sort((a, b) => a.localeCompare(b));
@@ -341,15 +351,15 @@ export async function getInventoryReport(q: ReportQuery) {
     out: Math.round(outByBucket.get(period) ?? 0),
   }));
 
-  const topStock = stocks
-    .map((s) => ({ name: s.material.name, code: s.material.code, value: round(s.quantity) }))
+  const topStock = materialAgg
+    .map((x) => ({ name: x.material.name, code: x.material.code, value: round(x.qty) }))
     .sort((a, b) => b.value - a.value)
     .slice(0, 10);
 
   return {
     summary: {
-      materialCount: stocks.length,
-      totalQty: round(stocks.reduce((sum, s) => sum + s.quantity, 0)),
+      materialCount: materialAgg.length,
+      totalQty: round(materialAgg.reduce((sum, x) => sum + x.qty, 0)),
       lowStockCount: lowStock.length,
     },
     inOutSeries,

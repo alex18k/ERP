@@ -21,13 +21,13 @@ const date = (d: Date | null | undefined) => (d ? new Date(d).toLocaleString("zh
 export async function materialExport() {
   const list = await prisma.material.findMany({
     orderBy: { code: "asc" },
-    include: { supplier: { select: { name: true } }, stock: true },
+    include: { supplier: { select: { name: true } }, stocks: true },
   });
   const headers = ["物料编码", "物料名称", "规格型号", "物料类别", "类别", "单位", "安全库存", "最低库存", "最高库存", "提前期(天)", "最小订量", "单价", "成本", "默认供应商", "现存量", "状态", "备注"];
   const rows = list.map((m) => [
     m.code, m.name, m.specification, m.materialType ?? "", categoryLabel[m.category] ?? m.category, m.unit,
     m.safetyStock, m.minStock, m.maxStock, m.leadTime, m.minOrderQty, m.unitPrice, m.cost,
-    m.supplier?.name ?? "", m.stock?.quantity ?? 0,
+    m.supplier?.name ?? "", m.stocks.reduce((s, x) => s + x.quantity, 0),
     m.status === 1 ? "启用" : "停用", m.remark ?? "",
   ]);
   return { filename: `物料数据_${today()}.csv`, csv: toCsv(headers, rows) };

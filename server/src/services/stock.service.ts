@@ -187,10 +187,8 @@ export async function getStockAlerts() {
 
   const alerts = [];
   for (const m of materials) {
-    const stock = await prisma.stock.findFirst({
-      where: { materialId: m.id },
-    });
-    const currentQty = stock?.quantity ?? 0;
+    const agg = await prisma.stock.aggregate({ where: { materialId: m.id }, _sum: { quantity: true } });
+    const currentQty = agg._sum.quantity ?? 0;
     if (currentQty <= m.safetyStock) {
       alerts.push({
         materialId: m.id,

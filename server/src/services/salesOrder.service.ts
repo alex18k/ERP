@@ -314,7 +314,7 @@ export async function shipOrder(id: number, userId: number) {
 
       // 制造类成品发货自动出库（有库存则扣减）
       if (item.material.category === "manufacture") {
-        const stock = await tx.stock.findFirst({ where: { materialId: item.materialId } });
+        const stock = await tx.stock.findFirst({ where: { materialId: item.materialId, quantity: { gt: 0 } }, orderBy: { quantity: "desc" } });
         if (stock && stock.quantity > 0) {
           const deduct = Math.min(item.quantity, stock.quantity);
           await tx.stock.update({
