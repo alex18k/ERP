@@ -348,11 +348,11 @@ async function main() {
 
   // ===== 物料 =====
   const materialData = [
-    { code: "M-001", name: "冷轧钢板", specification: "2mm×1000×2000", category: "purchase", unit: "张", safetyStock: 100, minStock: 50, maxStock: 500, leadTime: 7, supplierId: supplier1.id, defaultWarehouseId: whMain.id },
-    { code: "M-002", name: "冷轧钢板", specification: "3mm×1000×2000", category: "purchase", unit: "张", safetyStock: 80, minStock: 40, maxStock: 400, leadTime: 7, supplierId: supplier1.id, defaultWarehouseId: whMain.id },
-    { code: "M-003", name: "六角螺栓", specification: "M6×20", category: "purchase", unit: "个", safetyStock: 2000, minStock: 1000, maxStock: 10000, leadTime: 3, supplierId: supplier2.id, defaultWarehouseId: whMain.id },
-    { code: "M-004", name: "六角螺母", specification: "M6", category: "purchase", unit: "个", safetyStock: 2000, minStock: 1000, maxStock: 10000, leadTime: 3, supplierId: supplier2.id, defaultWarehouseId: whMain.id },
-    { code: "M-005", name: "包装纸箱", specification: "600×400×300", category: "purchase", unit: "个", safetyStock: 500, minStock: 200, maxStock: 2000, leadTime: 5, supplierId: supplier3.id, defaultWarehouseId: whMain.id },
+    { code: "M-001", name: "冷轧钢板", specification: "2mm×1000×2000", category: "purchase", unit: "张", safetyStock: 100, minStock: 50, maxStock: 500, leadTime: 7, supplierId: supplier1.id },
+    { code: "M-002", name: "冷轧钢板", specification: "3mm×1000×2000", category: "purchase", unit: "张", safetyStock: 80, minStock: 40, maxStock: 400, leadTime: 7, supplierId: supplier1.id },
+    { code: "M-003", name: "六角螺栓", specification: "M6×20", category: "purchase", unit: "个", safetyStock: 2000, minStock: 1000, maxStock: 10000, leadTime: 3, supplierId: supplier2.id },
+    { code: "M-004", name: "六角螺母", specification: "M6", category: "purchase", unit: "个", safetyStock: 2000, minStock: 1000, maxStock: 10000, leadTime: 3, supplierId: supplier2.id },
+    { code: "M-005", name: "包装纸箱", specification: "600×400×300", category: "purchase", unit: "个", safetyStock: 500, minStock: 200, maxStock: 2000, leadTime: 5, supplierId: supplier3.id },
     { code: "M-100", name: "设备外壳组件", specification: "HF-1000", category: "manufacture", unit: "套", safetyStock: 50, minStock: 20, maxStock: 200, leadTime: 10 },
     { code: "M-200", name: "标准设备产品A", specification: "HF-A2000", category: "manufacture", unit: "台", safetyStock: 20, minStock: 10, maxStock: 100, leadTime: 15 },
   ];

@@ -304,7 +304,7 @@ CREATE TABLE materials (
     min_stock DECIMAL(15,4) DEFAULT 0 COMMENT '最低库存',
     max_stock DECIMAL(15,4) DEFAULT 0 COMMENT '最高库存',
     lead_time INT DEFAULT 0 COMMENT '采购提前期(天)',
-    default_warehouse_id BIGINT COMMENT '默认仓库',
+    location VARCHAR(20) COMMENT '库位（与仓库编码对应）',
     supplier_id BIGINT COMMENT '主要供应商',
     status ENUM('active', 'inactive') DEFAULT 'active',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

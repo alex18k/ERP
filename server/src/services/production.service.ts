@@ -40,7 +40,7 @@ export async function listProductionOrders(where: any) {
     prisma.productionOrder.findMany({
       where: filters,
       include: {
-        material: { select: { id: true, code: true, name: true, unit: true } },
+        material: { select: { id: true, code: true, name: true, unit: true, location: true } },
         salesOrder: { select: { id: true, orderNo: true, customerName: true } },
         batches: { orderBy: { batchNo: "asc" } },
         workOrders: {
@@ -661,7 +661,7 @@ export async function listBatchMaterials(where: any) {
     prisma.productionBatchMaterial.findMany({
       where: filters,
       include: {
-        material: { select: { id: true, code: true, name: true, specification: true, unit: true, defaultWarehouseId: true } },
+        material: { select: { id: true, code: true, name: true, specification: true, unit: true, location: true } },
         batch: {
           include: {
             productionOrder: { include: { material: { select: { code: true, name: true } } } },
@@ -682,11 +682,11 @@ export async function getBatchMaterials(batchId: number) {
     where: { id: batchId },
     include: {
       productionOrder: {
-        include: { material: { select: { id: true, code: true, name: true, unit: true, defaultWarehouseId: true } } },
+        include: { material: { select: { id: true, code: true, name: true, unit: true, location: true } } },
       },
       materials: {
         include: {
-          material: { select: { id: true, code: true, name: true, specification: true, unit: true, location: true, defaultWarehouseId: true } },
+          material: { select: { id: true, code: true, name: true, specification: true, unit: true, location: true } },
         },
         orderBy: { id: "asc" },
       },
@@ -799,7 +799,7 @@ export async function listReceivableBatches(where: any) {
       where: filters,
       include: {
         productionOrder: {
-          include: { material: { select: { id: true, code: true, name: true, unit: true, defaultWarehouseId: true } } },
+          include: { material: { select: { id: true, code: true, name: true, unit: true, location: true } } },
         },
       },
       orderBy: { id: "desc" },

@@ -2,6 +2,7 @@
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { productionApi, warehouseApi } from '../../../api'
+import { warehouseIdByLocation } from '../../../utils/location'
 
 const loading = ref(false)
 const list = ref<any[]>([])
@@ -41,7 +42,7 @@ async function loadWarehouses() {
 function openDialog(row: any) {
   current.value = row
   form.quantity = remaining(row)
-  form.warehouseId = row.productionOrder?.material?.defaultWarehouseId || warehouses.value[0]?.id || null
+  form.warehouseId = warehouseIdByLocation(warehouses.value, row.productionOrder?.material?.location) || warehouses.value[0]?.id || null
   dialogVisible.value = true
 }
 

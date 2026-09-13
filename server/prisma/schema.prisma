@@ -112,8 +112,7 @@ model Material {
   materialType        String? // 物料类别（自由填写，如五金件/电子件/包装材料）
   minOrderQty         Float                @default(0) // 最小订量
   cost                Float                @default(0) // 成本（替代原单价，收货时按最近采购价回写）
-  defaultWarehouseId  Int?
-  location            String? // 库位
+  location            String? // 库位（与仓库编码对应）
   supplierId          Int?
   supplier            Supplier?            @relation(fields: [supplierId], references: [id])
   status              Int                  @default(1)

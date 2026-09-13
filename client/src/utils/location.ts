@@ -10,3 +10,8 @@ export function locationLabel(code?: string | null) {
   const found = BASE_LOCATIONS.find((l) => l.code === code)
   return found ? `${found.code} - ${found.name}` : code
 }
+
+export function warehouseIdByLocation(warehouses: { id: number; code: string }[], location?: string | null) {
+  if (!location) return null
+  return warehouses.find((w) => w.code === location)?.id ?? null
+}

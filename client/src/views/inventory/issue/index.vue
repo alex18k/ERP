@@ -2,7 +2,7 @@
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { productionApi, warehouseApi } from '../../../api'
-import { BASE_LOCATIONS } from '../../../utils/location'
+import { BASE_LOCATIONS, warehouseIdByLocation } from '../../../utils/location'
 
 const loading = ref(false)
 const list = ref<any[]>([])
@@ -70,7 +70,7 @@ async function openDialog(order: any) {
     return
   }
   form.batchId = batches[0].id
-  form.warehouseId = order.material?.defaultWarehouseId || warehouses.value[0]?.id || null
+  form.warehouseId = warehouseIdByLocation(warehouses.value, order.material?.location) || warehouses.value[0]?.id || null
   form.effectiveDate = todayStr()
   dialogVisible.value = true
   await onBatchChange()

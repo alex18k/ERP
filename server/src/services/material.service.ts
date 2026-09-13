@@ -16,7 +16,6 @@ export interface MaterialCreateInput {
   minOrderQty?: number;
   cost?: number;
   processRouteId?: number;
-  defaultWarehouseId?: number;
   location?: string;
   supplierId?: number;
   remark?: string;

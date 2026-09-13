@@ -3,7 +3,6 @@ import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { materialApi, supplierApi, warehouseApi, processRouteApi } from '../../../api'
 import { MATERIAL_CATEGORIES, materialCategoryLabel } from '../../../utils/category'
-import { BASE_LOCATIONS } from '../../../utils/location'
 
 const loading = ref(false)
 const list = ref<any[]>([])
@@ -68,7 +67,6 @@ const form = reactive<any>({
   cost: 0,
   processRouteId: null,
   supplierId: null,
-  defaultWarehouseId: null,
   location: '',
   remark: '',
 })
@@ -123,10 +121,7 @@ async function loadOptions() {
   unitOptions.value = [...new Set([...baseUnits, ...units])]
   typeOptions.value = tRes.data || []
 
-  const locs = new Map<string, string>()
-  for (const l of BASE_LOCATIONS) locs.set(l.code, l.name)
-  for (const m of mRes.data.items) if (m.location && !locs.has(m.location)) locs.set(m.location, '')
-  locationOptions.value = [...locs.entries()].map(([code, name]) => ({ code, name }))
+  locationOptions.value = warehouses.value.map((w: any) => ({ code: w.code, name: w.name }))
 }
 
 async function loadTypeOptions() {
@@ -340,23 +335,16 @@ onMounted(() => {
           </el-col>
         </el-row>
         <el-row :gutter="16">
-          <el-col :span="8">
+          <el-col :span="12">
             <el-form-item label="主要供应商">
               <el-select v-model="form.supplierId" clearable filterable style="width: 100%">
                 <el-option v-for="s in suppliers" :key="s.id" :label="s.name" :value="s.id" />
               </el-select>
             </el-form-item>
           </el-col>
-          <el-col :span="8">
-            <el-form-item label="默认仓库">
-              <el-select v-model="form.defaultWarehouseId" clearable style="width: 100%">
-                <el-option v-for="w in warehouses" :key="w.id" :label="w.name" :value="w.id" />
-              </el-select>
-            </el-form-item>
-          </el-col>
-          <el-col :span="8">
+          <el-col :span="12">
             <el-form-item label="库位">
-              <el-select v-model="form.location" clearable filterable allow-create default-first-option placeholder="选择或输入库位" style="width: 100%">
+              <el-select v-model="form.location" clearable filterable placeholder="选择库位" style="width: 100%">
                 <el-option v-for="l in locationOptions" :key="l.code" :label="l.name ? `${l.code} - ${l.name}` : l.code" :value="l.code" />
               </el-select>
             </el-form-item>
