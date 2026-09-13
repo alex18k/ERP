@@ -660,7 +660,8 @@ export async function issueBatchMaterials(
   batchId: number,
   warehouseId: number,
   items: { batchMaterialId: number; quantity: number; location?: string }[],
-  userId: number
+  userId: number,
+  effectiveDate?: string
 ) {
   if (!warehouseId) throw new Error("请选择出库仓库");
   if (!items || items.length === 0) throw new Error("请填写发放数量");
@@ -722,6 +723,7 @@ export async function issueBatchMaterials(
           documentNo: docNo,
           lineNo: lineNo++,
           location: it.location || null,
+          effectiveDate: effectiveDate ? new Date(effectiveDate) : null,
           operatorId: userId,
           remark: `生产发料 批次${batch.batchNo}`,
         },

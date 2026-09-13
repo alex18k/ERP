@@ -23,7 +23,13 @@ const currentOrder = ref<any>(null)
 const currentBatch = ref<any>(null)
 const detail = ref<any[]>([])
 const locationOptions = ref<{ code: string; name: string }[]>([])
-const form = reactive<any>({ batchId: null, warehouseId: null, issueQty: 0 })
+const form = reactive<any>({ batchId: null, warehouseId: null, issueQty: 0, effectiveDate: '' })
+
+function todayStr() {
+  const d = new Date()
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+}
 
 function buildLocationOptions() {
   const map = new Map<string, string>()
@@ -65,6 +71,7 @@ async function openDialog(order: any) {
   }
   form.batchId = batches[0].id
   form.warehouseId = order.material?.defaultWarehouseId || warehouses.value[0]?.id || null
+  form.effectiveDate = todayStr()
   dialogVisible.value = true
   await onBatchChange()
 }
@@ -118,7 +125,7 @@ async function submit() {
   }
   submitting.value = true
   try {
-    const res: any = await productionApi.issueBatch(currentBatch.value.id, { warehouseId: form.warehouseId, items })
+    const res: any = await productionApi.issueBatch(currentBatch.value.id, { warehouseId: form.warehouseId, effectiveDate: form.effectiveDate || undefined, items })
     const issued = res.data?.issued || []
     const skipped = res.data?.skipped || []
     if (skipped.length === 0) {
@@ -210,6 +217,9 @@ onMounted(async () => {
           <el-select v-model="form.warehouseId" style="width: 220px" placeholder="选择库位">
             <el-option v-for="w in warehouses" :key="w.id" :label="`${w.code} - ${w.name}`" :value="w.id" />
           </el-select>
+        </el-form-item>
+        <el-form-item label="生效日期">
+          <el-date-picker v-model="form.effectiveDate" type="date" value-format="YYYY-MM-DD" placeholder="选择生效日期" style="width: 160px" />
         </el-form-item>
         <el-form-item label="本次发放数量">
           <el-input-number v-model="form.issueQty" :min="0" :precision="2" :controls="false" style="width: 160px" @change="recalc" />

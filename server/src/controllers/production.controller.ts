@@ -142,7 +142,8 @@ export async function issueBatchMaterialsHandler(req: AuthRequest, res: Response
       Number(req.params.id),
       Number(req.body?.warehouseId),
       items,
-      req.user!.id
+      req.user!.id,
+      req.body?.effectiveDate
     );
     return success(res, data, "发料完成");
   } catch (error: any) {
