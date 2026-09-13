@@ -374,10 +374,12 @@ export async function getOrderTrack(id: number) {
     statusNodes: buildStatusTrack(order.status),
     productionProgress: order.productionOrders.map((po) => ({
       productionOrderNo: po.orderNo,
+      materialCode: po.material.code,
       materialName: po.material.name,
       quantity: po.quantity,
-      status: po.status,
       completedQty: po.workOrders.reduce((s, w) => s + w.actualQty, 0),
+      status: po.status,
+      workOrderCount: po.workOrders.length,
     })),
   };
 }

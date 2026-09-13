@@ -60,12 +60,12 @@ async function handleShip() {
 function statusLabel(s: string) {
   return {
     draft: '草稿', confirmed: '已确认', in_production: '生产中', completed: '已完工', shipped: '已发货', cancelled: '已取消',
-    scheduled: '已排产', in_progress: '加工中', quality_check: '质检中', reported: '已报工', closed: '已关闭',
+    planned: '已计划', scheduled: '已排产', in_progress: '加工中', quality_check: '质检中', reported: '已报工', closed: '已关闭',
   }[s] || s
 }
 
 function statusType(s: string) {
-  const map: any = { draft: 'info', confirmed: 'primary', in_production: 'warning', completed: 'success', shipped: '', cancelled: 'danger', in_progress: 'warning', reported: 'success' }
+  const map: any = { draft: 'info', confirmed: 'primary', in_production: 'warning', completed: 'success', shipped: '', cancelled: 'danger', planned: 'info', in_progress: 'warning', reported: 'success' }
   return map[s] || 'info'
 }
 
@@ -162,19 +162,18 @@ watch(() => route.query.id, (id) => {
 
       <el-card v-if="tracking" class="mb-16">
         <template #header>进度跟踪</template>
-        <el-table :data="tracking?.productionOrders || []" size="small" stripe>
-          <el-table-column prop="orderNo" label="生产订单号" width="140" />
+        <el-table :data="tracking?.productionProgress || []" size="small" stripe>
+          <el-table-column prop="productionOrderNo" label="生产订单号" width="140" />
           <el-table-column prop="materialCode" label="物料编码" width="110" />
           <el-table-column prop="materialName" label="物料名称" min-width="140" />
           <el-table-column prop="quantity" label="计划数量" width="90" />
+          <el-table-column prop="completedQty" label="已完工" width="90" />
           <el-table-column label="状态" width="100">
             <template #default="{ row }">
               <el-tag :type="statusType(row.status)" size="small">{{ statusLabel(row.status) }}</el-tag>
             </template>
           </el-table-column>
-          <el-table-column label="加工单" width="100">
-            <template #default="{ row }">{{ row.workOrders?.length || 0 }}</template>
-          </el-table-column>
+          <el-table-column prop="workOrderCount" label="加工单" width="100" />
         </el-table>
       </el-card>
 
