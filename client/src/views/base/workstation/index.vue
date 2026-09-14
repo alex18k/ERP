@@ -81,7 +81,7 @@ onMounted(loadData)
         <el-button type="primary" @click="loadData"><el-icon><Search /></el-icon>查询</el-button>
         <el-button style="margin-left: auto" type="primary" @click="openDialog()"><el-icon><Plus /></el-icon>新增工位</el-button>
       </div>
-      <el-table :data="list" v-loading="loading" stripe>
+      <el-table :data="list" v-loading="loading" stripe max-height="calc(100vh - 260px)">
         <el-table-column prop="code" label="工位编码" width="110" />
         <el-table-column prop="name" label="工位名称" min-width="140" />
         <el-table-column label="所属车间" min-width="120">

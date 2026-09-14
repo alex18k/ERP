@@ -37,7 +37,7 @@ onMounted(loadData)
         <el-button @click="loadData"><el-icon><Refresh /></el-icon>刷新</el-button>
       </div>
 
-      <el-table :data="list" v-loading="loading" stripe size="small">
+      <el-table :data="list" v-loading="loading" stripe size="small" max-height="calc(100vh - 260px)">
         <el-table-column label="时间" width="170">
           <template #default="{ row }">{{ row.createdAt }}</template>
         </el-table-column>

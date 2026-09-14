@@ -291,7 +291,7 @@ const flatRows = computed(() =>
         <el-button @click="orderApi.exportCsv()"><el-icon><Download /></el-icon>导出</el-button>
       </div>
 
-      <el-table :data="flatRows" v-loading="loading" stripe>
+      <el-table :data="flatRows" v-loading="loading" stripe max-height="calc(100vh - 260px)">
         <el-table-column label="订单编号" width="150">
           <template #default="{ row }">
             <span v-if="row._first" style="font-variant-numeric: tabular-nums">{{ row.orderNo }}</span>
@@ -332,7 +332,7 @@ const flatRows = computed(() =>
             </span>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="270" fixed="right">
+        <el-table-column label="操作" width="180" fixed="right">
           <template #default="{ row }">
             <el-button size="small" type="primary" link @click="router.push(`/order/print?id=${row.id}`)">打印</el-button>
             <el-button size="small" type="primary" link @click="router.push(`/order/tracking?id=${row.id}`)">跟踪</el-button>

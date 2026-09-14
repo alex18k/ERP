@@ -137,7 +137,7 @@ onMounted(loadData)
         <el-button style="margin-left: auto" type="primary" @click="openDialog()"><el-icon><Plus /></el-icon>新增工艺路线</el-button>
       </div>
 
-      <el-table :data="list" v-loading="loading" stripe>
+      <el-table :data="list" v-loading="loading" stripe max-height="calc(100vh - 260px)">
         <el-table-column prop="code" label="工艺路线编码" width="110" />
         <el-table-column prop="name" label="工艺名称" width="120" />
         <el-table-column label="工序数" width="80">

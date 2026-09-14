@@ -130,7 +130,7 @@ onMounted(loadData)
         style="margin-bottom: 16px"
       />
 
-      <el-table :data="rows" v-loading="loading" stripe>
+      <el-table :data="rows" v-loading="loading" stripe max-height="calc(100vh - 260px)">
         <el-table-column prop="orderNo" label="采购单号" width="150" />
         <el-table-column prop="supplierName" label="供应商" min-width="140" />
         <el-table-column label="物料" min-width="200">

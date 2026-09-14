@@ -10,7 +10,7 @@ const statusColor: Record<string, string> = {
   pending: '#909399',
   in_progress: '#e6a23c',
   completed: '#67c23a',
-  cancelled: '#4a86b8',
+  cancelled: '#a3aec0',
   paused: '#e6a23c',
 }
 
@@ -73,7 +73,7 @@ onMounted(loadData)
 
       <el-alert type="info" :closable="false" show-icon title="按工位×工序展示加工单的时间排程。条形长度对应计划/实际工时，颜色表示状态。" style="margin-bottom: 16px" />
 
-      <el-table :data="list" v-loading="loading" size="small" stripe>
+      <el-table :data="list" v-loading="loading" size="small" stripe max-height="calc(100vh - 260px)">
         <el-table-column label="工位" width="110">
           <template #default="{ row }">{{ row.workStationName || '-' }}</template>
         </el-table-column>

@@ -89,7 +89,7 @@ onMounted(loadData)
         <el-button @click="loadData"><el-icon><Refresh /></el-icon>刷新</el-button>
       </div>
 
-      <el-table :data="list" v-loading="loading" stripe>
+      <el-table :data="list" v-loading="loading" stripe max-height="calc(100vh - 260px)">
         <el-table-column prop="code" label="角色编码" width="130" />
         <el-table-column prop="name" label="角色名称" width="140" />
         <el-table-column prop="description" label="描述" min-width="160">

@@ -50,7 +50,7 @@ function renderCharts() {
   })
 
   mount(wsRef.value, rankOption(workstationRank, '#2f6b8f'))
-  mount(opRef.value, rankOption(operatorRank, '#a2572a'))
+  mount(opRef.value, rankOption(operatorRank, '#3f8fe0'))
 }
 
 async function loadData() {

@@ -70,13 +70,10 @@ onMounted(loadData)
       <div class="search-bar">
         <el-input v-model="query.keyword" placeholder="代码/描述" clearable style="width: 200px" @keyup.enter="query.page = 1, loadData()" />
         <el-button type="primary" @click="query.page = 1, loadData()"><el-icon><Search /></el-icon>查询</el-button>
+        <el-button style="margin-left: auto" type="primary" @click="openDialog()"><el-icon><Plus /></el-icon>新增事务类型</el-button>
       </div>
 
-      <div class="table-toolbar">
-        <el-button type="primary" @click="openDialog()"><el-icon><Plus /></el-icon>新增事务类型</el-button>
-      </div>
-
-      <el-table :data="list" v-loading="loading" stripe>
+      <el-table :data="list" v-loading="loading" stripe max-height="calc(100vh - 260px)">
         <el-table-column prop="code" label="事务代码" width="150" />
         <el-table-column prop="description" label="描述" min-width="200" />
         <el-table-column label="增减" width="100">

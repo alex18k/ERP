@@ -337,7 +337,7 @@ onMounted(() => {
         <el-button @click="loadData"><el-icon><Refresh /></el-icon>刷新</el-button>
       </div>
 
-      <el-table :data="list" v-loading="loading" stripe>
+      <el-table :data="list" v-loading="loading" stripe max-height="calc(100vh - 260px)">
         <el-table-column prop="orderNo" label="生产订单号" width="140" />
         <el-table-column label="物料" min-width="160">
           <template #default="{ row }">{{ row.material?.code }} - {{ row.material?.name }}</template>

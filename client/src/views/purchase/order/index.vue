@@ -339,7 +339,7 @@ onMounted(loadData)
         <el-button @click="purchaseApi.exportCsv()"><el-icon><Download /></el-icon>导出</el-button>
       </div>
 
-      <el-table :data="rows" v-loading="loading" stripe>
+      <el-table :data="rows" v-loading="loading" stripe max-height="calc(100vh - 260px)">
         <el-table-column prop="orderNo" label="采购单号" width="150" />
         <el-table-column prop="supplierName" label="供应商" min-width="140" />
         <el-table-column prop="buyer" label="采购员" width="100" />

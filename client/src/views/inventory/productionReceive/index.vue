@@ -81,6 +81,12 @@ onMounted(async () => {
 <template>
   <div class="page-container">
     <div class="page-card">
+      <div class="table-toolbar">
+        <span class="toolbar-title">生产入库（成品/半成品）</span>
+        <div style="flex: 1" />
+        <el-button @click="loadData"><el-icon><Refresh /></el-icon>刷新</el-button>
+      </div>
+
       <div class="search-bar">
         <el-input v-model="query.orderNo" placeholder="生产订单号" clearable style="width: 180px" />
         <el-select v-model="query.onlyReceivable" placeholder="范围" style="width: 140px">
@@ -91,13 +97,7 @@ onMounted(async () => {
         <el-button @click="Object.assign(query, { orderNo: '', onlyReceivable: 'true', page: 1 }), loadData()">重置</el-button>
       </div>
 
-      <div class="table-toolbar">
-        <span class="toolbar-title">生产入库（成品/半成品）</span>
-        <div style="flex: 1" />
-        <el-button @click="loadData"><el-icon><Refresh /></el-icon>刷新</el-button>
-      </div>
-
-      <el-table :data="list" v-loading="loading" stripe>
+      <el-table :data="list" v-loading="loading" stripe max-height="calc(100vh - 260px)">
         <el-table-column label="生产订单" width="150">
           <template #default="{ row }">{{ row.productionOrder?.orderNo }}</template>
         </el-table-column>

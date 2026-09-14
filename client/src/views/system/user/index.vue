@@ -103,7 +103,7 @@ onMounted(loadData)
         <el-button type="primary" @click="openDialog()"><el-icon><Plus /></el-icon>新增用户</el-button>
       </div>
 
-      <el-table :data="list" v-loading="loading" stripe>
+      <el-table :data="list" v-loading="loading" stripe max-height="calc(100vh - 260px)">
         <el-table-column prop="username" label="用户名" width="120" />
         <el-table-column prop="realName" label="姓名" width="110" />
         <el-table-column label="部门" width="110">

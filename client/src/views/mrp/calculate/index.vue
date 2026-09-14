@@ -73,7 +73,7 @@ onMounted(loadData)
         <el-button @click="loadData"><el-icon><Refresh /></el-icon>刷新</el-button>
       </div>
 
-      <el-table :data="history" v-loading="loading" stripe>
+      <el-table :data="history" v-loading="loading" stripe max-height="calc(100vh - 260px)">
         <el-table-column prop="runNo" label="运算编号" width="150" />
         <el-table-column prop="orderCount" label="订单数" width="90" />
         <el-table-column prop="materialCount" label="物料数" width="90" />

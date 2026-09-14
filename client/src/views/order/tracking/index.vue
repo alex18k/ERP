@@ -96,7 +96,7 @@ watch(() => route.query.id, (id) => {
         <el-button type="primary" @click="searchOrders"><el-icon><Search /></el-icon>查询</el-button>
       </div>
 
-      <el-table :data="orders" v-loading="loading" stripe>
+      <el-table :data="orders" v-loading="loading" stripe max-height="calc(100vh - 260px)">
         <el-table-column prop="orderNo" label="订单号" width="170" />
         <el-table-column prop="customerName" label="客户" min-width="150" />
         <el-table-column label="状态" width="100">

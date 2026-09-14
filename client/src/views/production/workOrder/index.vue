@@ -80,7 +80,7 @@ onMounted(loadData)
         <el-button @click="productionApi.exportCsv()"><el-icon><Download /></el-icon>导出</el-button>
       </div>
 
-      <el-table :data="list" v-loading="loading" stripe>
+      <el-table :data="list" v-loading="loading" stripe max-height="calc(100vh - 260px)">
         <el-table-column prop="orderNo" label="加工单号" width="150" />
         <el-table-column label="生产订单" width="140">
           <template #default="{ row }">{{ row.productionOrder?.orderNo }}</template>

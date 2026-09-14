@@ -23,10 +23,6 @@ function formatStatus(val: string) {
   return { draft: '草稿', active: '启用', obsolete: '停用' }[val] || val
 }
 
-function statusType(val: string) {
-  return { draft: 'info', active: 'success', obsolete: 'warning' }[val] || 'info'
-}
-
 function handleSearch() {
   query.page = 1
   loadData()
@@ -72,10 +68,13 @@ async function openDialog(row?: any) {
     products.value = res.data as any[]
   }
 
+  dialogVisible.value = true
+}
+
+// 「子BOM」标记集合：页面上缓存，非每次打开弹窗都请求
+async function loadActiveBoms() {
   const activeRes: any = await bomApi.list({ pageSize: 500, status: 'active' })
   activeBomProducts.value = new Set((activeRes.data.items as any[]).map((b: any) => b.productId))
-
-  dialogVisible.value = true
 }
 
 function addItem() {
@@ -116,7 +115,7 @@ async function handleSave() {
     ElMessage.success('创建成功，已自动启用')
   }
   dialogVisible.value = false
-  loadData()
+  await Promise.all([loadData(), loadActiveBoms()])
 }
 
 async function handleActivate(row: any) {
@@ -124,7 +123,7 @@ async function handleActivate(row: any) {
     await ElMessageBox.confirm(`确认启用BOM「${row.name}」？同产品其他BOM将被停用。`, '提示', { type: 'warning' })
     await bomApi.activate(row.id)
     ElMessage.success('启用成功')
-    loadData()
+    await Promise.all([loadData(), loadActiveBoms()])
   } catch { /* canceled */ }
 }
 
@@ -136,7 +135,7 @@ async function handleDelete(row: any) {
     await ElMessageBox.confirm(tip, '提示', { type: 'warning' })
     await bomApi.remove(row.id)
     ElMessage.success('删除成功')
-    loadData()
+    await Promise.all([loadData(), loadActiveBoms()])
   } catch { /* canceled */ }
 }
 
@@ -270,7 +269,10 @@ function hasActiveBom(materialId: number | null) {
   return materialId != null && activeBomProducts.value.has(materialId)
 }
 
-onMounted(loadData)
+onMounted(() => {
+  loadActiveBoms()
+  loadData()
+})
 </script>
 
 <template>
@@ -284,8 +286,8 @@ onMounted(loadData)
         <el-button style="margin-left: auto" type="primary" @click="openDialog()"><el-icon><Plus /></el-icon>新增BOM</el-button>
       </div>
 
-      <el-table :data="list" v-loading="loading" stripe>
-        <el-table-column prop="code" label="BOM编码" width="110" />
+      <el-table :data="list" v-loading="loading" stripe max-height="calc(100vh - 260px)">
+        <el-table-column prop="code" label="BOM编码" min-width="170" />
         <el-table-column prop="name" label="BOM名称" min-width="150" />
         <el-table-column label="产出物料" min-width="160">
           <template #default="{ row }">{{ row.product?.code }} - {{ row.product?.name }}</template>
@@ -295,17 +297,15 @@ onMounted(loadData)
           <template #default="{ row }">{{ row.items?.length ?? 0 }}</template>
         </el-table-column>
         <el-table-column label="状态" width="90">
-          <template #default="{ row }">
-            <el-tag :type="statusType(row.status)">{{ formatStatus(row.status) }}</el-tag>
-          </template>
+          <template #default="{ row }">{{ formatStatus(row.status) }}</template>
         </el-table-column>
         <el-table-column label="操作" width="290" fixed="right">
           <template #default="{ row }">
             <el-button size="small" type="primary" link @click="openDialog(row)">编辑</el-button>
-            <el-button size="small" type="info" link @click="openTree(row)">结构树</el-button>
-            <el-button size="small" type="warning" link @click="handlePrint(row)">打印</el-button>
-            <el-button v-if="row.status !== 'active'" size="small" type="success" link @click="handleActivate(row)">启用</el-button>
-            <el-button size="small" type="danger" link @click="handleDelete(row)">删除</el-button>
+            <el-button size="small" type="primary" link @click="openTree(row)">结构树</el-button>
+            <el-button size="small" type="primary" link @click="handlePrint(row)">打印</el-button>
+            <el-button v-if="row.status !== 'active'" size="small" type="primary" link @click="handleActivate(row)">启用</el-button>
+            <el-button size="small" type="primary" link @click="handleDelete(row)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -323,7 +323,7 @@ onMounted(loadData)
     </div>
 
     <!-- 新增/编辑对话框 -->
-    <el-dialog v-model="dialogVisible" :title="isEdit ? '编辑BOM' : '新增BOM'" width="820px" destroy-on-close>
+    <el-dialog v-model="dialogVisible" :title="isEdit ? '编辑BOM' : '新增BOM'" width="820px" destroy-on-close append-to-body>
       <el-form ref="formRef" :model="form" :rules="rules" label-width="100px">
         <el-row :gutter="16">
           <el-col :span="12">
@@ -399,7 +399,7 @@ onMounted(loadData)
     </el-dialog>
 
     <!-- 产品结构树对话框 -->
-    <el-dialog v-model="treeVisible" :title="`产品结构树 - ${treeTitle}`" width="760px">
+    <el-dialog v-model="treeVisible" :title="`产品结构树 - ${treeTitle}`" width="760px" append-to-body>
       <div v-loading="treeLoading" style="max-height: 60vh; overflow: auto">
         <el-tree :data="treeData" :props="{ children: 'children', label: 'materialCode' }" default-expand-all>
           <template #default="{ data }">

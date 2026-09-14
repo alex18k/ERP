@@ -198,16 +198,14 @@ onMounted(() => {
         <el-button @click="materialApi.exportCsv()"><el-icon><Download /></el-icon>导出</el-button>
       </div>
 
-      <el-table :data="list" v-loading="loading" stripe>
+      <el-table :data="list" v-loading="loading" stripe max-height="calc(100vh - 250px)">
         <el-table-column prop="code" label="物料编码" width="110" />
         <el-table-column prop="name" label="物料名称" min-width="160" />
         <el-table-column prop="specification" label="规格型号" min-width="140" />
         <el-table-column prop="materialType" label="物料类别" min-width="110" />
         <el-table-column label="分类" width="90">
           <template #default="{ row }">
-            <el-tag :type="row.category === 'purchase' ? 'warning' : 'success'">
-              {{ formatCategory(row.category) }}
-            </el-tag>
+            {{ formatCategory(row.category) }}
           </template>
         </el-table-column>
         <el-table-column prop="unit" label="单位" width="70" />
@@ -230,10 +228,10 @@ onMounted(() => {
             <span v-if="row.processRoute">{{ row.processRoute.code }} - {{ row.processRoute.name }}</span>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="140" fixed="right">
+        <el-table-column label="操作" width="110" fixed="right">
           <template #default="{ row }">
             <el-button size="small" type="primary" link @click="openDialog(row)">编辑</el-button>
-            <el-button size="small" type="danger" link @click="handleDelete(row)">删除</el-button>
+            <el-button size="small" type="info" link @click="handleDelete(row)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>

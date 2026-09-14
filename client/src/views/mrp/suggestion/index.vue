@@ -123,7 +123,7 @@ onMounted(loadData)
         style="margin-bottom: 16px"
       />
 
-      <el-table :data="pagedSuggestions" v-loading="loading" stripe :row-key="rowKey" @selection-change="onSelectionChange">
+      <el-table :data="pagedSuggestions" v-loading="loading" stripe :row-key="rowKey" @selection-change="onSelectionChange" max-height="calc(100vh - 260px)">
         <el-table-column type="selection" width="45" :selectable="selectable" reserve-selection />
         <el-table-column prop="materialCode" label="物料编码" width="110" />
         <el-table-column prop="materialName" label="物料名称" min-width="150" />

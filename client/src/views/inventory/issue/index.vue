@@ -156,6 +156,12 @@ onMounted(async () => {
 <template>
   <div class="page-container">
     <div class="page-card">
+      <div class="table-toolbar">
+        <span class="toolbar-title">生产发料（按生产订单）</span>
+        <div style="flex: 1" />
+        <el-button @click="loadData"><el-icon><Refresh /></el-icon>刷新</el-button>
+      </div>
+
       <div class="search-bar">
         <el-input v-model="query.orderNo" placeholder="生产订单号" clearable style="width: 180px" />
         <el-select v-model="query.status" placeholder="状态" clearable style="width: 130px">
@@ -165,13 +171,7 @@ onMounted(async () => {
         <el-button @click="Object.assign(query, { orderNo: '', status: '', page: 1 }), loadData()">重置</el-button>
       </div>
 
-      <div class="table-toolbar">
-        <span class="toolbar-title">生产发料（按生产订单）</span>
-        <div style="flex: 1" />
-        <el-button @click="loadData"><el-icon><Refresh /></el-icon>刷新</el-button>
-      </div>
-
-      <el-table :data="list" v-loading="loading" stripe>
+      <el-table :data="list" v-loading="loading" stripe max-height="calc(100vh - 260px)">
         <el-table-column prop="orderNo" label="生产订单号" width="150" />
         <el-table-column label="产品" min-width="180">
           <template #default="{ row }">
@@ -221,9 +221,9 @@ onMounted(async () => {
         <el-form-item label="生效日期">
           <el-date-picker v-model="form.effectiveDate" type="date" value-format="YYYY-MM-DD" placeholder="选择生效日期" style="width: 160px" />
         </el-form-item>
-        <el-form-item label="本次发放数量">
+        <el-form-item label="本次发放数量" style="margin-left: 40px">
           <el-input-number v-model="form.issueQty" :min="0" :precision="2" :controls="false" style="width: 160px" @change="recalc" />
-          <span style="margin-left: 8px; color: var(--el-text-color-secondary)">按成品数量自动计算明细</span>
+          <el-button style="margin-left: 8px">重算</el-button>
         </el-form-item>
       </el-form>
 

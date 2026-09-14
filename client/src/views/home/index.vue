@@ -94,7 +94,7 @@ const shortcuts = [
   padding: 18px 20px;
   margin-bottom: 18px;
   background:
-    linear-gradient(90deg, rgba(162, 87, 42, 0.08), transparent 60%),
+    linear-gradient(90deg, rgba(59, 138, 224, 0.10), transparent 60%),
     var(--erp-surface);
   border: 1px solid var(--erp-hairline);
   border-radius: 10px;
@@ -113,7 +113,7 @@ const shortcuts = [
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(180deg, #b06a3f, #8f4820);
+  background: linear-gradient(180deg, #4a94e0, #2f77cc);
   border-radius: 8px;
   color: #fff;
 }
@@ -140,8 +140,8 @@ const shortcuts = [
   letter-spacing: 0.04em;
   padding: 6px 14px;
   border: 1px solid var(--erp-hairline);
-  border-radius: 6px;
-  background: #f7faf8;
+  border-radius: 999px;
+  background: var(--erp-surface);
 }
 
 .strip-lamp {
@@ -177,11 +177,20 @@ const shortcuts = [
   border-radius: 8px;
   cursor: pointer;
   position: relative;
-  transition: border-color 0.15s ease;
+  transition:
+    transform 0.18s cubic-bezier(0.16, 1, 0.3, 1),
+    border-color 0.18s ease,
+    box-shadow 0.18s ease;
 }
 
 .shortcut:hover {
   border-color: var(--erp-blue);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 20px -8px rgba(18, 34, 58, 0.12);
+}
+
+.shortcut:active {
+  transform: translateY(0);
 }
 
 /* 悬停浮现刻度 */
@@ -193,7 +202,7 @@ const shortcuts = [
   transform: translateX(-50%);
   width: 0;
   height: 2px;
-  background: var(--erp-amber);
+  background: var(--erp-blue);
   transition: width 0.18s ease;
 }
 

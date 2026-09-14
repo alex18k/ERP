@@ -49,7 +49,7 @@ onMounted(async () => {
         <el-button @click="stockApi.exportCsv()"><el-icon><Download /></el-icon>导出</el-button>
       </div>
 
-      <el-table :data="list" v-loading="loading" stripe>
+      <el-table :data="list" v-loading="loading" stripe max-height="calc(100vh - 260px)">
         <el-table-column label="物料编码" width="110">
           <template #default="{ row }">{{ row.material?.code }}</template>
         </el-table-column>

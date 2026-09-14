@@ -89,7 +89,7 @@ const menuItems: MenuNode[] = [
     icon: 'Box',
     children: [
       { path: '/inventory/query', title: '库存查询', icon: 'Search' },
-      { path: '/inventory/record', title: '库存事务记录', icon: 'Clock' },
+      { path: '/inventory/record', title: '事务记录', icon: 'Clock' },
       { path: '/inventory/receive', title: '采购收货', icon: 'Download' },
       { path: '/inventory/issue', title: '生产领料', icon: 'Upload' },
       { path: '/inventory/production-receive', title: '生产入库', icon: 'Download' },
@@ -240,10 +240,10 @@ async function handleLogout() {
   height: 100vh;
 }
 
-/* ---------- 侧边栏：银灰色 ---------- */
+/* ---------- 侧边栏：冷调浅蓝 ---------- */
 .aside {
-  background: linear-gradient(180deg, #eef0f3 0%, #e3e6ea 100%);
-  border-right: 1px solid #cfd3d9;
+  background: linear-gradient(180deg, #eef4fb 0%, #e3ecf6 100%);
+  border-right: 1px solid #cdd9e6;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
@@ -257,11 +257,11 @@ async function handleLogout() {
   align-items: center;
   gap: 10px;
   padding: 14px 16px;
-  color: #2b3238;
+  color: #23324a;
   font-weight: 700;
   font-size: 15px;
   letter-spacing: 0.02em;
-  border-bottom: 1px solid #d3d7dc;
+  border-bottom: 1px solid #d0dbe8;
   flex-shrink: 0;
 }
 
@@ -272,7 +272,7 @@ async function handleLogout() {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(180deg, #b06a3f, #8f4820);
+  background: linear-gradient(180deg, #4a94e0, #2f77cc);
   border-radius: 8px;
   color: #fff;
 }
@@ -281,7 +281,7 @@ async function handleLogout() {
 
 .logo-tick {
   margin-left: auto;
-  color: #b5733f;
+  color: #3b7fd0;
   opacity: 0.9;
 }
 
@@ -291,9 +291,9 @@ async function handleLogout() {
   background: transparent;
   padding: 8px 0;
   --el-menu-bg-color: transparent;
-  --el-menu-text-color: #4a525a;
-  --el-menu-hover-bg-color: rgba(255, 255, 255, 0.8);
-  --el-menu-active-color: #7c3d1b;
+  --el-menu-text-color: #4b5b70;
+  --el-menu-hover-bg-color: rgba(255, 255, 255, 0.85);
+  --el-menu-active-color: #1f5e9e;
   --el-menu-item-height: 40px;
   --el-menu-sub-item-height: 38px;
 }
@@ -304,30 +304,32 @@ async function handleLogout() {
   line-height: 40px;
   margin: 1px 8px;
   border-radius: 8px;
-  color: #4a525a;
+  color: #4b5b70;
   font-size: 13.5px;
+  transition: background-color 0.15s ease, color 0.15s ease;
 }
 
 .side-menu :deep(.el-menu-item .el-icon),
 .side-menu :deep(.el-sub-menu__title .el-icon) {
-  color: #8a9199;
+  color: #7d8da3;
 }
 
 .side-menu :deep(.el-menu-item:hover),
 .side-menu :deep(.el-sub-menu__title:hover) {
-  background: rgba(255, 255, 255, 0.85);
-  color: #1d2622;
+  background: rgba(255, 255, 255, 0.9);
+  color: #1c2a3d;
 }
 
 .side-menu :deep(.el-menu-item:hover .el-icon),
 .side-menu :deep(.el-sub-menu__title:hover .el-icon) {
-  color: #1d2622;
+  color: #1c2a3d;
 }
 
 .side-menu :deep(.el-menu-item.is-active) {
-  background: linear-gradient(90deg, rgba(162, 87, 42, 0.14), rgba(162, 87, 42, 0.05));
-  color: #7c3d1b;
+  background: var(--el-color-primary-light-9);
+  color: #1f5e9e;
   font-weight: 600;
+  box-shadow: inset 3px 0 0 0 var(--erp-blue);
 }
 
 .side-menu :deep(.el-menu-item.is-active .el-icon) {
@@ -337,14 +339,16 @@ async function handleLogout() {
 /* 子菜单内联层 */
 .side-menu :deep(.el-sub-menu .el-menu) { background: transparent; }
 .side-menu :deep(.el-sub-menu .el-menu-item) {
-  background: rgba(0, 0, 0, 0.03);
+  background: rgba(31, 58, 90, 0.05);
   margin: 1px 8px;
   padding-left: 34px !important;
+  transition: background-color 0.15s ease, color 0.15s ease;
 }
 
 .side-menu :deep(.el-sub-menu .el-menu-item.is-active) {
-  background: linear-gradient(90deg, rgba(162, 87, 42, 0.12), rgba(162, 87, 42, 0.04));
-  color: #7c3d1b;
+  background: var(--el-color-primary-light-9);
+  color: #1f5e9e;
+  box-shadow: inset 3px 0 0 0 var(--erp-blue);
 }
 
 .aside-foot {
@@ -356,7 +360,7 @@ async function handleLogout() {
   font-size: 12px;
   color: #8a9199;
   letter-spacing: 0.08em;
-  border-top: 1px solid #d3d7dc;
+  border-top: 1px solid #d0dbe8;
 }
 
 .foot-lamp,
@@ -387,6 +391,7 @@ async function handleLogout() {
   padding: 0 20px;
   background: var(--erp-surface);
   border-bottom: 1px solid var(--erp-hairline);
+  box-shadow: 0 1px 0 var(--erp-hairline-2), 0 2px 6px -4px rgba(18, 34, 58, 0.08);
 }
 
 .header :deep(.el-breadcrumb) {
@@ -397,9 +402,13 @@ async function handleLogout() {
   color: var(--erp-steel);
 }
 
+.header :deep(.el-breadcrumb__inner a:hover) {
+  color: var(--erp-blue);
+}
+
 .header :deep(.el-breadcrumb__last .el-breadcrumb__inner) {
-  color: var(--erp-inktext);
-  font-weight: 600;
+  color: var(--erp-ink-2);
+  font-weight: 700;
 }
 
 .header-right {
@@ -414,8 +423,8 @@ async function handleLogout() {
   gap: 7px;
   padding: 5px 12px;
   border: 1px solid var(--erp-hairline);
-  border-radius: 6px;
-  background: #f7faf8;
+  border-radius: 999px;
+  background: var(--erp-surface);
 }
 
 .status-text {
@@ -437,10 +446,18 @@ async function handleLogout() {
   gap: 8px;
   cursor: pointer;
   outline: none;
+  padding: 4px 8px;
+  margin-right: -8px;
+  border-radius: 8px;
+  transition: background-color 0.15s ease;
+}
+
+.user-info:hover {
+  background: var(--el-fill-color-light);
 }
 
 .user-avatar {
-  background: linear-gradient(180deg, #b06a3f, #8f4820);
+  background: linear-gradient(180deg, #4a94e0, #2f77cc);
   font-size: 14px;
   font-weight: 600;
 }

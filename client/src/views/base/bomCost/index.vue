@@ -23,10 +23,6 @@ function formatStatus(val: string) {
   return { draft: '草稿', active: '启用', obsolete: '停用' }[val] || val
 }
 
-function statusType(val: string) {
-  return { draft: 'info', active: 'success', obsolete: 'warning' }[val] || 'info'
-}
-
 function handleSearch() {
   query.page = 1
   loadData()
@@ -187,8 +183,8 @@ onMounted(loadData)
         <el-button @click="resetQuery">重置</el-button>
       </div>
 
-      <el-table :data="list" v-loading="loading" stripe>
-        <el-table-column prop="code" label="BOM编码" width="110" />
+      <el-table :data="list" v-loading="loading" stripe max-height="calc(100vh - 260px)">
+        <el-table-column prop="code" label="BOM编码" min-width="170" />
         <el-table-column prop="name" label="BOM名称" min-width="150" />
         <el-table-column label="产出物料" min-width="160">
           <template #default="{ row }">{{ row.product?.code }} - {{ row.product?.name }}</template>
@@ -198,15 +194,13 @@ onMounted(loadData)
           <template #default="{ row }">{{ row.items?.length ?? 0 }}</template>
         </el-table-column>
         <el-table-column label="状态" width="90">
-          <template #default="{ row }">
-            <el-tag :type="statusType(row.status)">{{ formatStatus(row.status) }}</el-tag>
-          </template>
+          <template #default="{ row }">{{ formatStatus(row.status) }}</template>
         </el-table-column>
         <el-table-column label="操作" width="200" fixed="right">
           <template #default="{ row }">
-            <el-button size="small" type="info" link @click="openTree(row)">结构树</el-button>
-            <el-button size="small" type="warning" link @click="handlePrint(row)">打印</el-button>
-            <el-button v-if="row.status !== 'active'" size="small" type="success" link @click="handleActivate(row)">启用</el-button>
+            <el-button size="small" type="primary" link @click="openTree(row)">结构树</el-button>
+            <el-button size="small" type="primary" link @click="handlePrint(row)">打印</el-button>
+            <el-button v-if="row.status !== 'active'" size="small" type="primary" link @click="handleActivate(row)">启用</el-button>
           </template>
         </el-table-column>
       </el-table>

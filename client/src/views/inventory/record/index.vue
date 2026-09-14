@@ -124,7 +124,7 @@ onMounted(async () => {
         <el-button @click="Object.assign(query, { materialKeyword: '', warehouseId: '', startDate: '', endDate: '', documentNo: '', page: 1 }), loadData()">重置</el-button>
       </div>
 
-      <el-table :data="list" v-loading="loading" stripe>
+      <el-table :data="list" v-loading="loading" stripe max-height="calc(100vh - 260px)">
         <el-table-column label="生效日期" width="120">
           <template #default="{ row }">{{ row.effectiveDate?.slice(0, 10) || '-' }}</template>
         </el-table-column>
