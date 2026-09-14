@@ -125,21 +125,29 @@ onMounted(loadData)
 
       <el-table :data="pagedSuggestions" v-loading="loading" stripe :row-key="rowKey" @selection-change="onSelectionChange" max-height="calc(100vh - 260px)">
         <el-table-column type="selection" width="45" :selectable="selectable" reserve-selection />
+        <el-table-column type="expand">
+          <template #default="{ row }">
+            <div style="padding: 8px 16px 12px 48px">
+              <div style="margin-bottom: 6px">
+                <span style="color: var(--el-text-color-secondary)">建议需求日：</span>{{ row.needDate?.slice?.(0, 10) || '-' }}
+                <span style="color: var(--el-text-color-secondary); margin-left: 24px">建议采购量：</span>{{ row.suggestedQty }}
+              </div>
+              <template v-if="row.sourceOrders && row.sourceOrders.length">
+                <div v-for="o in row.sourceOrders" :key="o.orderId" style="line-height: 22px">
+                  <el-tag size="small" type="info">{{ o.orderNo }}</el-tag>
+                  <span style="margin-left: 8px">数量 {{ o.quantity }}</span>
+                  <span v-if="o.deliveryDate" style="margin-left: 16px; color: var(--el-text-color-secondary)">交货期/需求日 {{ o.deliveryDate?.slice?.(0, 10) }}</span>
+                </div>
+              </template>
+              <div v-else style="color: var(--el-text-color-secondary)">安全库存补货，无需求来源</div>
+            </div>
+          </template>
+        </el-table-column>
         <el-table-column prop="materialCode" label="物料编码" width="110" />
         <el-table-column prop="materialName" label="物料名称" min-width="150" />
         <el-table-column prop="specification" label="型号规格" min-width="140" />
         <el-table-column label="来源" width="100">
           <template #default="{ row }">{{ row.source === 'safety' ? '安全库存' : 'MRP需求' }}</template>
-        </el-table-column>
-        <el-table-column label="需求来源" min-width="180">
-          <template #default="{ row }">
-            <template v-if="row.sourceOrders && row.sourceOrders.length">
-              <span v-for="o in row.sourceOrders" :key="o.orderId" style="margin-right: 8px">
-                {{ o.orderNo }} ×{{ o.quantity }}
-              </span>
-            </template>
-            <span v-else style="color: var(--el-text-color-secondary)">-</span>
-          </template>
         </el-table-column>
         <el-table-column prop="suggestedQty" label="建议采购量" width="110" />
         <el-table-column label="建议需求日" width="120">

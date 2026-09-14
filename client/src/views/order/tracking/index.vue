@@ -87,60 +87,68 @@ watch(() => route.query.id, (id) => {
 
 <template>
   <div class="page-container">
-    <el-page-header @back="router.back()" content="订单跟踪" style="margin-bottom: 20px" />
-
     <!-- 列表模式：选择订单 -->
     <div v-if="!hasId">
-      <div class="search-bar">
-        <el-input v-model="query.orderNo" placeholder="订单号" clearable style="width: 200px" @keyup.enter="searchOrders" />
-        <el-button type="primary" @click="searchOrders"><el-icon><Search /></el-icon>查询</el-button>
-      </div>
+      <div class="page-card">
+        <div class="table-toolbar">
+          <span class="toolbar-title">订单跟踪</span>
+          <div style="flex: 1" />
+          <el-button @click="loadOrders"><el-icon><Refresh /></el-icon>刷新</el-button>
+        </div>
 
-      <el-table :data="orders" v-loading="loading" stripe max-height="calc(100vh - 260px)">
-        <el-table-column prop="orderNo" label="订单号" width="170" />
-        <el-table-column prop="customerName" label="客户" min-width="150" />
-        <el-table-column label="状态" width="100">
-          <template #default="{ row }">
-            <el-tag :type="statusType(row.status)">{{ statusLabel(row.status) }}</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="交期" width="120">
-          <template #default="{ row }">{{ row.deliveryDate?.slice(0, 10) || '-' }}</template>
-        </el-table-column>
-        <el-table-column label="金额" width="120">
-          <template #default="{ row }">¥{{ row.totalAmount?.toLocaleString() }}</template>
-        </el-table-column>
-        <el-table-column label="操作" width="100" fixed="right">
-          <template #default="{ row }">
-            <el-button size="small" type="primary" link @click="goto(row.id)">跟踪</el-button>
-          </template>
-        </el-table-column>
-      </el-table>
+        <div class="search-bar">
+          <el-input v-model="query.orderNo" placeholder="订单号" clearable style="width: 200px" @keyup.enter="searchOrders" />
+          <el-button type="primary" @click="searchOrders"><el-icon><Search /></el-icon>查询</el-button>
+          <el-button @click="Object.assign(query, { orderNo: '', page: 1 }), loadOrders()">重置</el-button>
+        </div>
 
-      <div class="pagination-wrap">
-        <el-pagination
-          v-model:current-page="query.page"
-          v-model:page-size="query.pageSize"
-          :total="total"
-          :page-sizes="[10, 20, 50]"
-          layout="total, sizes, prev, pager, next"
-          @change="loadOrders"
-        />
+        <el-table :data="orders" v-loading="loading" stripe max-height="calc(100vh - 260px)">
+          <el-table-column prop="orderNo" label="订单号" width="170" />
+          <el-table-column prop="customerName" label="客户" min-width="150" />
+          <el-table-column label="状态" width="100">
+            <template #default="{ row }">
+              <el-tag :type="statusType(row.status)">{{ statusLabel(row.status) }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="交期" width="120">
+            <template #default="{ row }">{{ row.deliveryDate?.slice(0, 10) || '-' }}</template>
+          </el-table-column>
+          <el-table-column label="金额" width="120">
+            <template #default="{ row }">¥{{ row.totalAmount?.toLocaleString() }}</template>
+          </el-table-column>
+          <el-table-column label="操作" width="100" fixed="right">
+            <template #default="{ row }">
+              <el-button size="small" type="primary" link @click="goto(row.id)">跟踪</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+
+        <div class="pagination-wrap">
+          <el-pagination
+            v-model:current-page="query.page"
+            v-model:page-size="query.pageSize"
+            :total="total"
+            :page-sizes="[10, 20, 50]"
+            layout="total, sizes, prev, pager, next"
+            @change="loadOrders"
+          />
+        </div>
       </div>
     </div>
 
     <!-- 详情模式：跟踪指定订单 -->
     <div v-else v-loading="loading">
-      <el-card v-if="order" class="mb-16">
-        <template #header>
-          <div class="head-flex">
-            <span>{{ order.orderNo }}</span>
-            <el-tag :type="statusType(order.status)" style="margin-left: 12px">{{ statusLabel(order.status) }}</el-tag>
-            <el-button v-if="order.status === 'completed'" size="small" type="primary" style="margin-left: auto" @click="handleShip">
-              <el-icon><Van /></el-icon>发货
-            </el-button>
-          </div>
-        </template>
+      <div class="page-card" v-if="order">
+        <div class="table-toolbar">
+          <span class="toolbar-title">{{ order.orderNo }}</span>
+          <el-tag :type="statusType(order.status)" style="margin-left: 12px">{{ statusLabel(order.status) }}</el-tag>
+          <div style="flex: 1" />
+          <el-button v-if="order.status === 'completed'" type="primary" plain @click="handleShip">
+            <el-icon><Van /></el-icon>发货
+          </el-button>
+          <el-button @click="router.back()"><el-icon><Back /></el-icon>返回</el-button>
+        </div>
+
         <el-descriptions :column="4" border size="small">
           <el-descriptions-item label="客户">{{ order.customerName }}</el-descriptions-item>
           <el-descriptions-item label="金额">¥{{ order.totalAmount?.toLocaleString() }}</el-descriptions-item>
@@ -158,10 +166,12 @@ watch(() => route.query.id, (id) => {
             <template #default="{ row }">¥{{ (row.quantity * row.unitPrice).toLocaleString() }}</template>
           </el-table-column>
         </el-table>
-      </el-card>
+      </div>
 
-      <el-card v-if="tracking" class="mb-16">
-        <template #header>进度跟踪</template>
+      <div class="page-card" v-if="tracking">
+        <div class="table-toolbar">
+          <span class="toolbar-title">进度跟踪</span>
+        </div>
         <el-table :data="tracking?.productionProgress || []" size="small" stripe default-expand-all>
           <el-table-column type="expand">
             <template #default="{ row }">
@@ -184,6 +194,12 @@ watch(() => route.query.id, (id) => {
           <el-table-column prop="materialCode" label="物料编码" width="110" />
           <el-table-column prop="materialName" label="物料名称" min-width="140" />
           <el-table-column prop="quantity" label="计划数量" width="90" />
+          <el-table-column label="计划周期" min-width="190">
+            <template #default="{ row }">
+              <span v-if="row.planStartDate">{{ row.planStartDate?.slice(0, 10) }} ~ {{ row.planEndDate?.slice(0, 10) }}</span>
+              <span v-else>-</span>
+            </template>
+          </el-table-column>
           <el-table-column prop="completedQty" label="已完工" width="90" />
           <el-table-column label="状态" width="100">
             <template #default="{ row }">
@@ -192,15 +208,9 @@ watch(() => route.query.id, (id) => {
           </el-table-column>
           <el-table-column prop="workOrderCount" label="加工单" width="100" />
         </el-table>
-      </el-card>
+      </div>
 
       <el-empty v-if="!order && !loading" description="订单不存在" />
     </div>
   </div>
 </template>
-<style scoped>
-.head-flex {
-  display: flex;
-  align-items: center;
-}
-</style>

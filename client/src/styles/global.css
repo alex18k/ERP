@@ -423,8 +423,29 @@ html, body, #app {
 }
 
 .el-button--primary {
-  --el-button-hover-bg-color: #4f95e1;
-  --el-button-active-bg-color: var(--erp-blue-deep);
+  --el-button-text-color:            #409eff;
+  --el-button-hover-text-color:      #ffffff;
+  --el-button-active-text-color:     #ffffff;
+  --el-button-bg-color:              #ecf5ff;
+  --el-button-border-color:          #b3d8ff;
+  --el-button-hover-bg-color:        #409eff;
+  --el-button-hover-border-color:    #409eff;
+  --el-button-active-bg-color:       #3a8ee6;
+  --el-button-active-border-color:   #3a8ee6;
+  --el-button-disabled-text-color:   #8cc5ff;
+  --el-button-disabled-bg-color:     #ecf5ff;
+  --el-button-disabled-border-color: #d9ecff;
+}
+
+/* 新增类按钮：参考 Bosx-MRP 绿色 is-plain 样式（浅绿底 + 绿字，hover 反转为实心绿白字） */
+.el-button.btn-add {
+  --el-color-success:        #67c23a;
+  --el-color-success-light-3: #95d475;
+  --el-color-success-light-5: #c2e7b0;
+  --el-color-success-light-7: #d6efc6;
+  --el-color-success-light-8: #dfeecd;
+  --el-color-success-light-9: #f0f9eb;
+  --el-color-success-dark-2:  #5daf34;
 }
 
 /* 键盘可达性：统一 2px 强调环 */

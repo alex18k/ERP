@@ -20,7 +20,11 @@ router.get("/work-orders", requirePermission("production:view"), productionContr
 router.post("/work-orders/:workOrderId/report", requirePermission("production:report"), productionController.reportWorkHandler);
 
 // 批次物料清单 / 发料 / 入库
+router.get("/orders/:id/route", requirePermission("production:view"), productionController.orderRouteHandler);
 router.get("/batch-materials", requirePermission("production:view"), productionController.batchMaterialsHandler);
+router.post("/batches/:id/materials", requirePermission("production:manage"), productionController.createBatchMaterialHandler);
+router.put("/batch-materials/:id", requirePermission("production:manage"), productionController.updateBatchMaterialHandler);
+router.delete("/batch-materials/:id", requirePermission("production:manage"), productionController.deleteBatchMaterialHandler);
 router.get("/batches/receivable", requirePermission("production:view"), productionController.receivableBatchesHandler);
 router.get("/batches/:id/materials", requirePermission("production:view"), productionController.batchMaterialsDetailHandler);
 router.post("/batches/:id/issue", requirePermission("stock:edit"), productionController.issueBatchMaterialsHandler);

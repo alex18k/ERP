@@ -33,6 +33,7 @@ const routes = [
       { path: 'order/sales', name: 'SalesOrder', component: () => import('../views/order/sales/index.vue'), meta: { title: '销售订单' } },
       { path: 'order/print', name: 'OrderPrint', component: () => import('../views/order/print/index.vue'), meta: { title: '打印销售订单' } },
       { path: 'order/tracking', name: 'OrderTracking', component: () => import('../views/order/tracking/index.vue'), meta: { title: '订单跟踪' } },
+      { path: 'order/order-release', name: 'OrderRelease', component: () => import('../views/order/orderRelease/index.vue'), meta: { title: '销售订单下达' } },
       // MRP
       { path: 'mrp/calculate', name: 'MrpCalculate', component: () => import('../views/mrp/calculate/index.vue'), meta: { title: 'MRP运算' } },
       { path: 'mrp/shortage', name: 'MrpShortage', component: () => import('../views/mrp/shortage/index.vue'), meta: { title: '缺料预警' } },
@@ -42,6 +43,10 @@ const routes = [
       { path: 'production/work-order', name: 'WorkOrder', component: () => import('../views/production/workOrder/index.vue'), meta: { title: '加工单管理' } },
       { path: 'production/gantt', name: 'ProductionGantt', component: () => import('../views/production/gantt/index.vue'), meta: { title: '排产甘特图' } },
       { path: 'production/workshop', name: 'ProductionWorkshop', component: () => import('../views/production/workshop/index.vue'), meta: { title: '车间看板' } },
+      { path: 'production/batch-materials', name: 'ProductionBatchMaterials', component: () => import('../views/production/batchMaterials/index.vue'), meta: { title: '加工单物料清单' } },
+      { path: 'production/process-route', name: 'ProductionProcessRoute', component: () => import('../views/production/processRoute/index.vue'), meta: { title: '加工单工艺路线' } },
+      { path: 'production/process-route-print', name: 'ProductionProcessRoutePrint', component: () => import('../views/production/processRoutePrint/index.vue'), meta: { title: '工艺路线卡' } },
+      { path: 'production/batch-material-print', name: 'ProductionBatchMaterialPrint', component: () => import('../views/production/batchMaterialPrint/index.vue'), meta: { title: '加工单领料单' } },
       // 采购
       { path: 'purchase/order', name: 'PurchaseOrder', component: () => import('../views/purchase/order/index.vue'), meta: { title: '采购订单' } },
       { path: 'purchase/arrival', name: 'PurchaseArrival', component: () => import('../views/purchase/arrival/index.vue'), meta: { title: '到货跟踪' } },

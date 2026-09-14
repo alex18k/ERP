@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { productionApi, mrpApi, materialApi } from '../../../api'
+import { productionApi, mrpApi, materialApi, orderApi } from '../../../api'
 
 const loading = ref(false)
 const list = ref<any[]>([])
@@ -42,6 +42,8 @@ const manualFormRef = ref()
 const manualMaterials = ref<any[]>([])
 const manualMaterialMap = new Map<number, any>()
 const manualMaterialLoading = ref(false)
+const salesOrders = ref<any[]>([])
+const salesOrderLoading = ref(false)
 const manualForm = reactive<any>({
   materialId: null, quantity: 1, salesOrderNo: '', planStartDate: '', planEndDate: '', planner: '', releaseDate: '', remark: '',
 })
@@ -77,10 +79,23 @@ async function searchManualMaterials(keyword: string) {
   }
 }
 
+async function loadSalesOrders() {
+  salesOrderLoading.value = true
+  try {
+    const res: any = await orderApi.list({ page: 1, pageSize: 200, status: 'confirmed' })
+    salesOrders.value = res.data?.items || []
+  } catch {
+    /* ignore */
+  } finally {
+    salesOrderLoading.value = false
+  }
+}
+
 async function openManualDialog() {
   Object.assign(manualForm, { materialId: null, quantity: 1, salesOrderNo: '', planStartDate: '', planEndDate: '', planner: '', releaseDate: todayStr(), remark: '' })
   manualMaterialMap.clear()
   manualMaterials.value = []
+  loadSalesOrders()
   await searchManualMaterials('')
   manualDialogVisible.value = true
 }
@@ -163,10 +178,9 @@ async function openCreateDialog() {
   const [detail, keysRes]: any[] = await Promise.all([mrpApi.getRun(latest.id), productionApi.issuedKeys()])
   mrpRun.value = detail.data
   const issued = new Set((keysRes.data || []).map((k: any) => `${k.materialId}-${k.salesOrderId}`))
-  suggestions.value = (detail.data.result?.productionOrders || []).map((s: any) => ({
-    ...s,
-    issued: issued.has(`${s.materialId}-${s.relatedOrderId}`),
-  }))
+  suggestions.value = (detail.data.result?.productionOrders || [])
+    .filter((s: any) => !issued.has(`${s.materialId}-${s.relatedOrderId}`))
+    .map((s: any) => ({ ...s, issued: false, planEndDate: s.needDate?.slice?.(0, 10) || '' }))
   selectedProd.value = []
   createDialogVisible.value = true
 }
@@ -178,6 +192,14 @@ async function handleCreateOrders() {
   }
   creating.value = true
   try {
+    const missing = suggestions.value
+      .filter((_, i) => selectedProd.value.includes(i))
+      .filter((s) => !s.planEndDate)
+    if (missing.length > 0) {
+      ElMessage.warning('请为选中的生产建议填写计划交期')
+      creating.value = false
+      return
+    }
     const payload = suggestions.value
       .filter((_, i) => selectedProd.value.includes(i))
       .map((s) => ({
@@ -185,7 +207,7 @@ async function handleCreateOrders() {
         quantity: s.quantity,
         salesOrderId: s.relatedOrderId,
         planStartDate: new Date().toISOString().slice(0, 10),
-        planEndDate: s.needDate?.slice?.(0, 10) || undefined,
+        planEndDate: s.planEndDate,
         remark: `来自MRP建议-${s.orderNo || ''}`,
       }))
     const res: any = await productionApi.createOrders(payload)
@@ -325,10 +347,8 @@ onMounted(() => {
         </el-select>
         <el-button type="primary" @click="query.page = 1, loadData()"><el-icon><Search /></el-icon>查询</el-button>
         <el-button @click="Object.assign(query, { orderNo: '', materialName: '', status: '', page: 1 }), loadData()">重置</el-button>
-      </div>
-
-      <div class="table-toolbar">
-        <el-button type="primary" @click="openManualDialog">
+        <div style="flex: 1" />
+        <el-button type="success" plain class="btn-add" @click="openManualDialog">
           <el-icon><Plus /></el-icon>新增生产订单
         </el-button>
         <el-button type="primary" plain @click="openCreateDialog">
@@ -346,6 +366,7 @@ onMounted(() => {
         <el-table-column label="来源订单" min-width="130">
           <template #default="{ row }">
             <span v-if="row.salesOrder">{{ row.salesOrder.orderNo }}<br /><small>{{ row.salesOrder.customerName }}</small></span>
+            <span v-else-if="row.salesOrderNo">{{ row.salesOrderNo }}</span>
             <span v-else>-</span>
           </template>
         </el-table-column>
@@ -375,7 +396,7 @@ onMounted(() => {
             <el-tag :type="statusType(row.status)" size="small">{{ statusLabel(row.status) }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="210" fixed="right">
+        <el-table-column label="操作" width="110" fixed="right">
           <template #default="{ row }">
             <el-button size="small" type="primary" link @click="openEditDialog(row)">编辑</el-button>
             <el-button v-if="canSchedule(row)" size="small" type="success" link @click="handleSchedule(row)">排产</el-button>
@@ -400,7 +421,9 @@ onMounted(() => {
           <el-input-number v-model="manualForm.quantity" :min="0.01" :precision="2" style="width: 100%" />
         </el-form-item>
         <el-form-item label="销售订单号">
-          <el-input v-model="manualForm.salesOrderNo" placeholder="可选，填写销售订单号" clearable />
+          <el-select v-model="manualForm.salesOrderNo" filterable allow-create default-first-option clearable :loading="salesOrderLoading" placeholder="下拉选择已确认订单，或直接输入订单号" style="width: 100%">
+            <el-option v-for="o in salesOrders" :key="o.orderNo" :label="`${o.orderNo}（${o.customerName || '-'}）`" :value="o.orderNo" />
+          </el-select>
         </el-form-item>
         <el-form-item label="计划开始" prop="planStartDate">
           <el-date-picker v-model="manualForm.planStartDate" type="date" value-format="YYYY-MM-DD" placeholder="选择日期" style="width: 100%" />
@@ -429,20 +452,20 @@ onMounted(() => {
     <el-dialog v-model="createDialogVisible" title="从MRP建议下达生产订单" width="760px" top="6vh">
       <el-alert v-if="mrpRun" type="info" :closable="false" :title="`基于最近一次MRP运算 (#${mrpRun.runNo}) 的半成品/成品生产建议`" style="margin-bottom: 12px" />
       <el-table :data="suggestions" size="small" max-height="360" @selection-change="(v: any) => (selectedProd = v.map((r: any) => suggestions.indexOf(r)))">
-        <el-table-column type="selection" width="45" :selectable="(row: any) => !row.issued" />
+        <el-table-column type="selection" width="45" />
         <el-table-column label="物料" min-width="150">
           <template #default="{ row }">{{ row.materialCode }} - {{ row.materialName }}</template>
         </el-table-column>
         <el-table-column prop="quantity" label="建议量" width="90" />
         <el-table-column label="关联订单" min-width="130">
-          <template #default="{ row }">{{ row.orderNo || '-' }}</template>
-        </el-table-column>
-        <el-table-column label="建议交期" width="120">
-          <template #default="{ row }">{{ (row as any).needDate?.slice?.(0, 10) || '-' }}</template>
-        </el-table-column>
-        <el-table-column label="状态" width="90">
           <template #default="{ row }">
-            <el-tag :type="row.issued ? 'info' : 'success'" size="small">{{ row.issued ? '已下达' : '待下达' }}</el-tag>
+            <span v-if="row.orderNo">{{ row.orderNo }}<br /><small>{{ row.customerName || '-' }}</small></span>
+            <span v-else>-</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="计划交期" width="150">
+          <template #default="{ row }">
+            <el-date-picker v-model="row.planEndDate" type="date" value-format="YYYY-MM-DD" placeholder="必填，选择交期" style="width: 100%" />
           </template>
         </el-table-column>
       </el-table>

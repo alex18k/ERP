@@ -95,7 +95,7 @@ onMounted(loadData)
       <div class="search-bar">
         <el-input v-model="query.keyword" placeholder="编码/名称" clearable style="width: 200px" @keyup.enter="query.page = 1, loadData()" />
         <el-button type="primary" @click="query.page = 1, loadData()"><el-icon><Search /></el-icon>查询</el-button>
-        <el-button style="margin-left: auto" type="primary" @click="openDialog()"><el-icon><Plus /></el-icon>新增供应商</el-button>
+        <el-button style="margin-left: auto" type="success" plain class="btn-add" @click="openDialog()"><el-icon><Plus /></el-icon>新增供应商</el-button>
       </div>
       <el-table :data="list" v-loading="loading" stripe max-height="calc(100vh - 260px)">
         <el-table-column prop="code" label="编码" width="100" />

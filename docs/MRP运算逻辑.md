@@ -51,7 +51,12 @@
 - **采购建议**：`shortages` 中 `category = purchase` 的物料
   - 建议量 = 净需求（保留 2 位小数）
   - 供应商、提前期取物料主文件；需求日期 = 桶需求日期
-- **生产建议**：`isSemiProduct = true 且 category = manufacture` 的物料，按订单汇总数量
+  - **会合并**：同一物料的不同订单需求经订货周期分桶，周期内合并为同一条建议
+- **生产建议**：`isSemiProduct = true 且 category = manufacture` 的物料
+  - **不合并**：按（物料 × 订单）逐行生成，相同物料不同订单各一条建议
+  - 每条独立 `relatedOrderId` / `orderNo` / `customerName`，便于按订单下达与显示客户名称
+  - `needDate`（截止日期）= 关联销售订单交货期 − 该物料生产提前期（`leadTime` 天）；无交货期则为空
+  - 旧运行结果（`result` JSON 无 `needDate`）在 `GET /mrp/history/:id` 读取时回查补全，无需重跑 MRP
 - 落库：
   - 创建 `MrpRun`（含 `result` JSON：shortages / purchaseSuggestions / productionOrders）
   - 写入 `MrpShortage` 缺料明细

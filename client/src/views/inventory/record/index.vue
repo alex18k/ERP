@@ -112,7 +112,7 @@ onMounted(async () => {
   <div class="page-container">
     <div class="page-card">
       <div class="search-bar">
-        <el-button type="primary" @click="openDialog()"><el-icon><Plus /></el-icon>增加</el-button>
+        <el-button type="success" plain class="btn-add" @click="openDialog()"><el-icon><Plus /></el-icon>增加</el-button>
         <el-input v-model="query.documentNo" placeholder="单号" clearable style="width: 150px" />
         <el-input v-model="query.materialKeyword" placeholder="物料编码/名称" clearable style="width: 180px" />
         <el-select v-model="query.warehouseId" placeholder="仓库" clearable style="width: 150px">

@@ -52,7 +52,6 @@ async function handleLogin() {
           <el-icon :size="22"><Cpu /></el-icon>
         </div>
         <h1>ERP生产管理系统</h1>
-        <p>销售 · 计划 · 生产 · 采购 一体化执行中枢</p>
         <div class="brand-rule"></div>
       </div>
 
@@ -74,11 +73,6 @@ async function handleLogin() {
           </el-button>
         </el-form-item>
       </el-form>
-
-      <div class="login-hint">
-        <span class="hint-key">测试账号</span>
-        <span class="hint-val">admin / admin123</span>
-      </div>
     </div>
   </div>
 </template>

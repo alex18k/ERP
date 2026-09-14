@@ -100,7 +100,7 @@ onMounted(loadData)
       </div>
 
       <div class="table-toolbar">
-        <el-button type="primary" @click="openDialog()"><el-icon><Plus /></el-icon>新增用户</el-button>
+        <el-button type="success" plain class="btn-add" @click="openDialog()"><el-icon><Plus /></el-icon>新增用户</el-button>
       </div>
 
       <el-table :data="list" v-loading="loading" stripe max-height="calc(100vh - 260px)">

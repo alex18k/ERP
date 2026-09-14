@@ -283,7 +283,7 @@ onMounted(() => {
         <el-input v-model="query.name" placeholder="BOM名称" clearable style="width: 180px" />
         <el-button type="primary" @click="handleSearch"><el-icon><Search /></el-icon>查询</el-button>
         <el-button @click="resetQuery">重置</el-button>
-        <el-button style="margin-left: auto" type="primary" @click="openDialog()"><el-icon><Plus /></el-icon>新增BOM</el-button>
+        <el-button style="margin-left: auto" type="success" plain class="btn-add" @click="openDialog()"><el-icon><Plus /></el-icon>新增BOM</el-button>
       </div>
 
       <el-table :data="list" v-loading="loading" stripe max-height="calc(100vh - 260px)">

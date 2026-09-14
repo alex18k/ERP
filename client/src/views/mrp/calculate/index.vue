@@ -157,6 +157,16 @@ onMounted(loadData)
                 <template #default="{ row }">{{ row.materialCode }} - {{ row.materialName }}</template>
               </el-table-column>
               <el-table-column prop="suggestedQty" label="建议采购量" width="110" />
+              <el-table-column label="需求来源" min-width="180">
+                <template #default="{ row }">
+                  <template v-if="row.sourceOrders && row.sourceOrders.length">
+                    <span v-for="o in row.sourceOrders" :key="o.orderId" style="margin-right: 8px">
+                      {{ o.orderNo }} ×{{ o.quantity }}<span v-if="o.deliveryDate">({{ o.deliveryDate?.slice?.(0, 10) }})</span>
+                    </span>
+                  </template>
+                  <span v-else style="color: var(--el-text-color-secondary)">-</span>
+                </template>
+              </el-table-column>
               <el-table-column prop="leadTime" label="提前期" width="90" />
               <el-table-column label="建议日期" width="110">
                 <template #default="{ row }">{{ row.needDate?.slice?.(0, 10) || '-' }}</template>
@@ -170,6 +180,9 @@ onMounted(loadData)
               </el-table-column>
               <el-table-column prop="quantity" label="建议生产量" width="110" />
               <el-table-column prop="orderNo" label="关联订单" width="160" />
+              <el-table-column label="截止日期" width="110">
+                <template #default="{ row }">{{ row.needDate?.slice?.(0, 10) || '-' }}</template>
+              </el-table-column>
             </el-table>
           </el-tab-pane>
         </el-tabs>

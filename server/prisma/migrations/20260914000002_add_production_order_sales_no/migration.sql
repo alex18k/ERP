@@ -1,0 +1,1 @@
+ALTER TABLE "ProductionOrder" ADD COLUMN "salesOrderNo" TEXT;

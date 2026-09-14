@@ -134,7 +134,7 @@ onMounted(loadData)
         <el-input v-model="query.name" placeholder="工艺名称" clearable style="width: 180px" />
         <el-button type="primary" @click="query.page = 1, loadData()"><el-icon><Search /></el-icon>查询</el-button>
         <el-button @click="Object.assign(query, { code: '', name: '', page: 1 }), loadData()">重置</el-button>
-        <el-button style="margin-left: auto" type="primary" @click="openDialog()"><el-icon><Plus /></el-icon>新增工艺路线</el-button>
+        <el-button style="margin-left: auto" type="success" plain class="btn-add" @click="openDialog()"><el-icon><Plus /></el-icon>新增工艺路线</el-button>
       </div>
 
       <el-table :data="list" v-loading="loading" stripe max-height="calc(100vh - 260px)">

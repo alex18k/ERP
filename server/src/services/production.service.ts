@@ -60,8 +60,8 @@ export async function createProductionOrders(inputs: ProductionOrderInput[], use
   const created: any[] = [];
   const skipped: { materialId: number; salesOrderId: number | null }[] = [];
 
-  // 先全部校验（非制造类 / 销售订单号 / BOM / 工艺路线），避免中途报错留下半成品
-  const resolved: { input: ProductionOrderInput; salesOrderId: number | null }[] = [];
+  // 先全部校验（非制造类 / BOM / 工艺路线），避免中途报错留下半成品
+  const resolved: { input: ProductionOrderInput; salesOrderId: number | null; salesOrderNo: string | null }[] = [];
   for (const input of inputs) {
     const material = await prisma.material.findUnique({ where: { id: input.materialId } });
     if (!material) throw new Error(`物料ID ${input.materialId} 不存在`);
@@ -69,12 +69,12 @@ export async function createProductionOrders(inputs: ProductionOrderInput[], use
       throw new Error(`物料 ${material.code} 非制造类，不能创建生产订单`);
     }
 
-    // 销售订单：可用 id，或用「销售订单号」精确匹配
+    // 销售订单：可用 id，或用「销售订单号」精确匹配；匹配不到也不报错（允许随意输入）
     let salesOrderId = input.salesOrderId ?? null;
-    if (!salesOrderId && input.salesOrderNo && input.salesOrderNo.trim()) {
-      const so = await prisma.salesOrder.findFirst({ where: { orderNo: input.salesOrderNo.trim() } });
-      if (!so) throw new Error(`销售订单 ${input.salesOrderNo} 不存在`);
-      salesOrderId = so.id;
+    const salesOrderNo = input.salesOrderNo?.trim() || null;
+    if (!salesOrderId && salesOrderNo) {
+      const so = await prisma.salesOrder.findFirst({ where: { orderNo: salesOrderNo } });
+      if (so) salesOrderId = so.id;
     }
 
     // 必须有启用中的 BOM
@@ -93,15 +93,15 @@ export async function createProductionOrders(inputs: ProductionOrderInput[], use
     if (!route || route.status !== "active") throw new Error(`物料 ${material.code} 的工艺路线未启用，不能创建生产订单`);
     if (route.processes.length === 0) throw new Error(`物料 ${material.code} 的工艺路线没有工序，不能创建生产订单`);
 
-    resolved.push({ input, salesOrderId });
+    resolved.push({ input, salesOrderId, salesOrderNo });
   }
 
-  for (const { input, salesOrderId } of resolved) {
-    // 防重复下达：同一销售订单 + 同一物料已有未完成生产订单则跳过
+  for (const { input, salesOrderId, salesOrderNo } of resolved) {
+    // 防重复下达：同一销售订单（或同一手工销售订单号）+ 同一物料已有未完成生产订单则跳过
     const exists = await prisma.productionOrder.findFirst({
       where: {
         materialId: input.materialId,
-        salesOrderId,
+        ...(salesOrderId ? { salesOrderId } : salesOrderNo ? { salesOrderNo } : { salesOrderId: null }),
         status: { in: ["planned", "in_progress"] },
       },
     });
@@ -115,6 +115,7 @@ export async function createProductionOrders(inputs: ProductionOrderInput[], use
       data: {
         orderNo,
         salesOrderId,
+        salesOrderNo,
         materialId: input.materialId,
         quantity: input.quantity,
         planStartDate: input.planStartDate ? new Date(input.planStartDate) : null,
@@ -783,6 +784,110 @@ export async function issueBatchMaterials(
   });
 
   return { documentNo: docNo, issued, skipped };
+}
+
+// ===== 批次物料清单维护：新增 / 更新 / 删除明细行 =====
+export async function createBatchMaterial(
+  batchId: number,
+  data: { materialId?: number; requiredQty?: number; unit?: string | null; remark?: string | null }
+) {
+  const batch = await prisma.productionBatch.findUnique({ where: { id: batchId } });
+  if (!batch) throw new Error("批次不存在");
+  if (!data.materialId) throw new Error("请选择物料");
+  if (!Number.isFinite(Number(data.requiredQty)) || Number(data.requiredQty) <= 0) {
+    throw new Error("需求量必须大于0");
+  }
+  const dup = await prisma.productionBatchMaterial.findUnique({
+    where: { batchId_materialId: { batchId, materialId: data.materialId } },
+  });
+  if (dup) throw new Error("该物料已在清单中，请直接编辑");
+  const material = await prisma.material.findUnique({ where: { id: data.materialId } });
+  if (!material) throw new Error("物料不存在");
+  return prisma.productionBatchMaterial.create({
+    data: {
+      batchId,
+      materialId: data.materialId,
+      requiredQty: Number(data.requiredQty),
+      unit: data.unit || material.unit || null,
+      remark: data.remark || null,
+      status: "pending",
+    },
+    include: { material: { select: { id: true, code: true, name: true, specification: true, unit: true, location: true } } },
+  });
+}
+
+export async function updateBatchMaterial(
+  id: number,
+  data: { materialId?: number; requiredQty?: number; unit?: string | null; remark?: string | null }
+) {
+  const row = await prisma.productionBatchMaterial.findUnique({
+    where: { id },
+    include: { material: { select: { unit: true } } },
+  });
+  if (!row) throw new Error("物料行不存在");
+  if (data.materialId !== undefined && data.materialId !== row.materialId) {
+    if (row.issuedQty > 0) throw new Error("已发料的行不能更换物料");
+    const dup = await prisma.productionBatchMaterial.findUnique({
+      where: { batchId_materialId: { batchId: row.batchId, materialId: data.materialId } },
+    });
+    if (dup && dup.id !== row.id) throw new Error("该物料已在清单中");
+  }
+  const materialId = data.materialId ?? row.materialId;
+  if (data.requiredQty !== undefined && (!Number.isFinite(Number(data.requiredQty)) || Number(data.requiredQty) <= 0)) {
+    throw new Error("需求量必须大于0");
+  }
+  const requiredQty = data.requiredQty !== undefined ? Number(data.requiredQty) : row.requiredQty;
+  if (requiredQty < row.issuedQty - 1e-6) {
+    throw new Error(`需求量不能小于已发料数量（${row.issuedQty}）`);
+  }
+  const material = await prisma.material.findUnique({ where: { id: materialId } });
+  return prisma.productionBatchMaterial.update({
+    where: { id },
+    data: {
+      materialId,
+      requiredQty,
+      unit: data.unit !== undefined ? data.unit || material?.unit || null : row.unit,
+      remark: data.remark !== undefined ? data.remark || null : row.remark,
+      status: requiredQty <= row.issuedQty + 1e-6 ? "issued" : row.issuedQty > 0 ? "partial" : "pending",
+    },
+    include: { material: { select: { id: true, code: true, name: true, specification: true, unit: true, location: true } } },
+  });
+}
+
+export async function deleteBatchMaterial(id: number) {
+  const row = await prisma.productionBatchMaterial.findUnique({ where: { id } });
+  if (!row) throw new Error("物料行不存在");
+  if (row.issuedQty > 0) throw new Error("该物料已发料，不能删除");
+  await prisma.productionBatchMaterial.delete({ where: { id } });
+  return { success: true };
+}
+
+// ===== 加工单工艺路线：取订单产品的工艺路线（含工序）=====
+export async function getProductionOrderRoute(orderId: number) {
+  const order = await prisma.productionOrder.findUnique({
+    where: { id: orderId },
+    select: {
+      id: true,
+      orderNo: true,
+      materialId: true,
+      material: { select: { id: true, code: true, name: true, specification: true, processRouteId: true } },
+    },
+  });
+  if (!order) throw new Error("生产订单不存在");
+  const routeId = order.material?.processRouteId;
+  if (!routeId) {
+    return { order: { id: order.id, orderNo: order.orderNo, material: order.material }, route: null };
+  }
+  const route = await prisma.processRoute.findUnique({
+    where: { id: routeId },
+    include: {
+      processes: {
+        include: { workstation: { select: { id: true, code: true, name: true } } },
+        orderBy: { sequence: "asc" },
+      },
+    },
+  });
+  return { order: { id: order.id, orderNo: order.orderNo, material: order.material }, route };
 }
 
 export async function listReceivableBatches(where: any) {

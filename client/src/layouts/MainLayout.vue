@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { ElMessageBox } from 'element-plus'
@@ -9,24 +9,6 @@ const router = useRouter()
 const authStore = useAuthStore()
 
 const activeMenu = computed(() => route.path)
-
-const now = ref('')
-let timer: number | undefined
-
-function tick() {
-  const d = new Date()
-  const p = (n: number) => String(n).padStart(2, '0')
-  now.value = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
-}
-
-onMounted(() => {
-  tick()
-  timer = window.setInterval(tick, 1000)
-})
-
-onUnmounted(() => {
-  window.clearInterval(timer)
-})
 
 interface MenuNode {
   title: string
@@ -52,6 +34,7 @@ const menuItems: MenuNode[] = [
     icon: 'Document',
     children: [
       { path: '/order/sales', title: '销售订单', icon: 'Tickets' },
+      { path: '/order/order-release', title: '销售订单下达', icon: 'Promotion' },
       { path: '/order/tracking', title: '订单跟踪', icon: 'Position' },
       { path: '/base/customer', title: '客户管理', icon: 'User' },
     ],
@@ -71,6 +54,8 @@ const menuItems: MenuNode[] = [
     children: [
       { path: '/production/order', title: '生产订单', icon: 'Files' },
       { path: '/production/work-order', title: '加工单管理', icon: 'Tickets' },
+      { path: '/production/batch-materials', title: '加工单物料清单', icon: 'List' },
+      { path: '/production/process-route', title: '加工单工艺路线', icon: 'List' },
       { path: '/production/gantt', title: '排产甘特图', icon: 'Histogram' },
       { path: '/production/workshop', title: '车间看板', icon: 'Monitor' },
     ],
@@ -204,16 +189,8 @@ async function handleLogout() {
           </el-breadcrumb>
         </div>
         <div class="header-right">
-          <div class="sys-status" :title="'系统在线'">
-            <span class="status-lamp"></span>
-            <span class="status-text">系统运行中</span>
-          </div>
-          <span class="clock" v-if="now">{{ now }}</span>
           <el-dropdown>
             <span class="user-info">
-              <el-avatar :size="28" class="user-avatar">
-                {{ authStore.user?.realName?.charAt(0) || 'U' }}
-              </el-avatar>
               <span class="username">{{ authStore.user?.realName }}</span>
               <el-icon class="user-caret"><ArrowDown /></el-icon>
             </span>
@@ -326,7 +303,6 @@ async function handleLogout() {
 }
 
 .side-menu :deep(.el-menu-item.is-active) {
-  background: var(--el-color-primary-light-9);
   color: #1f5e9e;
   font-weight: 600;
   box-shadow: inset 3px 0 0 0 var(--erp-blue);
@@ -346,7 +322,6 @@ async function handleLogout() {
 }
 
 .side-menu :deep(.el-sub-menu .el-menu-item.is-active) {
-  background: var(--el-color-primary-light-9);
   color: #1f5e9e;
   box-shadow: inset 3px 0 0 0 var(--erp-blue);
 }
@@ -363,8 +338,7 @@ async function handleLogout() {
   border-top: 1px solid #d0dbe8;
 }
 
-.foot-lamp,
-.status-lamp {
+.foot-lamp {
   width: 8px;
   height: 8px;
   border-radius: 50%;
@@ -417,29 +391,6 @@ async function handleLogout() {
   gap: 20px;
 }
 
-.sys-status {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  padding: 5px 12px;
-  border: 1px solid var(--erp-hairline);
-  border-radius: 999px;
-  background: var(--erp-surface);
-}
-
-.status-text {
-  font-size: 12px;
-  color: var(--erp-inktext);
-  letter-spacing: 0.04em;
-}
-
-.clock {
-  font-size: 12px;
-  color: var(--erp-steel);
-  font-variant-numeric: tabular-nums;
-  letter-spacing: 0.03em;
-}
-
 .user-info {
   display: flex;
   align-items: center;
@@ -456,12 +407,6 @@ async function handleLogout() {
   background: var(--el-fill-color-light);
 }
 
-.user-avatar {
-  background: linear-gradient(180deg, #4a94e0, #2f77cc);
-  font-size: 14px;
-  font-weight: 600;
-}
-
 .username {
   font-size: 13px;
   color: var(--erp-inktext);
@@ -476,8 +421,6 @@ async function handleLogout() {
 }
 
 @media (max-width: 900px) {
-  .clock,
-  .status-text,
   .logo-tick {
     display: none;
   }

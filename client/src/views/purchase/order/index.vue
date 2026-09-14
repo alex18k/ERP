@@ -40,12 +40,12 @@ function todayStr() {
 
 const settleMethodOptions = ['现金', '月结', '月结30天', '月结60天', '货到付款', '预付款', '其他']
 
-const rules = {
+const rules = computed(() => ({
   supplierId: [{ required: true, message: '请选择供应商', trigger: 'change' }],
   orderDate: [{ required: true, message: '请选择订货日期', trigger: 'change' }],
-  expectedDate: [{ required: true, message: '请选择截止日期', trigger: 'change' }],
+  expectedDate: isEditLoad.value ? [] : [{ required: true, message: '请选择截止日期', trigger: 'change' }],
   buyer: [{ required: true, message: '请输入采购员', trigger: 'blur' }],
-}
+}))
 
 async function loadData() {
   loading.value = true
@@ -63,11 +63,17 @@ function statusType(s: string) {
   return statusOptions.find(o => o.value === s)?.type || 'info'
 }
 
-// 平铺明细行：每行 = 一个采购明细
+// 平铺明细行：每行 = 一个采购明细；有物料关键词时只保留匹配的明细行
 const rows = computed(() => {
+  const keyword = (query.materialKeyword || '').trim()
   const out: any[] = []
   for (const o of list.value) {
     for (const it of (o.items || [])) {
+      const m = it.material
+      if (keyword && m) {
+        const hit = [m.code, m.name, m.specification].some((v) => v && String(v).toLowerCase().includes(keyword.toLowerCase()))
+        if (!hit) continue
+      }
       out.push({
         orderId: o.id,
         orderNo: o.orderNo,
@@ -76,9 +82,9 @@ const rows = computed(() => {
         buyer: o.buyer,
         status: o.status,
         orderDate: o.orderDate,
-        materialCode: it.material?.code,
-        materialName: it.material?.name,
-        specification: it.material?.specification,
+        materialCode: m?.code,
+        materialName: m?.name,
+        specification: m?.specification,
         quantity: it.quantity,
         receivedQty: it.receivedQty ?? 0,
         unitPrice: it.unitPrice,
@@ -332,7 +338,7 @@ onMounted(loadData)
         <el-input v-model="query.materialKeyword" placeholder="物料编码/名称/规格" clearable style="width: 200px" />
         <el-button type="primary" @click="query.page = 1, loadData()"><el-icon><Search /></el-icon>查询</el-button>
         <el-button @click="Object.assign(query, { orderNo: '', supplierId: '', status: '', materialKeyword: '', page: 1 }), loadData()">重置</el-button>
-        <el-button style="margin-left: auto" type="primary" @click="openDialog()"><el-icon><Plus /></el-icon>新增采购单</el-button>
+        <el-button style="margin-left: auto" type="success" plain class="btn-add" @click="openDialog()"><el-icon><Plus /></el-icon>新增采购单</el-button>
       </div>
 
       <div class="table-toolbar">

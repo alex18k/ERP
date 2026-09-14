@@ -331,6 +331,7 @@ model ProductionOrder {
   orderNo          String                   @unique
   salesOrderId     Int?
   salesOrder       SalesOrder?              @relation(fields: [salesOrderId], references: [id])
+  salesOrderNo     String? // 手工输入的销售订单号（允许非系统订单）
   materialId       Int
   material         Material                 @relation(fields: [materialId], references: [id])
   quantity         Float

@@ -126,6 +126,15 @@ export async function listReportHandler(req: Request, res: Response) {
   }
 }
 // ===== 批次物料清单 / 领料 / 入库 =====
+export async function orderRouteHandler(req: Request, res: Response) {
+  try {
+    const data = await productionService.getProductionOrderRoute(Number(req.params.id));
+    return success(res, data);
+  } catch (error: any) {
+    return fail(res, 400, error.message);
+  }
+}
+
 export async function batchMaterialsHandler(req: Request, res: Response) {
   try {
     const data = await productionService.listBatchMaterials(req.query as any);
@@ -155,6 +164,33 @@ export async function batchMaterialsDetailHandler(req: Request, res: Response) {
   try {
     const data = await productionService.getBatchMaterials(Number(req.params.id));
     return success(res, data);
+  } catch (error: any) {
+    return fail(res, 400, error.message);
+  }
+}
+
+export async function createBatchMaterialHandler(req: AuthRequest, res: Response) {
+  try {
+    const data = await productionService.createBatchMaterial(Number(req.params.id), req.body);
+    return success(res, data, "物料行已添加");
+  } catch (error: any) {
+    return fail(res, 400, error.message);
+  }
+}
+
+export async function updateBatchMaterialHandler(req: Request, res: Response) {
+  try {
+    const data = await productionService.updateBatchMaterial(Number(req.params.id), req.body);
+    return success(res, data, "物料行已更新");
+  } catch (error: any) {
+    return fail(res, 400, error.message);
+  }
+}
+
+export async function deleteBatchMaterialHandler(req: Request, res: Response) {
+  try {
+    const data = await productionService.deleteBatchMaterial(Number(req.params.id));
+    return success(res, data, "物料行已删除");
   } catch (error: any) {
     return fail(res, 400, error.message);
   }

@@ -33,13 +33,8 @@ const shortcuts = [
       <div class="strip-main">
         <div class="strip-icon"><el-icon :size="20"><Cpu /></el-icon></div>
         <div>
-          <div class="strip-title">欢迎回到制造系统</div>
-          <div class="strip-desc">以 MRP 为引擎，打通销售 → 计划 → 生产 → 采购全流程</div>
+          <div class="strip-title">概览</div>
         </div>
-      </div>
-      <div class="strip-side">
-        <span class="strip-lamp"></span>
-        <span>系统运行中</span>
       </div>
     </div>
 
@@ -123,39 +118,6 @@ const shortcuts = [
   font-weight: 700;
   color: var(--erp-inktext);
   letter-spacing: 0.01em;
-}
-
-.strip-desc {
-  margin-top: 4px;
-  color: var(--erp-steel);
-  font-size: 13px;
-}
-
-.strip-side {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 12px;
-  color: var(--erp-inktext);
-  letter-spacing: 0.04em;
-  padding: 6px 14px;
-  border: 1px solid var(--erp-hairline);
-  border-radius: 999px;
-  background: var(--erp-surface);
-}
-
-.strip-lamp {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--erp-green);
-  box-shadow: 0 0 6px rgba(62, 124, 79, 0.9);
-  animation: pulse 2.4s ease-in-out infinite;
-}
-
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.45; }
 }
 
 .cut {

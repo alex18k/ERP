@@ -287,7 +287,7 @@ const flatRows = computed(() =>
         <el-button type="primary" @click="query.page = 1, loadData()"><el-icon><Search /></el-icon>查询</el-button>
         <el-button @click="Object.assign(query, { orderNo: '', customerName: '', status: '', page: 1 }), loadData()">重置</el-button>
         <div style="flex: 1" />
-        <el-button type="primary" @click="openDialog()"><el-icon><Plus /></el-icon>新增订单</el-button>
+        <el-button type="success" plain class="btn-add" @click="openDialog()"><el-icon><Plus /></el-icon>新增订单</el-button>
         <el-button @click="orderApi.exportCsv()"><el-icon><Download /></el-icon>导出</el-button>
       </div>
 

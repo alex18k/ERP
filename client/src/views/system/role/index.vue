@@ -85,7 +85,7 @@ onMounted(loadData)
       <div class="table-toolbar">
         <span class="toolbar-title">角色与权限</span>
         <div style="flex: 1" />
-        <el-button type="primary" @click="openDialog()"><el-icon><Plus /></el-icon>新增角色</el-button>
+        <el-button type="success" plain class="btn-add" @click="openDialog()"><el-icon><Plus /></el-icon>新增角色</el-button>
         <el-button @click="loadData"><el-icon><Refresh /></el-icon>刷新</el-button>
       </div>
 

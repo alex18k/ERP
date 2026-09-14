@@ -79,7 +79,7 @@ onMounted(loadData)
           <el-option v-for="w in workshops" :key="w.id" :label="w.name" :value="w.id" />
         </el-select>
         <el-button type="primary" @click="loadData"><el-icon><Search /></el-icon>查询</el-button>
-        <el-button style="margin-left: auto" type="primary" @click="openDialog()"><el-icon><Plus /></el-icon>新增工位</el-button>
+        <el-button style="margin-left: auto" type="success" plain class="btn-add" @click="openDialog()"><el-icon><Plus /></el-icon>新增工位</el-button>
       </div>
       <el-table :data="list" v-loading="loading" stripe max-height="calc(100vh - 260px)">
         <el-table-column prop="code" label="工位编码" width="110" />
