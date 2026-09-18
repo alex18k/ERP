@@ -123,8 +123,8 @@ export async function updateProcessRoute(id: number, data: Partial<ProcessRouteC
       const existing = await tx.processStep.findMany({ where: { routeId: id }, select: { id: true } });
       const toDelete = existing.filter((e) => !incomingIds.includes(e.id)).map((e) => e.id);
       if (toDelete.length > 0) {
-        const referenced = await tx.processRouteAssignment.count({ where: { processStepId: { in: toDelete } } });
-        if (referenced > 0) throw new Error("该工艺路线的部分工序已被加工单使用，无法删除");
+        const referenced = await tx.productionOrderStep.count({ where: { sourceStepId: { in: toDelete } } });
+        if (referenced > 0) throw new Error("该工艺路线的部分工序已被生产订单工艺路线引用，无法删除");
         await tx.processStep.deleteMany({ where: { id: { in: toDelete } } });
       }
       for (const p of data.processes) {
@@ -155,8 +155,8 @@ export async function deleteProcessRoute(id: number) {
   const exists = await prisma.processRoute.findUnique({ where: { id } });
   if (!exists) throw new Error("工艺路线不存在");
 
-  const used = await prisma.workOrder.count({ where: { processRouteId: id } });
-  if (used > 0) throw new Error("工艺路线已被加工单使用，无法删除");
+  const used = await prisma.productionOrderRoute.count({ where: { sourceRouteId: id } });
+  if (used > 0) throw new Error("工艺路线已被生产订单使用，无法删除");
 
   const usedByMaterials = await prisma.material.count({ where: { processRouteId: id } });
   if (usedByMaterials > 0) throw new Error(`工艺路线已被 ${usedByMaterials} 个物料引用，无法删除`);

@@ -52,7 +52,7 @@ export async function outHandler(req: AuthRequest, res: Response) {
 
 export async function alertHandler(req: Request, res: Response) {
   try {
-    const data = await stockService.getStockAlerts();
+    const data = await stockService.getStockAlerts(req.query as any);
     return success(res, data);
   } catch (error: any) {
     return fail(res, 500, error.message, 500);

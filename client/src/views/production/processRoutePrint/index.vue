@@ -1,14 +1,22 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import QRCode from 'qrcode'
 import { productionApi } from '../../../api'
 
 const route = useRoute()
 const router = useRouter()
 const order = ref<any>(null)
 const routeInfo = ref<any>(null)
+const qrDataUrl = ref('')
 
 const COMPANY_NAME = '肇庆市博士芯电子科技有限公司'
+const REPORT_BASE_URL = 'http://134.175.22.157:63130'
+
+async function renderQrCode(orderNo: string) {
+  const url = `${REPORT_BASE_URL}/m/report?orderNo=${encodeURIComponent(orderNo)}`
+  qrDataUrl.value = await QRCode.toDataURL(url, { width: 160, margin: 1 })
+}
 
 function fmt(d: string | null | undefined) {
   return d ? String(d).slice(0, 10) : '-'
@@ -33,6 +41,7 @@ onMounted(async () => {
   order.value = found
   const res: any = await productionApi.orderRoute(found.id)
   routeInfo.value = res.data.route
+  await renderQrCode(found.orderNo)
 })
 </script>
 
@@ -50,6 +59,10 @@ onMounted(async () => {
         <div class="sh-title">工艺路线卡</div>
         <div class="sh-meta">
           <div><span>打印日期</span><b>{{ todayStr }}</b></div>
+        </div>
+        <div class="sh-qr">
+          <img v-if="qrDataUrl" :src="qrDataUrl" alt="报工二维码" />
+          <div class="sh-qr-cap">扫码报工</div>
         </div>
       </div>
 
@@ -118,6 +131,12 @@ onMounted(async () => {
 .sh-meta { text-align: right; font-size: 12px; color: #5a6874; }
 .sh-meta div span { display: inline-block; min-width: 56px; color: #8a97a8; }
 .sh-meta b { font-weight: 600; color: #000; }
+.sh-qr { text-align: center; }
+.sh-qr img {
+  width: 104px; height: 104px; display: block; padding: 3px;
+  background: #fff; border: 1px solid #d5dde8; box-sizing: border-box;
+}
+.sh-qr-cap { font-size: 11px; color: #5a6874; margin-top: 3px; letter-spacing: 1px; }
 .sh-info {
   display: flex; flex-wrap: wrap; gap: 4px 18px;
   margin: 16px 0; font-size: 12.5px;
@@ -145,6 +164,7 @@ onMounted(async () => {
   .route-sheet { border: none; box-shadow: none; padding: 10mm; }
   .sh-items thead { display: table-header-group; }
   .sh-items th, .sh-items td { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .sh-qr img { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   .sh-info { break-inside: avoid; }
 }
 </style>

@@ -1,23 +1,45 @@
 <script setup lang="ts">
-import { ref } from 'vue'
-import { stockApi } from '../../../../api'
+import { ref, reactive, onMounted } from 'vue'
+import { stockApi, materialApi } from '../../../../api'
 
 const loading = ref(false)
 const list = ref<any[]>([])
-const summary = ref({ critical: 0, warning: 0, total: 0 })
+const materialTypes = ref<string[]>([])
+const query = reactive({ materialType: '', keyword: '' })
+
+async function loadMaterialTypes() {
+  try {
+    const res: any = await materialApi.types()
+    materialTypes.value = res.data || []
+  } catch {
+    materialTypes.value = []
+  }
+}
 
 async function loadData() {
   loading.value = true
   try {
-    const res: any = await stockApi.alert()
+    const params: any = {}
+    if (query.materialType) params.materialType = query.materialType
+    if (query.keyword) params.keyword = query.keyword
+    const res: any = await stockApi.alert(params)
     list.value = res.data
-    summary.value.total = res.data.length
-    summary.value.critical = res.data.filter((i: any) => i.level === 'critical').length
-    summary.value.warning = res.data.filter((i: any) => i.level === 'warning').length
   } finally { loading.value = false }
 }
 
-loadData()
+function search() {
+  loadData()
+}
+
+function resetQuery() {
+  Object.assign(query, { materialType: '', keyword: '' })
+  loadData()
+}
+
+onMounted(async () => {
+  await loadMaterialTypes()
+  await loadData()
+})
 </script>
 
 <template>
@@ -25,39 +47,27 @@ loadData()
     <div class="page-card" style="margin-bottom: 16px">
       <div class="search-bar">
         <span class="toolbar-title">库存预警</span>
+        <el-select v-model="query.materialType" placeholder="物料类别" clearable filterable style="width: 170px">
+          <el-option v-for="t in materialTypes" :key="t" :label="t" :value="t" />
+        </el-select>
+        <el-input v-model="query.keyword" placeholder="物料号/名称/规格型号" clearable style="width: 220px" @keyup.enter="search" />
+        <el-button type="primary" @click="search"><el-icon><Search /></el-icon>查询</el-button>
+        <el-button @click="resetQuery">重置</el-button>
         <div style="flex: 1" />
         <el-button type="primary" size="small" @click="loadData">刷新</el-button>
       </div>
     </div>
 
-    <el-row :gutter="16" style="margin-bottom: 16px">
-      <el-col :span="8">
-        <div class="stat-card red">
-          <div class="stat-label">预警物料数</div>
-          <div class="stat-value" style="color: var(--el-color-danger)">{{ summary.total }}</div>
-          <div class="stat-sub">低于安全库存的物料</div>
-        </div>
-      </el-col>
-      <el-col :span="8">
-        <div class="stat-card">
-          <div class="stat-label">告急</div>
-          <div class="stat-value" style="color: var(--el-color-danger)">{{ summary.critical }}</div>
-          <div class="stat-sub">现有量为 0</div>
-        </div>
-      </el-col>
-      <el-col :span="8">
-        <div class="stat-card orange">
-          <div class="stat-label">警告</div>
-          <div class="stat-value" style="color: var(--erp-amber)">{{ summary.warning }}</div>
-          <div class="stat-sub">低于安全库存但非零</div>
-        </div>
-      </el-col>
-    </el-row>
-
     <div class="page-card">
       <el-table :data="list" size="small">
         <el-table-column prop="materialCode" label="物料编码" width="150" />
         <el-table-column prop="materialName" label="物料名称" min-width="180" show-overflow-tooltip />
+        <el-table-column prop="specification" label="规格型号" min-width="180" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.specification || '-' }}</template>
+        </el-table-column>
+        <el-table-column prop="materialType" label="物料类别" width="140">
+          <template #default="{ row }">{{ row.materialType || '-' }}</template>
+        </el-table-column>
         <el-table-column label="预警级别" width="100" align="center">
           <template #default="{ row }">
             <el-tag :type="row.level === 'critical' ? 'danger' : 'warning'" size="small">

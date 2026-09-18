@@ -23,7 +23,7 @@ export async function getHandler(req: Request, res: Response) {
 
 export async function productOptionsHandler(req: Request, res: Response) {
   try {
-    const data = await bomService.bomProductOptions();
+    const data = await bomService.bomProductOptions(req.query as any);
     return success(res, data);
   } catch (error: any) {
     return fail(res, 500, error.message, 500);

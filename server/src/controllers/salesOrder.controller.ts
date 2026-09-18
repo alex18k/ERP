@@ -45,7 +45,7 @@ export async function getHandler(req: Request, res: Response) {
 export async function createHandler(req: AuthRequest, res: Response) {
   try {
     const data = await orderService.createOrder(req.body, req.user!.id);
-    return success(res, data, "创建成功");
+    return success(res, data, "创建成功，订单已确认");
   } catch (error: any) {
     return fail(res, 400, error.message);
   }

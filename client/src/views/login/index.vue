@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { ref, reactive } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { useAuthStore } from '../../stores/auth'
 
+const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
 
@@ -29,7 +30,8 @@ async function handleLogin() {
   try {
     await authStore.login(form.username, form.password)
     ElMessage.success('登录成功')
-    router.push('/dashboard')
+    const redirect = String(route.query.redirect || '')
+    router.push(redirect && redirect.startsWith('/') ? redirect : '/dashboard')
   } catch (e: any) {
     // 错误已由拦截器处理
   } finally {

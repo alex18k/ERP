@@ -54,20 +54,25 @@ export async function getProductionReport(q: ReportQuery) {
       reportTime: from || to ? { gte: from ?? undefined, lte: to ?? undefined } : undefined,
     },
     include: {
-      workOrder: {
-        include: {
-          workstation: { select: { id: true, name: true, code: true } },
-          productionOrder: { include: { material: { select: { id: true, name: true, code: true, category: true } } } },
-        },
-      },
       reporter: { select: { id: true, realName: true } },
     },
     orderBy: { reportTime: "asc" },
   });
 
+  // 工序名映射（processStepId → ProductionOrderStep）
+  const stepIds = [...new Set(reports.map((r) => r.processStepId))];
+  const stepMap = new Map<number, string>();
+  if (stepIds.length) {
+    const steps = await prisma.productionOrderStep.findMany({
+      where: { id: { in: stepIds } },
+      select: { id: true, code: true, name: true },
+    });
+    for (const s of steps) stepMap.set(s.id, `${s.code} ${s.name}`);
+  }
+
   const outputByBucket = new Map<string, number>();
   const scrapByBucket = new Map<string, number>();
-  const workstationMap = new Map<string, number>();
+  const stepMap_rank = new Map<string, number>();
   const operatorMap = new Map<string, number>();
 
   let reportCount = reports.length;
@@ -81,8 +86,8 @@ export async function getProductionReport(q: ReportQuery) {
     outputQty += r.quantity;
     scrapQty += r.scrapQty;
 
-    const wsName = r.workOrder?.workstation?.name ?? "未分配";
-    workstationMap.set(wsName, (workstationMap.get(wsName) ?? 0) + r.quantity);
+    const stepName = stepMap.get(r.processStepId) ?? "未知工序";
+    stepMap_rank.set(stepName, (stepMap_rank.get(stepName) ?? 0) + r.quantity);
 
     const reporterName = r.reporter?.realName ?? "未知";
     operatorMap.set(reporterName, (operatorMap.get(reporterName) ?? 0) + r.quantity);
@@ -111,7 +116,7 @@ export async function getProductionReport(q: ReportQuery) {
     outputSeries,
     scrapSeries,
     yieldSeries,
-    workstationRank: statusRank(workstationMap),
+    processStepRank: statusRank(stepMap_rank),
     operatorRank: statusRank(operatorMap),
   };
 }

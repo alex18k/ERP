@@ -43,7 +43,6 @@ const settleMethodOptions = ['现金', '月结', '月结30天', '月结60天', '
 const rules = computed(() => ({
   supplierId: [{ required: true, message: '请选择供应商', trigger: 'change' }],
   orderDate: [{ required: true, message: '请选择订货日期', trigger: 'change' }],
-  expectedDate: isEditLoad.value ? [] : [{ required: true, message: '请选择截止日期', trigger: 'change' }],
   buyer: [{ required: true, message: '请输入采购员', trigger: 'blur' }],
 }))
 

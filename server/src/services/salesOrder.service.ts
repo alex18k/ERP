@@ -49,7 +49,7 @@ export async function listOrders(where: any) {
     };
   }
 
-  // 逾期订单优先显示
+  // 按订单号从大到小排序
   const [total, items] = await Promise.all([
     prisma.salesOrder.count({ where: filters }),
     prisma.salesOrder.findMany({
@@ -61,7 +61,7 @@ export async function listOrders(where: any) {
         },
         productionOrders: { select: { id: true, orderNo: true, status: true } },
       },
-      orderBy: [{ status: "asc" }, { deliveryDate: "asc" }],
+      orderBy: { orderNo: "desc" },
       skip: (Number(page) - 1) * Number(pageSize),
       take: Number(pageSize),
     }),
@@ -82,17 +82,25 @@ export async function getOrder(id: number) {
       productionOrders: {
         include: {
           material: true,
-          workOrders: { include: { workstation: true } },
+          batches: { where: { status: { not: "cancelled" } }, orderBy: { batchNo: "asc" } },
         },
       },
     },
   });
 }
 
+function assertDeliveryNotBeforeOrder(orderDate?: string | Date | null, deliveryDate?: string | Date | null) {
+  if (!orderDate || !deliveryDate) return;
+  if (new Date(deliveryDate) < new Date(orderDate)) {
+    throw new Error("交货日期不能早于订货日期");
+  }
+}
+
 export async function createOrder(data: SalesOrderCreateInput, userId: number) {
   if (!data.items || data.items.length === 0) {
     throw new Error("订单至少需要一个产品明细");
   }
+  assertDeliveryNotBeforeOrder(data.orderDate, data.deliveryDate);
 
   for (const item of data.items) {
     const exists = await prisma.material.findUnique({ where: { id: item.materialId } });
@@ -119,7 +127,7 @@ export async function createOrder(data: SalesOrderCreateInput, userId: number) {
         deliveryDate: data.deliveryDate ? new Date(data.deliveryDate) : null,
         remark: data.remark,
         totalAmount,
-        status: "draft",
+        status: "confirmed",
         createdBy: userId,
       },
     });
@@ -156,6 +164,7 @@ export async function updateOrder(id: number, data: Partial<SalesOrderCreateInpu
   if (exists.status === "shipped" || exists.status === "cancelled") {
     throw new Error("已发货或已取消的订单不能修改");
   }
+  assertDeliveryNotBeforeOrder(data.orderDate ?? exists.orderDate, data.deliveryDate ?? exists.deliveryDate);
 
   return prisma.$transaction(async (tx) => {
     const totalAmount = data.items
@@ -178,6 +187,7 @@ export async function updateOrder(id: number, data: Partial<SalesOrderCreateInpu
         deliveryDate: data.deliveryDate ? new Date(data.deliveryDate) : exists.deliveryDate,
         remark: data.remark,
         totalAmount,
+        status: exists.status === "draft" ? "confirmed" : undefined,
       },
     });
 
@@ -231,21 +241,21 @@ export async function getDownstreamInfo(id: number) {
   const planned = productionOrders.filter((p) => p.status === "planned");
   const inProgress = productionOrders.filter((p) => p.status === "in_progress");
 
-  let pendingWorkOrderCount = 0;
+  let pendingBatchCount = 0;
   const cancelScope = new Map<number, "all" | "pendingOnly">();
   for (const p of planned) cancelScope.set(p.id, "all");
   for (const p of inProgress) cancelScope.set(p.id, "pendingOnly");
   if (cancelScope.size > 0) {
-    pendingWorkOrderCount = await prisma.workOrder.count({
-      where: { productionOrderId: { in: [...cancelScope.keys()] }, status: "pending" },
+    pendingBatchCount = await prisma.productionBatch.count({
+      where: { productionOrderId: { in: [...cancelScope.keys()] }, status: "planned" },
     });
   }
 
   return {
     productionOrders,
     plannedCount: planned.length, // 未开工生产订单：可整单取消
-    inProgressCount: inProgress.length, // 加工中生产订单：仅可取消未开工工单
-    pendingWorkOrderCount,
+    inProgressCount: inProgress.length, // 加工中生产订单：仅可取消未开工批次
+    pendingBatchCount,
     canCancelProduction: cancelScope.size > 0,
   };
 }
@@ -258,7 +268,7 @@ export async function cancelOrder(id: number, opts?: { cancelProduction?: boolea
 
   return prisma.$transaction(async (tx) => {
     if (opts?.cancelProduction) {
-      // 未开工的生产订单：整单取消（含其全部待开工工单）
+      // 未开工的生产订单：整单取消（含其全部批次）
       const planned = await tx.productionOrder.findMany({
         where: { salesOrderId: id, status: "planned" },
         select: { id: true },
@@ -269,20 +279,20 @@ export async function cancelOrder(id: number, opts?: { cancelProduction?: boolea
           where: { id: { in: ids } },
           data: { status: "cancelled" },
         });
-        await tx.workOrder.updateMany({
-          where: { productionOrderId: { in: ids }, status: "pending" },
+        await tx.productionBatch.updateMany({
+          where: { productionOrderId: { in: ids }, status: { in: ["planned", "in_progress"] } },
           data: { status: "cancelled" },
         });
       }
 
-      // 已开工的生产订单：保留订单，仅取消其未开工的加工单
+      // 已开工的生产订单：保留订单，仅取消其未开工的批次
       const inProgress = await tx.productionOrder.findMany({
         where: { salesOrderId: id, status: "in_progress" },
         select: { id: true },
       });
       if (inProgress.length > 0) {
-        await tx.workOrder.updateMany({
-          where: { productionOrderId: { in: inProgress.map((p) => p.id) }, status: "pending" },
+        await tx.productionBatch.updateMany({
+          where: { productionOrderId: { in: inProgress.map((p) => p.id) }, status: "planned" },
           data: { status: "cancelled" },
         });
       }
@@ -357,40 +367,94 @@ export async function getOrderTrack(id: number) {
       productionOrders: {
         include: {
           material: true,
-          workOrders: {
-            include: {
-              workstation: true,
-              assignments: { include: { processStep: true } },
-            },
-          },
+          batches: { where: { status: { not: "cancelled" } }, orderBy: { batchNo: "asc" } },
+          orderRoute: { include: { steps: { orderBy: { sequence: "asc" } } } },
         },
       },
     },
   });
   if (!order) throw new Error("订单不存在");
 
+  // 汇总各批次各工序的报工量
+  const batchIds = order.productionOrders.flatMap((po) => po.batches.map((b) => b.id));
+  const grouped = batchIds.length
+    ? await prisma.workReport.groupBy({
+        by: ["batchId", "processStepId"],
+        where: { batchId: { in: batchIds } },
+        _sum: { quantity: true },
+      })
+    : [];
+  const qtyMap = new Map<string, number>();
+  for (const g of grouped) qtyMap.set(`${g.batchId}:${g.processStepId}`, g._sum.quantity ?? 0);
+
+  // 本订单各批次的成品/半成品入库记录（生产入库 RCT-WO）
+  const receiptRecords = batchIds.length
+    ? await prisma.stockRecord.findMany({
+        where: { relatedType: "ProductionBatch", relatedId: { in: batchIds }, type: "in" },
+        include: {
+          material: { select: { id: true, code: true, name: true, unit: true } },
+          warehouse: { select: { id: true, code: true, name: true } },
+          operator: { select: { id: true, realName: true } },
+          transactionType: { select: { id: true, code: true, description: true } },
+        },
+        orderBy: { createdAt: "desc" },
+      })
+    : [];
+
   return {
     order,
     statusNodes: buildStatusTrack(order.status),
-    productionProgress: order.productionOrders.map((po) => ({
-      productionOrderNo: po.orderNo,
-      materialCode: po.material.code,
-      materialName: po.material.name,
-      quantity: po.quantity,
-      completedQty: po.workOrders.reduce((s, w) => s + w.actualQty, 0),
-      status: po.status,
-      workOrderCount: po.workOrders.length,
-      planStartDate: po.planStartDate,
-      planEndDate: po.planEndDate,
-      workOrders: po.workOrders.map((w) => ({
-        orderNo: w.orderNo,
-        processStep: w.assignments?.[0]?.processStep?.name ?? "",
-        workstation: w.workstation?.name ?? "",
-        plannedQty: w.plannedQty,
-        actualQty: w.actualQty,
-        status: w.status,
-      })),
+    receipts: receiptRecords.map((r) => ({
+      id: r.id,
+      documentNo: r.documentNo,
+      transactionTypeName: r.transactionType?.description ?? r.transactionType?.code ?? "生产入库",
+      materialCode: r.material.code,
+      materialName: r.material.name,
+      unit: r.material.unit,
+      warehouseCode: r.warehouse?.code ?? null,
+      warehouseName: r.warehouse?.name ?? null,
+      quantity: r.quantity,
+      operatorName: r.operator?.realName ?? "-",
+      effectiveDate: r.effectiveDate,
+      createdAt: r.createdAt,
+      remark: r.remark,
     })),
+    productionProgress: order.productionOrders.map((po) => {
+      const steps = po.orderRoute?.steps ?? [];
+      const lastStep = steps.length ? steps.reduce((a, b) => (b.sequence > a.sequence ? b : a)) : null;
+      const completedQty = po.batches.reduce((sum, b) => {
+        const lastQty = lastStep ? qtyMap.get(`${b.id}:${lastStep.id}`) ?? 0 : 0;
+        return sum + Math.min(lastQty, b.quantity);
+      }, 0);
+      return {
+        productionOrderNo: po.orderNo,
+        materialCode: po.material.code,
+        materialName: po.material.name,
+        quantity: po.quantity,
+        completedQty,
+        status: po.status,
+        batchCount: po.batches.length,
+        planStartDate: po.planStartDate,
+        planEndDate: po.planEndDate,
+        batches: po.batches.map((b) => ({
+          batchId: b.id,
+          batchNo: b.batchNo,
+          quantity: b.quantity,
+          completedQty: lastStep ? Math.min(qtyMap.get(`${b.id}:${lastStep.id}`) ?? 0, b.quantity) : 0,
+          receivedQty: b.receivedQty,
+          status: b.status,
+          planStartDate: b.planStartDate,
+          planEndDate: b.planEndDate,
+          steps: steps.map((s) => ({
+            id: s.id,
+            code: s.code,
+            name: s.name,
+            sequence: s.sequence,
+            reportedQty: qtyMap.get(`${b.id}:${s.id}`) ?? 0,
+          })),
+        })),
+      };
+    }),
   };
 }
 

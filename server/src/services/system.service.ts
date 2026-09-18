@@ -34,6 +34,14 @@ export async function listUsers(where: any) {
   return { total, page: Number(page), pageSize: Number(pageSize), items };
 }
 
+export async function listSalespersons() {
+  return prisma.user.findMany({
+    where: { status: 1, userRoles: { some: { role: { code: "SALES" } } } },
+    select: { id: true, username: true, realName: true },
+    orderBy: { id: "asc" },
+  });
+}
+
 export async function createUser(data: { username: string; password: string; realName: string; email?: string; phone?: string; departmentId?: number; roleIds?: number[] }) {
   if (!data.username || !data.password || !data.realName) throw new Error("用户名、密码、姓名不能为空");
 

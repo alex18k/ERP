@@ -119,6 +119,16 @@ async function main() {
       dataScope: "department",
     },
   });
+  const rolePlanner = await prisma.role.upsert({
+    where: { code: "PLANNER" },
+    update: {},
+    create: {
+      code: "PLANNER",
+      name: "计划员",
+      description: "生产排产",
+      dataScope: "department",
+    },
+  });
 
   // 角色-权限关联
   const allPerms = await prisma.permission.findMany();
@@ -241,6 +251,18 @@ async function main() {
     },
   });
 
+  const plannerUser = await prisma.user.upsert({
+    where: { username: "plan01" },
+    update: {},
+    create: {
+      username: "plan01",
+      passwordHash,
+      realName: "计划员",
+      departmentId: deptProduction.id,
+      status: 1,
+    },
+  });
+
   // 用户-角色关联
   const userRolePairs = [
     [adminUser.id, roleAdmin.id],
@@ -248,6 +270,7 @@ async function main() {
     [prodUser.id, roleProduction.id],
     [purchUser.id, rolePurchase.id],
     [whUser.id, roleWarehouse.id],
+    [plannerUser.id, rolePlanner.id],
     [salesUser.id, roleManager.id],
   ];
   for (const [uid, rid] of userRolePairs) {
@@ -400,6 +423,18 @@ async function main() {
     },
   });
 
+  // 标准路线工序
+  const stepData = [
+    { code: "OP001", name: "下料", sequence: 1, workstationId: 1, standardTime: 10, setupTime: 5 },
+    { code: "OP002", name: "冲压", sequence: 2, workstationId: 2, standardTime: 20, setupTime: 10 },
+    { code: "OP003", name: "焊接", sequence: 3, workstationId: 3, standardTime: 30, setupTime: 10 },
+    { code: "OP004", name: "组装", sequence: 4, workstationId: 4, standardTime: 40, setupTime: 5 },
+  ];
+  for (const s of stepData) {
+    const existingStep = await prisma.processStep.findFirst({ where: { routeId: route.id, code: s.code } });
+    if (!existingStep) await prisma.processStep.create({ data: { routeId: route.id, ...s } });
+  }
+
   // 把路线挂到产品物料上（成品/半成品通过物料的 processRouteId 调用路线）
   await prisma.material.update({
     where: { id: materials.get("M-200")!.id },
@@ -486,7 +521,7 @@ async function main() {
 
   console.log("✅ 种子数据创建完成");
   console.log(`  部门: ${5} 个, 权限: ${permissions.length} 个, 物资: ${materialData.length} 种`);
-  console.log(`  用户: admin/sales01/user01/purch01/wh01 (密码均为: admin123)`);
+  console.log(`  用户: admin/sales01/user01/purch01/wh01/plan01 (密码均为: admin123)`);
 }
 
 main()

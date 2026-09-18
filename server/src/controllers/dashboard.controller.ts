@@ -29,15 +29,6 @@ export async function shortageAlertHandler(req: Request, res: Response) {
   }
 }
 
-export async function workshopHandler(req: Request, res: Response) {
-  try {
-    const data = await dashboardService.getWorkshopDashboard();
-    return success(res, data);
-  } catch (error: any) {
-    return fail(res, 500, error.message, 500);
-  }
-}
-
 export async function inventoryHandler(req: Request, res: Response) {
   try {
     const data = await dashboardService.getInventoryDashboard();

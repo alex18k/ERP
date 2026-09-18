@@ -20,9 +20,9 @@ function today() {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
 }
 
-export async function downloadCsv(url: string, filename: string) {
+export async function downloadCsv(url: string, filename: string, params?: any) {
   try {
-    const res = await dl.get(url)
+    const res = await dl.get(url, { params })
     const blob = new Blob([res.data], { type: 'text/csv;charset=utf-8' })
     const link = document.createElement('a')
     link.href = URL.createObjectURL(blob)

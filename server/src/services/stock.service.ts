@@ -1,4 +1,5 @@
 import prisma from "../config/prisma";
+import { Prisma } from "@prisma/client";
 import { localDateCompact } from "../utils/date";
 
 // 生成库存事务单号：ST+日期+序号
@@ -187,10 +188,22 @@ export async function stockOut(data: { materialId: number; quantity: number; war
   });
 }
 
-export async function getStockAlerts() {
-  const materials = await prisma.material.findMany({
-    where: { status: 1, safetyStock: { gt: 0 } },
-  });
+export async function getStockAlerts(where: any = {}) {
+  const { materialType, keyword } = where;
+  const filters: Prisma.MaterialWhereInput = { status: 1, safetyStock: { gt: 0 } };
+  if (materialType) {
+    const types = String(materialType).split(",").map((t) => t.trim()).filter(Boolean);
+    filters.materialType = types.length === 1 ? types[0] : { in: types };
+  }
+  if (keyword) {
+    filters.OR = [
+      { code: { contains: keyword } },
+      { name: { contains: keyword } },
+      { specification: { contains: keyword } },
+    ];
+  }
+
+  const materials = await prisma.material.findMany({ where: filters });
 
   const alerts = [];
   for (const m of materials) {
@@ -201,6 +214,8 @@ export async function getStockAlerts() {
         materialId: m.id,
         materialCode: m.code,
         materialName: m.name,
+        specification: m.specification,
+        materialType: m.materialType,
         currentQty,
         safetyStock: m.safetyStock,
         shortageQty: m.safetyStock - currentQty,

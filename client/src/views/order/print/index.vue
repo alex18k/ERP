@@ -9,10 +9,6 @@ const order = ref<any>(null)
 
 // —— 卖方信息（可改成实际公司名/联系方式）——
 const SELLER_NAME = '肇庆市博士芯电子科技有限公司'
-const SELLER_CONTACT = '业务部 | 电话：000-0000-0000 | 地址：肇庆市端州区睦岗街道太和南路创新创业园'
-
-const statusLabel = (v: string) =>
-  ({ draft: '草稿', confirmed: '已确认', in_production: '生产中', completed: '已完工', shipped: '已发货', cancelled: '已取消' })[v] || v
 
 function fmt(d: string | null | undefined) {
   return d ? String(d).slice(0, 10) : '-'
@@ -33,12 +29,6 @@ function taxAmount(row: any) {
 const netTotal = computed(() => order.value?.totalAmount || 0)
 const grossTotal = computed(() => (order.value?.items || []).reduce((s: number, i: any) => s + taxAmount(i), 0))
 const taxTotal = computed(() => grossTotal.value - netTotal.value)
-
-const todayStr = computed(() => {
-  const d = new Date()
-  const p = (x: number) => String(x).padStart(2, '0')
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
-})
 
 // ===== 人民币大写金额 =====
 const CN_NUM = ['零', '壹', '贰', '叁', '肆', '伍', '陆', '柒', '捌', '玖']
@@ -117,22 +107,19 @@ onMounted(async () => {
       <div class="so-header">
         <div class="so-brand">
           <div class="so-brand-name">{{ SELLER_NAME }}</div>
-          <div class="so-brand-sub">{{ SELLER_CONTACT }}</div>
         </div>
         <div class="so-docno">
           <div class="so-docno-row"><span>单据编号</span><b>{{ order.orderNo }}</b></div>
           <div class="so-docno-row"><span>制单日期</span><b>{{ fmt(order.orderDate) }}</b></div>
-          <div class="so-docno-row"><span>单据状态</span><b>{{ statusLabel(order.status) }}</b></div>
         </div>
       </div>
 
       <div class="so-title">销售订单</div>
-      <div class="so-title-rule"></div>
 
       <!-- 买卖双方 -->
       <div class="so-parties">
         <div class="so-party">
-          <h4>买方 <span class="so-mute">BUYER</span></h4>
+          <h4>买方</h4>
           <dl>
             <div><dt>名称</dt><dd>{{ order.customerName }}</dd></div>
             <div><dt>联系人</dt><dd>{{ order.contactPerson || '-' }}</dd></div>
@@ -141,7 +128,7 @@ onMounted(async () => {
           </dl>
         </div>
         <div class="so-party">
-          <h4>卖方 <span class="so-mute">SELLER</span></h4>
+          <h4>卖方</h4>
           <dl>
             <div><dt>名称</dt><dd>{{ SELLER_NAME }}</dd></div>
             <div><dt>经办销售</dt><dd>{{ order.seller1 || '-' }}{{ order.seller2 ? `、${order.seller2}` : '' }}</dd></div>
@@ -213,8 +200,6 @@ onMounted(async () => {
           <div class="so-sign-line">经办人：____________　日期：____________</div>
         </div>
       </div>
-
-      <div class="so-foot">本单为双方确认的商业凭证，如有异议请于三个工作日内提出 · 打印日期 {{ todayStr }}</div>
     </div>
   </div>
 </template>
@@ -259,11 +244,6 @@ onMounted(async () => {
   color: #000;
   letter-spacing: 1px;
 }
-.so-brand-sub {
-  margin-top: 2px;
-  font-size: 11px;
-  color: #8a97a8;
-}
 .so-docno {
   text-align: right;
   font-size: 12px;
@@ -289,12 +269,8 @@ onMounted(async () => {
   color: #000;
   letter-spacing: 12px;
   margin-top: 22px;
+  margin-bottom: 22px;
   text-indent: 12px;
-}
-.so-title-rule {
-  height: 2px;
-  margin: 8px 0 22px;
-  background: #000;
 }
 
 /* 买卖双方 */
@@ -305,9 +281,6 @@ onMounted(async () => {
   margin-bottom: 20px;
 }
 .so-party {
-  border: 1px solid #c9d4e0;
-  border-top: 3px solid #000;
-  border-radius: 4px;
   padding: 10px 14px 12px;
   background: #fff;
 }
@@ -316,13 +289,6 @@ onMounted(async () => {
   font-size: 13px;
   color: #000;
   letter-spacing: 1px;
-}
-.so-mute {
-  font-size: 10px;
-  color: #9aa7b6;
-  letter-spacing: 2px;
-  font-weight: 400;
-  margin-left: 6px;
 }
 .so-party dl {
   margin: 0;
@@ -456,14 +422,6 @@ onMounted(async () => {
   letter-spacing: 1px;
 }
 
-.so-foot {
-  margin-top: 20px;
-  text-align: center;
-  font-size: 10.5px;
-  color: #9aa7b6;
-  letter-spacing: 0.5px;
-}
-
 /* ===== 打印 ===== */
 @media print {
   .no-print { display: none !important; }
@@ -487,7 +445,7 @@ onMounted(async () => {
     print-color-adjust: exact;
   }
   .so-items tbody tr:nth-child(even) { background: #f6f8fb; }
-  .so-title-rule, .so-party, .so-total, .so-remark {
+  .so-party, .so-total, .so-remark {
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
   }

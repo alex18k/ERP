@@ -1,14 +1,16 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { ElMessageBox } from 'element-plus'
+import type { MenuInstance } from 'element-plus'
 
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
 
 const activeMenu = computed(() => route.path)
+const menuRef = ref<MenuInstance>()
 
 interface MenuNode {
   title: string
@@ -23,7 +25,7 @@ const menuItems: MenuNode[] = [
     title: '基础数据',
     icon: 'Files',
     children: [
-      { path: '/base/material', title: '物料管理', icon: 'Box' },
+      { path: '/base/material', title: '物料主文件', icon: 'Box' },
       { path: '/base/bom', title: 'BOM管理', icon: 'List' },
       { path: '/base/bom-cost', title: 'BOM成本', icon: 'List' },
       { path: '/base/process-route', title: '工艺路线', icon: 'SetUp' },
@@ -34,8 +36,8 @@ const menuItems: MenuNode[] = [
     icon: 'Document',
     children: [
       { path: '/order/sales', title: '销售订单', icon: 'Tickets' },
-      { path: '/order/order-release', title: '销售订单下达', icon: 'Promotion' },
       { path: '/order/tracking', title: '订单跟踪', icon: 'Position' },
+      { path: '/order/production', title: '订单转生产', icon: 'Files' },
       { path: '/base/customer', title: '客户管理', icon: 'User' },
     ],
   },
@@ -53,11 +55,17 @@ const menuItems: MenuNode[] = [
     icon: 'Operation',
     children: [
       { path: '/production/order', title: '生产订单', icon: 'Files' },
-      { path: '/production/work-order', title: '加工单管理', icon: 'Tickets' },
       { path: '/production/batch-materials', title: '加工单物料清单', icon: 'List' },
       { path: '/production/process-route', title: '加工单工艺路线', icon: 'List' },
-      { path: '/production/gantt', title: '排产甘特图', icon: 'Histogram' },
-      { path: '/production/workshop', title: '车间看板', icon: 'Monitor' },
+    ],
+  },
+  {
+    title: '车间管理',
+    icon: 'OfficeBuilding',
+    children: [
+      { path: '/production/work-report', title: '批次报工', icon: 'EditPen' },
+      { path: '/production/employee-report', title: '员工报工', icon: 'User' },
+      { path: '/dashboard/report/employee-reports', title: '员工报工报表', icon: 'UserFilled' },
     ],
   },
   {
@@ -78,35 +86,15 @@ const menuItems: MenuNode[] = [
       { path: '/inventory/receive', title: '采购收货', icon: 'Download' },
       { path: '/inventory/issue', title: '生产领料', icon: 'Upload' },
       { path: '/inventory/production-receive', title: '生产入库', icon: 'Download' },
-      { path: '/inventory/transaction-type', title: '事务类型维护', icon: 'SetUp' },
     ],
   },
   {
     title: '数据看板',
     icon: 'DataAnalysis',
     children: [
-      {
-        title: '实时看板',
-        icon: 'DataBoard',
-        children: [
-          { path: '/dashboard/executive', title: '管理驾驶舱', icon: 'DataBoard' },
-          { path: '/dashboard/shortage-alert', title: '缺料预警大屏', icon: 'Warning' },
-          { path: '/dashboard/inventory-board', title: '库存看板', icon: 'PieChart' },
-        ],
-      },
-      {
-        title: '统计报表',
-        icon: 'TrendCharts',
-        children: [
-          { path: '/dashboard/report/production', title: '生产报表', icon: 'Histogram' },
-          { path: '/dashboard/report/sales', title: '销售与交期报表', icon: 'TrendCharts' },
-          { path: '/dashboard/report/purchase', title: '采购报表', icon: 'ShoppingCart' },
-          { path: '/dashboard/report/inventory', title: '库存报表', icon: 'PieChart' },
-          { path: '/dashboard/report/work-reports', title: '报工记录', icon: 'Document' },
-          { path: '/dashboard/order-tracking', title: '订单追踪看板', icon: 'Position' },
-          { path: '/dashboard/stock-alert', title: '库存预警', icon: 'Warning' },
-        ],
-      },
+      { path: '/dashboard/inventory-board', title: '库存看板', icon: 'PieChart' },
+      { path: '/dashboard/order-tracking', title: '订单追踪看板', icon: 'Position' },
+      { path: '/dashboard/stock-alert', title: '库存预警', icon: 'Warning' },
     ],
   },
   {
@@ -119,9 +107,29 @@ const menuItems: MenuNode[] = [
       { path: '/base/warehouse', title: '仓库管理', icon: 'OfficeBuilding' },
       { path: '/base/workshop', title: '车间管理', icon: 'OfficeBuilding' },
       { path: '/base/workstation', title: '工位管理', icon: 'Monitor' },
+      { path: '/inventory/transaction-type', title: '事务类型维护', icon: 'SetUp' },
     ],
   },
 ]
+
+function findActiveSubMenu(nodes: MenuNode[], path: string, parentKey = ''): string | undefined {
+  for (const node of nodes) {
+    if (!node.children) continue
+    const key = parentKey ? `${parentKey}-${node.title}` : node.title
+    if (node.children.some((child) => child.path === path)) return key
+    const deeper = findActiveSubMenu(node.children, path, key)
+    if (deeper) return deeper
+  }
+  return undefined
+}
+
+watch(
+  () => route.path,
+  (path) => {
+    const index = findActiveSubMenu(menuItems.filter((m) => m.children), path)
+    if (index) nextTick(() => menuRef.value?.open(index))
+  },
+)
 
 async function handleLogout() {
   try {
@@ -143,8 +151,10 @@ async function handleLogout() {
         <el-icon class="logo-tick" :size="14"><ArrowRight /></el-icon>
       </div>
       <el-menu
+        ref="menuRef"
         :default-active="activeMenu"
         router
+        unique-opened
         class="side-menu"
       >
         <el-menu-item index="/dashboard" class="menu-home">

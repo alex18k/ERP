@@ -7,7 +7,16 @@ import { sendCsv } from "../utils/export";
 
 export async function exportHandler(_req: Request, res: Response) {
   try {
-    const { filename, csv } = await exportService.workOrderExport();
+    const { filename, csv } = await exportService.batchExport();
+    return sendCsv(res, filename, csv);
+  } catch (error: any) {
+    return fail(res, 500, error.message, 500);
+  }
+}
+
+export async function employeeReportExportHandler(req: Request, res: Response) {
+  try {
+    const { filename, csv } = await exportService.employeeReportExport(req.query as any);
     return sendCsv(res, filename, csv);
   } catch (error: any) {
     return fail(res, 500, error.message, 500);
@@ -53,6 +62,15 @@ export async function plannersHandler(_req: Request, res: Response) {
   }
 }
 
+export async function employeesHandler(req: Request, res: Response) {
+  try {
+    const data = await productionService.listEmployees((req.query.keyword as string) || undefined);
+    return success(res, data);
+  } catch (error: any) {
+    return fail(res, 500, error.message, 500);
+  }
+}
+
 export async function updateOrderHandler(req: Request, res: Response) {
   try {
     const data = await productionService.updateProductionOrder(Number(req.params.id), req.body);
@@ -81,36 +99,28 @@ export async function scheduleHandler(req: AuthRequest, res: Response) {
   }
 }
 
-export async function reportWorkHandler(req: AuthRequest, res: Response) {
+export async function reportBatchHandler(req: AuthRequest, res: Response) {
   try {
-    const data = await productionService.reportWork(Number(req.params.workOrderId), req.body, req.user!.id);
+    const data = await productionService.reportBatch(Number(req.params.id), req.body, req.user!.id);
     return success(res, data, "报工成功");
   } catch (error: any) {
     return fail(res, 400, error.message);
   }
 }
 
-export async function workshopHandler(req: Request, res: Response) {
+export async function batchReportHandler(req: AuthRequest, res: Response) {
   try {
-    const data = await productionService.getWorkshopStatus(req.query.workshopId as any);
-    return success(res, data);
+    const items = Array.isArray(req.body?.items) ? req.body.items : [];
+    const data = await productionService.batchReportWork(Number(req.body?.productionOrderId), items, req.user!.id);
+    return success(res, data, "报工成功");
   } catch (error: any) {
-    return fail(res, 500, error.message, 500);
+    return fail(res, 400, error.message);
   }
 }
 
-export async function ganttHandler(req: Request, res: Response) {
+export async function listReporterHandler(_req: Request, res: Response) {
   try {
-    const data = await productionService.getGanttData(req.query.startDate as any, req.query.endDate as any);
-    return success(res, data);
-  } catch (error: any) {
-    return fail(res, 500, error.message, 500);
-  }
-}
-
-export async function listWorkOrderHandler(req: Request, res: Response) {
-  try {
-    const data = await productionService.listWorkOrders(req.query as any);
+    const data = await productionService.listReporters();
     return success(res, data);
   } catch (error: any) {
     return fail(res, 500, error.message, 500);
@@ -125,11 +135,39 @@ export async function listReportHandler(req: Request, res: Response) {
     return fail(res, 500, error.message, 500);
   }
 }
+
+export async function workReportStatsHandler(req: Request, res: Response) {
+  try {
+    const data = await productionService.getWorkReportStats(req.query as any);
+    return success(res, data);
+  } catch (error: any) {
+    return fail(res, 500, error.message, 500);
+  }
+}
 // ===== 批次物料清单 / 领料 / 入库 =====
 export async function orderRouteHandler(req: Request, res: Response) {
   try {
     const data = await productionService.getProductionOrderRoute(Number(req.params.id));
     return success(res, data);
+  } catch (error: any) {
+    return fail(res, 400, error.message);
+  }
+}
+
+export async function updateOrderRouteHandler(req: Request, res: Response) {
+  try {
+    const data = await productionService.updateOrderRoute(Number(req.params.id), req.body);
+    return success(res, data, "工艺路线已更新");
+  } catch (error: any) {
+    return fail(res, 400, error.message);
+  }
+}
+
+export async function replaceOrderRouteStepsHandler(req: Request, res: Response) {
+  try {
+    const steps = Array.isArray(req.body?.steps) ? req.body.steps : [];
+    const data = await productionService.replaceOrderRouteSteps(Number(req.params.id), steps);
+    return success(res, data, "工序已更新");
   } catch (error: any) {
     return fail(res, 400, error.message);
   }

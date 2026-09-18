@@ -62,7 +62,9 @@ export const warehouseService = {
     if (!exists) throw new Error("仓库不存在");
     const count = await prisma.stock.count({ where: { warehouseId: id } });
     if (count > 0) throw new Error("仓库中还有库存，无法删除");
-    await prisma.warehouse.update({ where: { id }, data: { status: 0 } });
+    const recordCount = await prisma.stockRecord.count({ where: { warehouseId: id } });
+    if (recordCount > 0) throw new Error(`仓库存在 ${recordCount} 条库存事务记录，无法删除`);
+    await prisma.warehouse.delete({ where: { id } });
     return true;
   },
 };
@@ -138,14 +140,14 @@ export const workstationService = {
     const exists = await prisma.workstation.findUnique({ where: { id } });
     if (!exists) throw new Error("工位不存在");
     if (exists.status === 0) throw new Error("该工位已停用");
-    const [stepCount, activeOrderCount] = await Promise.all([
+    const [stepCount, orderStepCount] = await Promise.all([
       prisma.processStep.count({ where: { workstationId: id } }),
-      prisma.workOrder.count({ where: { workstationId: id, status: { in: ["pending", "in_progress", "paused"] } } }),
+      prisma.productionOrderStep.count({ where: { workstationId: id } }),
     ]);
-    if (stepCount > 0 || activeOrderCount > 0) {
+    if (stepCount > 0 || orderStepCount > 0) {
       const parts: string[] = [];
       if (stepCount > 0) parts.push(`${stepCount} 处工艺路线工序`);
-      if (activeOrderCount > 0) parts.push(`${activeOrderCount} 张未完成加工单`);
+      if (orderStepCount > 0) parts.push(`${orderStepCount} 处订单工艺路线工序`);
       throw new Error(`该工位已被${parts.join("、")}引用，无法停用/删除`);
     }
     await prisma.workstation.update({ where: { id }, data: { status: 0 } });

@@ -124,12 +124,6 @@ onMounted(loadData)
         <el-button @click="Object.assign(query, { orderNo: '', page: 1 }), loadData()">重置</el-button>
       </div>
 
-      <el-alert
-        type="info" :closable="false" show-icon
-        title="列出「已确认」和「部分收货」采购单的明细，可填写数量分批收货，收货后物料自动入库并生成入库记录。"
-        style="margin-bottom: 16px"
-      />
-
       <el-table :data="rows" v-loading="loading" stripe max-height="calc(100vh - 260px)">
         <el-table-column prop="orderNo" label="采购单号" width="150" />
         <el-table-column prop="supplierName" label="供应商" min-width="140" />

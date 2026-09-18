@@ -33,7 +33,7 @@ export const materialApi = {
 // ===== BOM =====
 export const bomApi = {
   list: (params: PageParams) => request.get('/boms', { params }),
-  productOptions: () => request.get('/boms/product-options'),
+  productOptions: (params?: any) => request.get('/boms/product-options', { params }),
   get: (id: number) => request.get(`/boms/${id}`),
   getTree: (id: number) => request.get(`/boms/${id}/tree`),
   create: (data: any) => request.post('/boms', data),
@@ -118,13 +118,15 @@ export const mrpApi = {
 export const productionApi = {
   orders: (params: PageParams) => request.get('/production/orders', { params }),
   planners: () => request.get('/production/planners'),
+  employees: (params?: any) => request.get('/production/employees', { params }),
   issuedKeys: () => request.get('/production/orders/issued-keys'),
   createOrders: (data: any[]) => request.post('/production/orders', data),
   updateOrder: (id: number, data: any) => request.put(`/production/orders/${id}`, data),
   cancelOrder: (id: number) => request.put(`/production/orders/${id}/cancel`),
   schedule: (id: number, data?: any) => request.post(`/production/orders/${id}/schedule`, data),
-  workOrders: (params: PageParams) => request.get('/production/work-orders', { params }),
   orderRoute: (id: number) => request.get(`/production/orders/${id}/route`),
+  updateOrderRoute: (id: number, data: any) => request.put(`/production/orders/${id}/route`, data),
+  replaceOrderRouteSteps: (id: number, steps: any[]) => request.put(`/production/orders/${id}/route/steps`, { steps }),
   batchMaterials: (params?: any) => request.get('/production/batch-materials', { params }),
   batchMaterialsOfBatch: (batchId: number) => request.get(`/production/batches/${batchId}/materials`),
   addBatchMaterial: (batchId: number, data: any) => request.post(`/production/batches/${batchId}/materials`, data),
@@ -133,11 +135,12 @@ export const productionApi = {
   issueBatch: (batchId: number, data: any) => request.post(`/production/batches/${batchId}/issue`, data),
   receivableBatches: (params?: any) => request.get('/production/batches/receivable', { params }),
   receiveBatch: (id: number, data: any) => request.post(`/production/batches/${id}/receive`, data),
-  report: (workOrderId: number, data: any) => request.post(`/production/work-orders/${workOrderId}/report`, data),
+  reportBatch: (batchId: number, data: any) => request.post(`/production/batches/${batchId}/report`, data),
+  batchReport: (productionOrderId: number, items: any[]) => request.post('/production/batch-report', { productionOrderId, items }),
   reports: (params: PageParams) => request.get('/production/reports', { params }),
-  workshop: (params?: any) => request.get('/production/workshop', { params }),
-  gantt: (params?: any) => request.get('/production/gantt', { params }),
-  exportCsv: () => downloadCsv('/production/export', '加工单'),
+  reporters: () => request.get('/production/reporters'),
+  exportCsv: () => downloadCsv('/production/export', '生产批次'),
+  exportEmployeeReports: (params?: any) => downloadCsv('/production/employee-report-export', '员工报工报表', params),
 }
 
 // ===== 采购 =====
@@ -161,7 +164,7 @@ export const stockApi = {
   records: (params: PageParams) => request.get('/stocks/records', { params }),
   in: (data: any) => request.post('/stocks/in', data),
   out: (data: any) => request.post('/stocks/out', data),
-  alert: () => request.get('/stocks/alert'),
+  alert: (params?: any) => request.get('/stocks/alert', { params }),
   exportCsv: () => downloadCsv('/stocks/export', '库存现况'),
 }
 
@@ -177,22 +180,13 @@ export const stockTransactionTypeApi = {
 export const dashboardApi = {
   executive: () => request.get('/dashboard/executive'),
   orderTracking: () => request.get('/dashboard/order-tracking'),
-  shortageAlert: () => request.get('/dashboard/shortage-alert'),
-  workshop: () => request.get('/dashboard/workshop'),
   inventory: () => request.get('/dashboard/inventory'),
-}
-
-// ===== 统计报表 =====
-export const reportApi = {
-  production: (params: any) => request.get('/report/production', { params }),
-  sales: (params: any) => request.get('/report/sales', { params }),
-  purchase: (params: any) => request.get('/report/purchase', { params }),
-  inventory: (params: any) => request.get('/report/inventory', { params }),
 }
 
 // ===== 系统管理 =====
 export const systemApi = {
   users: (params: PageParams) => request.get('/system/users', { params }),
+  salespersons: () => request.get('/system/salespersons'),
   createUser: (data: any) => request.post('/system/users', data),
   updateUser: (id: number, data: any) => request.put(`/system/users/${id}`, data),
   deleteUser: (id: number) => request.delete(`/system/users/${id}`),

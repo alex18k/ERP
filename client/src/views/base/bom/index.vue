@@ -6,7 +6,7 @@ import { bomApi, materialApi } from '../../../api'
 const loading = ref(false)
 const list = ref<any[]>([])
 const total = ref(0)
-const query = reactive({ page: 1, pageSize: 20, code: '', name: '', status: '' })
+const query = reactive({ page: 1, pageSize: 20, name: '', productKeyword: '', status: '' })
 
 async function loadData() {
   loading.value = true
@@ -29,7 +29,7 @@ function handleSearch() {
 }
 
 function resetQuery() {
-  Object.assign(query, { code: '', name: '', status: '', page: 1 })
+  Object.assign(query, { name: '', productKeyword: '', status: '', page: 1 })
   loadData()
 }
 
@@ -38,6 +38,8 @@ const dialogVisible = ref(false)
 const isEdit = ref(false)
 const formRef = ref()
 const products = ref<any[]>([])
+const productLoading = ref(false)
+const selectedProduct = ref<any>(null)
 const matList = ref<any[]>([])
 const form = reactive<any>({
   id: null,
@@ -56,19 +58,35 @@ async function openDialog(row?: any) {
     Object.assign(form, row)
     form.items = row.items?.map((i: any) => ({ ...i })) || []
     matList.value = (form.items || [])
-      .map((i: any) => i.material && { id: i.material.id, code: i.material.code, name: i.material.name, unit: i.material.unit })
+      .map((i: any) => i.material && { id: i.material.id, code: i.material.code, name: i.material.name, specification: i.material.specification, unit: i.material.unit })
       .filter((m: any) => !!m)
     products.value = row.product ? [{ ...row.product }] : []
+    selectedProduct.value = row.product ? { ...row.product } : null
+    dialogVisible.value = true
   } else {
     Object.keys(form).forEach((k) => { form[k] = null })
     form.version = '1.0'
     form.items = []
     matList.value = []
-    const res: any = await bomApi.productOptions()
-    products.value = res.data as any[]
+    products.value = []
+    selectedProduct.value = null
+    dialogVisible.value = true
+    queryProducts('')
   }
+}
 
-  dialogVisible.value = true
+function onProductChange(val: number) {
+  selectedProduct.value = products.value.find((p) => p.id === val) || null
+}
+
+async function queryProducts(keyword: string) {
+  productLoading.value = true
+  try {
+    const res: any = await bomApi.productOptions({ keyword, limit: 50 })
+    products.value = res.data as any[]
+  } finally {
+    productLoading.value = false
+  }
 }
 
 // 「子BOM」标记集合：页面上缓存，非每次打开弹窗都请求
@@ -139,6 +157,16 @@ async function handleDelete(row: any) {
   } catch { /* canceled */ }
 }
 
+function rowMaterial(row: any) {
+  return row.material || matList.value.find((m) => m.id === row.materialId) || null
+}
+
+function rowMaterialLabel(row: any) {
+  const m = rowMaterial(row)
+  if (!m) return ''
+  return m.specification ? `${m.name} - ${m.specification}` : (m.name || '')
+}
+
 async function queryMaterials(keyword: string) {
   const res: any = await materialApi.list({ pageSize: 50, keyword })
   matList.value = res.data.items
@@ -148,32 +176,15 @@ function onItemMaterialChange(item: any, val: any) {
   const mat = matList.value.find((m) => m.id === val)
   if (mat) {
     item.unit = mat.unit
-  }
-}
-
-// ===== 结构树 =====
-const treeVisible = ref(false)
-const treeLoading = ref(false)
-const treeTitle = ref('')
-const treeData = ref<any[]>([])
-
-function fmtQty(n: number) {
-  return Math.round(n * 10000) / 10000
-}
-
-async function openTree(row: any) {
-  treeVisible.value = true
-  treeLoading.value = true
-  treeTitle.value = `${row.code} - ${row.name}`
-  try {
-    const res: any = await bomApi.getTree(row.id)
-    treeData.value = res.data.tree || []
-  } finally {
-    treeLoading.value = false
+    item.material = mat
   }
 }
 
 // ===== 打印 =====
+function fmtQty(n: number) {
+  return Math.round(n * 10000) / 10000
+}
+
 const esc = (s: any) =>
   String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 
@@ -279,18 +290,20 @@ onMounted(() => {
   <div class="page-container">
     <div class="page-card">
       <div class="search-bar">
-        <el-input v-model="query.code" placeholder="BOM编码" clearable style="width: 150px" />
-        <el-input v-model="query.name" placeholder="BOM名称" clearable style="width: 180px" />
+        <el-input v-model="query.name" placeholder="BOM名称" clearable style="width: 180px" @keyup.enter="handleSearch" />
+        <el-input v-model="query.productKeyword" placeholder="物料/规格名称" clearable style="width: 180px" @keyup.enter="handleSearch" />
         <el-button type="primary" @click="handleSearch"><el-icon><Search /></el-icon>查询</el-button>
         <el-button @click="resetQuery">重置</el-button>
         <el-button style="margin-left: auto" type="success" plain class="btn-add" @click="openDialog()"><el-icon><Plus /></el-icon>新增BOM</el-button>
       </div>
 
       <el-table :data="list" v-loading="loading" stripe max-height="calc(100vh - 260px)">
-        <el-table-column prop="code" label="BOM编码" min-width="170" />
-        <el-table-column prop="name" label="BOM名称" min-width="150" />
-        <el-table-column label="产出物料" min-width="160">
-          <template #default="{ row }">{{ row.product?.code }} - {{ row.product?.name }}</template>
+        <el-table-column prop="name" label="父零件" min-width="150" />
+        <el-table-column label="物料名称" min-width="180">
+          <template #default="{ row }">{{ row.product?.name || '-' }}</template>
+        </el-table-column>
+        <el-table-column label="规格型号" min-width="180">
+          <template #default="{ row }">{{ row.product?.specification || '-' }}</template>
         </el-table-column>
         <el-table-column prop="version" label="版本" width="70" />
         <el-table-column label="明细数" width="80">
@@ -299,10 +312,9 @@ onMounted(() => {
         <el-table-column label="状态" width="90">
           <template #default="{ row }">{{ formatStatus(row.status) }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="290" fixed="right">
+        <el-table-column label="操作" width="240" fixed="right">
           <template #default="{ row }">
             <el-button size="small" type="primary" link @click="openDialog(row)">编辑</el-button>
-            <el-button size="small" type="primary" link @click="openTree(row)">结构树</el-button>
             <el-button size="small" type="primary" link @click="handlePrint(row)">打印</el-button>
             <el-button v-if="row.status !== 'active'" size="small" type="primary" link @click="handleActivate(row)">启用</el-button>
             <el-button size="small" type="primary" link @click="handleDelete(row)">删除</el-button>
@@ -323,16 +335,30 @@ onMounted(() => {
     </div>
 
     <!-- 新增/编辑对话框 -->
-    <el-dialog v-model="dialogVisible" :title="isEdit ? '编辑BOM' : '新增BOM'" width="820px" destroy-on-close append-to-body>
+    <el-dialog v-model="dialogVisible" :title="isEdit ? '编辑BOM' : '新增BOM'" width="1100px" destroy-on-close append-to-body>
       <el-form ref="formRef" :model="form" :rules="rules" label-width="100px">
         <el-row :gutter="16">
           <el-col :span="12">
             <el-form-item label="父零件" prop="productId">
-              <el-select v-model="form.productId" filterable :disabled="isEdit" style="width: 100%">
+              <el-select
+                v-model="form.productId"
+                filterable
+                remote
+                :remote-method="queryProducts"
+                :loading="productLoading"
+                :disabled="isEdit"
+                placeholder="搜索选择父零件"
+                style="width: 100%"
+                @change="onProductChange"
+              >
                 <el-option v-for="p in products" :key="p.id" :label="`${p.code} - ${p.name}`" :value="p.id" />
               </el-select>
+              <div v-if="selectedProduct" style="display: flex; flex-wrap: wrap; gap: 4px 16px; color: #606266; font-size: 12px; line-height: 1.6; margin-top: 4px">
+                <span>物料名称：{{ selectedProduct.name || '-' }}</span>
+                <span>规格型号：{{ selectedProduct.specification || '-' }}</span>
+              </div>
               <div style="color: #909399; font-size: 12px; line-height: 1.4; margin-top: 4px">
-                {{ isEdit ? '父零件已锁定，仅可修改版本与明细' : 'BOM编码和名称默认取所选物料的零件号，保存后自动启用' }}
+                {{ isEdit ? '父零件已锁定，仅可修改版本与明细' : 'BOM名称默认取所选物料的零件号，保存后自动启用' }}
               </div>
             </el-form-item>
           </el-col>
@@ -350,7 +376,7 @@ onMounted(() => {
             </el-button>
             <el-table :data="form.items" size="small" style="margin-top: 8px; width: 100%">
               <el-table-column label="序号" width="55" type="index" />
-              <el-table-column label="物料" min-width="200">
+              <el-table-column label="物料号" min-width="160">
                 <template #default="{ row }">
                   <div style="display: flex; gap: 8px; align-items: center">
                     <el-select
@@ -362,15 +388,24 @@ onMounted(() => {
                       style="width: 100%"
                       @change="(v: any) => onItemMaterialChange(row, v)"
                     >
-                      <el-option v-for="m in matList" :key="m.id" :label="`${m.code} - ${m.name}`" :value="m.id" />
+                      <el-option v-for="m in matList" :key="m.id" :label="m.code" :value="m.id">
+                        <span>{{ m.code }}</span>
+                        <span style="margin-left: 10px; color: #909399">{{ m.name }}</span>
+                        <span v-if="m.specification" style="margin-left: 10px; color: #909399">{{ m.specification }}</span>
+                      </el-option>
                     </el-select>
                     <el-tag v-if="hasActiveBom(row.materialId)" size="small" type="success" style="flex-shrink: 0">子BOM</el-tag>
                   </div>
                 </template>
               </el-table-column>
+              <el-table-column label="名称-型号规格" min-width="260">
+                <template #default="{ row }">
+                  <span style="color: #606266">{{ rowMaterialLabel(row) || '-' }}</span>
+                </template>
+              </el-table-column>
               <el-table-column label="用量" width="110">
                 <template #default="{ row }">
-                  <el-input-number v-model="row.quantity" :min="0.001" :precision="2" size="small" style="width: 100%" />
+                  <el-input-number v-model="row.quantity" :min="0.001" :precision="2" :controls="false" size="small" style="width: 100%" />
                 </template>
               </el-table-column>
               <el-table-column label="单位" width="70">
@@ -380,7 +415,7 @@ onMounted(() => {
               </el-table-column>
               <el-table-column label="损耗率" width="100">
                 <template #default="{ row }">
-                  <el-input-number v-model="row.lossRate" :min="0" :max="1" :step="0.01" :precision="2" size="small" style="width: 100%" />
+                  <el-input-number v-model="row.lossRate" :min="0" :max="1" :step="0.01" :precision="2" :controls="false" size="small" style="width: 100%" />
                 </template>
               </el-table-column>
               <el-table-column width="60">
@@ -395,27 +430,6 @@ onMounted(() => {
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
         <el-button type="primary" @click="handleSave">保存</el-button>
-      </template>
-    </el-dialog>
-
-    <!-- 产品结构树对话框 -->
-    <el-dialog v-model="treeVisible" :title="`产品结构树 - ${treeTitle}`" width="760px" append-to-body>
-      <div v-loading="treeLoading" style="max-height: 60vh; overflow: auto">
-        <el-tree :data="treeData" :props="{ children: 'children', label: 'materialCode' }" default-expand-all>
-          <template #default="{ data }">
-            <div style="display: flex; align-items: center; gap: 8px; white-space: nowrap">
-              <span>{{ data.materialCode }} - {{ data.materialName }}</span>
-              <span v-if="data.specification" style="color: #909399">规格: {{ data.specification }}</span>
-              <span style="color: #909399">单件 {{ fmtQty(data.quantity) }} {{ data.unit }}</span>
-              <span style="color: #909399">×{{ fmtQty(data.totalQuantity) }}</span>
-              <span v-if="data.lossRate > 0" style="color: #909399">损耗{{ (data.lossRate * 100).toFixed(1) }}%</span>
-            </div>
-          </template>
-        </el-tree>
-        <el-empty v-if="!treeLoading && treeData.length === 0" description="该BOM暂无明细" />
-      </div>
-      <template #footer>
-        <el-button @click="treeVisible = false">关闭</el-button>
       </template>
     </el-dialog>
   </div>

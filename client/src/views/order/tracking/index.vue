@@ -12,6 +12,10 @@ const tracking = ref<any>(null)
 
 const hasId = computed(() => !!route.query.id)
 
+const receiptTotal = computed(() =>
+  (tracking.value?.receipts || []).reduce((s: number, r: any) => s + (r.quantity ?? 0), 0)
+)
+
 // 列表模式（从菜单进入，未指定订单）
 const orders = ref<any[]>([])
 const total = ref(0)
@@ -175,19 +179,26 @@ watch(() => route.query.id, (id) => {
         <el-table :data="tracking?.productionProgress || []" size="small" stripe default-expand-all>
           <el-table-column type="expand">
             <template #default="{ row }">
-              <el-table v-if="row.workOrders && row.workOrders.length" :data="row.workOrders" size="small" border style="margin: 4px 24px; width: auto">
-                <el-table-column prop="orderNo" label="加工单号" width="150" />
-                <el-table-column prop="processStep" label="工序" width="110" />
-                <el-table-column prop="workstation" label="工位" width="110" />
-                <el-table-column prop="plannedQty" label="计划量" width="90" />
-                <el-table-column prop="actualQty" label="实际量" width="90" />
+              <el-table v-if="row.batches && row.batches.length" :data="row.batches" size="small" border style="margin: 4px 24px; width: auto">
+                <el-table-column label="批次" width="90">
+                  <template #default="{ row: b }">第{{ b.batchNo }}批</template>
+                </el-table-column>
+                <el-table-column prop="quantity" label="计划量" width="90" />
+                <el-table-column prop="completedQty" label="完成量" width="90" />
+                <el-table-column prop="receivedQty" label="已入库" width="90" />
+                <el-table-column label="工序进度" min-width="260">
+                  <template #default="{ row: b }">
+                    <span v-if="b.steps && b.steps.length">{{ b.steps.map((s: any) => `${s.name}:${s.reportedQty}`).join(' / ') }}</span>
+                    <span v-else>-</span>
+                  </template>
+                </el-table-column>
                 <el-table-column label="状态" width="100">
                   <template #default="{ row: w }">
                     <el-tag :type="statusType(w.status)" size="small">{{ statusLabel(w.status) }}</el-tag>
                   </template>
                 </el-table-column>
               </el-table>
-              <div v-else style="padding: 8px 24px; color: var(--el-text-color-secondary)">未排产，暂无加工单</div>
+              <div v-else style="padding: 8px 24px; color: var(--el-text-color-secondary)">未排产，暂无批次</div>
             </template>
           </el-table-column>
           <el-table-column prop="productionOrderNo" label="生产订单号" width="140" />
@@ -206,8 +217,32 @@ watch(() => route.query.id, (id) => {
               <el-tag :type="statusType(row.status)" size="small">{{ statusLabel(row.status) }}</el-tag>
             </template>
           </el-table-column>
-          <el-table-column prop="workOrderCount" label="加工单" width="100" />
+          <el-table-column prop="batchCount" label="批次" width="80" />
         </el-table>
+      </div>
+
+      <div class="page-card" v-if="tracking">
+        <div class="table-toolbar">
+          <span class="toolbar-title">入库信息</span>
+          <div style="flex: 1" />
+          <span style="color: var(--el-text-color-secondary); font-size: 13px">累计入库 {{ receiptTotal }}</span>
+        </div>
+        <el-table :data="tracking.receipts || []" size="small" stripe max-height="320">
+          <el-table-column prop="documentNo" label="入库单号" width="160" />
+          <el-table-column label="入库时间" width="160">
+            <template #default="{ row }">{{ String(row.effectiveDate || row.createdAt || '').slice(0, 19).replace('T', ' ') }}</template>
+          </el-table-column>
+          <el-table-column label="产品" min-width="180">
+            <template #default="{ row }">{{ row.materialCode }} - {{ row.materialName }}</template>
+          </el-table-column>
+          <el-table-column label="仓库" min-width="130">
+            <template #default="{ row }">{{ row.warehouseName ? `${row.warehouseCode} - ${row.warehouseName}` : '-' }}</template>
+          </el-table-column>
+          <el-table-column prop="quantity" label="入库数量" width="100" />
+          <el-table-column prop="operatorName" label="操作员" width="100" />
+          <el-table-column prop="remark" label="备注" min-width="140" show-overflow-tooltip />
+        </el-table>
+        <el-empty v-if="!(tracking.receipts || []).length" description="暂无入库记录" :image-size="60" />
       </div>
 
       <el-empty v-if="!order && !loading" description="订单不存在" />

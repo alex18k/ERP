@@ -25,7 +25,6 @@ model User {
   updatedAt     DateTime       @updatedAt
   userRoles     UserRole[]
   createdOrders SalesOrder[]   @relation("OrderCreator")
-  workOrders    WorkOrder[]
   stockRecords  StockRecord[]  @relation("StockOperator")
   workReports   WorkReport[]   @relation("WorkReportReporter")
   operationLogs OperationLog[]
@@ -191,7 +190,6 @@ model ProcessStep {
   standardTime     Float                    @default(0)
   setupTime        Float                    @default(0)
   createdAt        DateTime                 @default(now())
-  routeAssignments ProcessRouteAssignment[]
 
   @@index([routeId])
 }
@@ -206,8 +204,8 @@ model Workstation {
   capacity     Float         @default(1)
   status       Int           @default(1)
   createdAt    DateTime      @default(now())
-  processSteps ProcessStep[]
-  workOrders   WorkOrder[]
+  processSteps       ProcessStep[]
+  orderSteps         ProductionOrderStep[]
 }
 
 model Workshop {
@@ -334,6 +332,7 @@ model ProductionOrder {
   salesOrderNo     String? // 手工输入的销售订单号（允许非系统订单）
   materialId       Int
   material         Material                 @relation(fields: [materialId], references: [id])
+  processRouteId   Int? // 工艺路线（默认取产品所属路线，可指定）
   quantity         Float
   planStartDate    DateTime?
   planEndDate      DateTime?
@@ -346,9 +345,8 @@ model ProductionOrder {
   createdBy        Int?
   createdAt        DateTime                 @default(now())
   updatedAt        DateTime                 @updatedAt
-  workOrders       WorkOrder[]
-  routeAssignments ProcessRouteAssignment[]
   batches          ProductionBatch[]
+  orderRoute       ProductionOrderRoute?
 
   @@index([status])
   @@index([planEndDate])
@@ -366,8 +364,8 @@ model ProductionBatch {
   status            String          @default("planned") // planned, in_progress, completed, cancelled
   remark            String?
   createdAt         DateTime        @default(now())
-  workOrders        WorkOrder[]
   materials         ProductionBatchMaterial[]
+  reports           WorkReport[]
 
   @@unique([productionOrderId, batchNo])
   @@index([productionOrderId])
@@ -391,65 +389,56 @@ model ProductionBatchMaterial {
   @@index([materialId])
 }
 
-model ProcessRouteAssignment {
-  id                Int             @id @default(autoincrement())
-  productionOrderId Int
-  productionOrder   ProductionOrder @relation(fields: [productionOrderId], references: [id])
-  workOrderId       Int
-  workOrder         WorkOrder       @relation(fields: [workOrderId], references: [id])
-  processStepId     Int
-  processStep       ProcessStep     @relation(fields: [processStepId], references: [id])
-  status            String          @default("pending")
-  startedAt         DateTime?
-  completedAt       DateTime?
-  actualQty         Float           @default(0)
-
-  @@unique([workOrderId, processStepId])
-}
-
-model WorkOrder {
+// 排产时从标准工艺路线拷贝的订单级工艺路线
+model ProductionOrderRoute {
   id                Int                      @id @default(autoincrement())
-  orderNo           String                   @unique
-  productionOrderId Int
+  productionOrderId Int                      @unique
   productionOrder   ProductionOrder          @relation(fields: [productionOrderId], references: [id])
-  batchId           Int?
-  batch             ProductionBatch?         @relation(fields: [batchId], references: [id])
-  processRouteId    Int?
-  workstationId     Int?
-  workstation       Workstation?             @relation(fields: [workstationId], references: [id])
-  operatorId        Int?
-  operator          User?                    @relation(fields: [operatorId], references: [id])
-  plannedQty        Float
-  actualQty         Float                    @default(0)
-  scrapQty          Float                    @default(0)
-  startTime         DateTime?
-  endTime           DateTime?
-  status            String                   @default("pending") // pending, in_progress, paused, completed, cancelled
-  remark            String?
+  sourceRouteId     Int?                     // 来源标准工艺路线 id
+  code              String
+  name              String
+  description       String?
+  totalTime         Float                    @default(0)
+  status            String                   @default("active")
   createdAt         DateTime                 @default(now())
   updatedAt         DateTime                 @updatedAt
-  assignments       ProcessRouteAssignment[]
-  reports           WorkReport[]             @relation("WorkOrderReports")
+  steps             ProductionOrderStep[]
+}
 
-  @@index([status])
-  @@index([productionOrderId])
-  @@index([batchId])
+// 排产时从标准工序拷贝的订单级工序
+model ProductionOrderStep {
+  id                Int                  @id @default(autoincrement())
+  orderRouteId      Int
+  orderRoute        ProductionOrderRoute @relation(fields: [orderRouteId], references: [id], onDelete: Cascade)
+  sourceStepId      Int?                 // 来源标准工序 id
+  code              String
+  name              String
+  sequence          Int
+  workstationId     Int?
+  workstation       Workstation?         @relation(fields: [workstationId], references: [id])
+  standardTime      Float                @default(0)
+  setupTime         Float                @default(0)
+  createdAt         DateTime             @default(now())
+
+  @@index([orderRouteId])
 }
 
 model WorkReport {
-  id            Int       @id @default(autoincrement())
-  workOrderId   Int
-  workOrder     WorkOrder @relation("WorkOrderReports", fields: [workOrderId], references: [id])
+  id            Int             @id @default(autoincrement())
+  batchId       Int
+  batch         ProductionBatch @relation(fields: [batchId], references: [id])
   reporterId    Int
-  reporter      User      @relation("WorkReportReporter", fields: [reporterId], references: [id])
-  processStepId Int?
+  reporter      User            @relation("WorkReportReporter", fields: [reporterId], references: [id])
+  processStepId Int // 订单级工序 ProductionOrderStep.id（裸外键，无 relation）
   quantity      Float
-  scrapQty      Float     @default(0)
-  materialUsed  Float     @default(0)
-  reportTime    DateTime  @default(now())
+  scrapQty      Float           @default(0)
+  materialUsed  Float           @default(0)
+  workHours     Float           @default(0) // 本次实际工时(h)
+  reportTime    DateTime        @default(now())
   remark        String?
 
-  @@index([workOrderId])
+  @@index([batchId])
+  @@index([processStepId])
 }
 
 // ========== 采购管理 ==========

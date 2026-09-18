@@ -42,29 +42,11 @@ async function handleActivate(row: any) {
   } catch { /* canceled */ }
 }
 
-// ===== 结构树 =====
-const treeVisible = ref(false)
-const treeLoading = ref(false)
-const treeTitle = ref('')
-const treeData = ref<any[]>([])
-
+// ===== 打印 =====
 function fmtQty(n: number) {
   return Math.round(n * 10000) / 10000
 }
 
-async function openTree(row: any) {
-  treeVisible.value = true
-  treeLoading.value = true
-  treeTitle.value = `${row.code} - ${row.name}`
-  try {
-    const res: any = await bomApi.getTree(row.id)
-    treeData.value = res.data.tree || []
-  } finally {
-    treeLoading.value = false
-  }
-}
-
-// ===== 打印 =====
 const esc = (s: any) =>
   String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 
@@ -196,9 +178,8 @@ onMounted(loadData)
         <el-table-column label="状态" width="90">
           <template #default="{ row }">{{ formatStatus(row.status) }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="200" fixed="right">
+        <el-table-column label="操作" width="150" fixed="right">
           <template #default="{ row }">
-            <el-button size="small" type="primary" link @click="openTree(row)">结构树</el-button>
             <el-button size="small" type="primary" link @click="handlePrint(row)">打印</el-button>
             <el-button v-if="row.status !== 'active'" size="small" type="primary" link @click="handleActivate(row)">启用</el-button>
           </template>
@@ -216,26 +197,5 @@ onMounted(loadData)
         />
       </div>
     </div>
-
-    <!-- 产品结构树对话框 -->
-    <el-dialog v-model="treeVisible" :title="`产品结构树 - ${treeTitle}`" width="760px">
-      <div v-loading="treeLoading" style="max-height: 60vh; overflow: auto">
-        <el-tree :data="treeData" :props="{ children: 'children', label: 'materialCode' }" default-expand-all>
-          <template #default="{ data }">
-            <div style="display: flex; align-items: center; gap: 8px; white-space: nowrap">
-              <span>{{ data.materialCode }} - {{ data.materialName }}</span>
-              <span v-if="data.specification" style="color: #909399">规格: {{ data.specification }}</span>
-              <span style="color: #909399">单件 {{ fmtQty(data.quantity) }} {{ data.unit }}</span>
-              <span style="color: #909399">×{{ fmtQty(data.totalQuantity) }}</span>
-              <span v-if="data.lossRate > 0" style="color: #909399">损耗{{ (data.lossRate * 100).toFixed(1) }}%</span>
-            </div>
-          </template>
-        </el-tree>
-        <el-empty v-if="!treeLoading && treeData.length === 0" description="该BOM暂无明细" />
-      </div>
-      <template #footer>
-        <el-button @click="treeVisible = false">关闭</el-button>
-      </template>
-    </el-dialog>
   </div>
 </template>

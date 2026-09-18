@@ -16,11 +16,20 @@ export interface BomCreateInput {
 }
 
 export async function listBoms(where: any) {
-  const { code, name, status, page = 1, pageSize = 20 } = where;
+  const { code, name, productKeyword, status, page = 1, pageSize = 20 } = where;
 
   const filters: Prisma.BomWhereInput = {};
   if (code) filters.code = { contains: code };
   if (name) filters.name = { contains: name };
+  if (productKeyword) {
+    filters.product = {
+      OR: [
+        { code: { contains: productKeyword } },
+        { name: { contains: productKeyword } },
+        { specification: { contains: productKeyword } },
+      ],
+    };
+  }
   if (status) filters.status = status;
 
   const [total, items] = await Promise.all([
@@ -28,9 +37,9 @@ export async function listBoms(where: any) {
     prisma.bom.findMany({
       where: filters,
       include: {
-        product: { select: { id: true, code: true, name: true, category: true } },
+        product: { select: { id: true, code: true, name: true, specification: true, category: true } },
         items: {
-          include: { material: { select: { id: true, code: true, name: true, unit: true } } },
+          include: { material: { select: { id: true, code: true, name: true, specification: true, unit: true } } },
         },
       },
       orderBy: { updatedAt: "desc" },
@@ -44,19 +53,28 @@ export async function listBoms(where: any) {
 
 // BOM可选成品/半成品：制造类物料中尚未拥有BOM的（同一物料只允许一张BOM；
 // 已挂BOM的物料作为父零件仅可修改其已有BOM，不可再新增）。
-export async function bomProductOptions() {
+export async function bomProductOptions(where?: { keyword?: string; limit?: number }) {
+  const { keyword, limit = 50 } = where ?? {};
   const occupied = new Set<number>();
   const allBoms = await prisma.bom.findMany({ select: { productId: true } });
   for (const b of allBoms) occupied.add(b.productId);
 
   const notIn = [...occupied];
+  const filters: Prisma.MaterialWhereInput = {
+    category: "manufacture",
+    ...(notIn.length > 0 ? { NOT: { id: { in: notIn } } } : {}),
+  };
+  if (keyword) {
+    filters.OR = [
+      { code: { contains: keyword } },
+      { name: { contains: keyword } },
+    ];
+  }
   return prisma.material.findMany({
-    where: {
-      category: "manufacture",
-      ...(notIn.length > 0 ? { NOT: { id: { in: notIn } } } : {}),
-    },
+    where: filters,
     select: { id: true, code: true, name: true, specification: true, unit: true },
     orderBy: { code: "asc" },
+    take: Math.min(Number(limit) || 50, 500),
   });
 }
 

@@ -121,32 +121,32 @@ onMounted(() => {
       </div>
 
       <el-table :data="list" v-loading="loading" stripe max-height="calc(100vh - 260px)">
-        <el-table-column label="订单号" min-width="130">
-          <template #default="{ row }">
-            <span v-if="row.salesOrder">{{ row.salesOrder.orderNo }}</span>
-            <span v-else-if="row.salesOrderNo">{{ row.salesOrderNo }}</span>
-            <span v-else>-</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="客户名称" min-width="120">
-          <template #default="{ row }">
-            <span v-if="row.salesOrder">{{ row.salesOrder.customerName }}</span>
-            <span v-else>-</span>
-          </template>
-        </el-table-column>
         <el-table-column prop="orderNo" label="生产订单号" width="140" />
         <el-table-column label="物料" min-width="160">
           <template #default="{ row }">{{ row.material?.code }} - {{ row.material?.name }}</template>
         </el-table-column>
         <el-table-column prop="quantity" label="数量" width="90" />
+        <el-table-column label="来源订单" min-width="130">
+          <template #default="{ row }">
+            <span v-if="row.salesOrder">{{ row.salesOrder.orderNo }}<br /><small>{{ row.salesOrder.customerName }}</small></span>
+            <span v-else-if="row.salesOrderNo">{{ row.salesOrderNo }}</span>
+            <span v-else>-</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="计划周期" min-width="190">
+          <template #default="{ row }">
+            <span v-if="row.planStartDate">{{ row.planStartDate?.slice(0, 10) }} ~ {{ row.planEndDate?.slice(0, 10) }}</span>
+            <span v-else>-</span>
+          </template>
+        </el-table-column>
         <el-table-column label="计划员" width="90">
           <template #default="{ row }">{{ row.planner || '-' }}</template>
         </el-table-column>
         <el-table-column label="下达日期" width="110">
           <template #default="{ row }">{{ row.releaseDate?.slice(0, 10) || '-' }}</template>
         </el-table-column>
-        <el-table-column label="加工单" width="80">
-          <template #default="{ row }">{{ row.workOrders?.length || 0 }}</template>
+        <el-table-column label="批次" width="80">
+          <template #default="{ row }">{{ row.batches?.length || 0 }}</template>
         </el-table-column>
         <el-table-column label="批次/已排" width="120">
           <template #default="{ row }">

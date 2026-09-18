@@ -40,8 +40,8 @@ export async function getExecutiveDashboard() {
   }
   const lowStockCount = [...stockByMaterial.values()].filter((x) => x.safety > 0 && x.qty <= x.safety).length;
 
-  // 生产中工单数
-  const activeWorkOrders = await prisma.workOrder.count({
+  // 生产中批次数
+  const activeBatches = await prisma.productionBatch.count({
     where: { status: "in_progress" },
   });
 
@@ -74,13 +74,6 @@ export async function getExecutiveDashboard() {
   const totalQty = wrAgg._sum.quantity ?? 0;
   const totalScrap = wrAgg._sum.scrapQty ?? 0;
   const yieldRate = totalQty > 0 ? Math.round(((totalQty - totalScrap) / totalQty) * 100) : 100;
-
-  // 产能负荷：当前有任务工位占比
-  const workstations = await prisma.workstation.findMany({
-    include: { workOrders: { where: { status: { in: ["pending", "in_progress"] } }, select: { id: true } } },
-  });
-  const busyCount = workstations.filter((w) => w.workOrders.length > 0).length;
-  const capacityLoad = workstations.length > 0 ? Math.round((busyCount / workstations.length) * 100) : 0;
 
   // 缺料影响订单数：最近一次MRP缺料关联的去重订单
   let shortageOrderCount = 0;
@@ -116,13 +109,12 @@ export async function getExecutiveDashboard() {
       outputValue: outputValue._sum.totalAmount ?? 0,
       onTimeRate,
       yieldRate,
-      capacityLoad,
       shortageOrderCount,
     },
     alerts: {
       shortageCount,
       lowStockCount,
-      activeWorkOrders,
+      activeBatches,
     },
     lastMrpRun: latestRun
       ? {
@@ -140,12 +132,27 @@ export async function getOrderTrackingDashboard() {
     include: {
       items: { include: { material: { select: { id: true, code: true, name: true, unit: true } } } },
       productionOrders: {
-        include: { workOrders: true },
+        include: {
+          batches: { where: { status: { not: "cancelled" } } },
+          orderRoute: { include: { steps: true } },
+        },
       },
     },
     orderBy: [{ status: "asc" }, { deliveryDate: "asc" }],
     take: 50,
   });
+
+  // 汇总各批次各工序报工量，按末道工序计算生产进度
+  const allBatchIds = orders.flatMap((o) => o.productionOrders.flatMap((po) => po.batches.map((b) => b.id)));
+  const grouped = allBatchIds.length
+    ? await prisma.workReport.groupBy({
+        by: ["batchId", "processStepId"],
+        where: { batchId: { in: allBatchIds } },
+        _sum: { quantity: true },
+      })
+    : [];
+  const qtyMap = new Map<string, number>();
+  for (const g of grouped) qtyMap.set(`${g.batchId}:${g.processStepId}`, g._sum.quantity ?? 0);
 
   const today = new Date();
 
@@ -155,9 +162,14 @@ export async function getOrderTrackingDashboard() {
     const productionProgress = o.productionOrders.length > 0
       ? Math.round(
           o.productionOrders.reduce((sum, po) => {
-            const totalPlan = po.workOrders.reduce((s, w) => s + w.plannedQty, 0);
-            const totalActual = po.workOrders.reduce((s, w) => s + w.actualQty, 0);
-            return sum + (totalPlan > 0 ? (totalActual / totalPlan) * 100 : 0);
+            const steps = po.orderRoute?.steps ?? [];
+            const lastStep = steps.length ? steps.reduce((a, b) => (b.sequence > a.sequence ? b : a)) : null;
+            const plan = po.quantity || 1;
+            const done = po.batches.reduce((s, b) => {
+              const lastQty = lastStep ? qtyMap.get(`${b.id}:${lastStep.id}`) ?? 0 : 0;
+              return s + Math.min(lastQty, b.quantity);
+            }, 0);
+            return sum + Math.min(100, (done / plan) * 100);
           }, 0) / o.productionOrders.length
         )
       : 0;
@@ -204,57 +216,6 @@ export async function getShortageAlertDashboard() {
       affectedOrders: s.affectedOrders ? JSON.parse(s.affectedOrders) : [],
       inTransit: inTransitMap.get(s.materialId) ?? 0,
     })),
-  };
-}
-
-export async function getWorkshopDashboard() {
-  const workstations = await prisma.workstation.findMany({
-    include: {
-      workshop: true,
-      workOrders: {
-        where: { status: { in: ["in_progress", "pending"] } },
-        include: {
-          productionOrder: { include: { material: true } },
-        },
-      },
-    },
-    orderBy: { code: "asc" },
-  });
-
-  const todayReports = await prisma.workReport.findMany({
-    where: {
-      reportTime: {
-        gte: new Date(new Date().setHours(0, 0, 0, 0)),
-      },
-    },
-    include: { reporter: true },
-  });
-
-  const totalReportsToday = todayReports.reduce((sum, r) => sum + r.quantity, 0);
-  const totalScrapToday = todayReports.reduce((sum, r) => sum + r.scrapQty, 0);
-
-  return {
-    workstations: workstations.map((ws) => ({
-      id: ws.id,
-      code: ws.code,
-      name: ws.name,
-      workshopName: ws.workshop?.name,
-      type: ws.type,
-      status: ws.workOrders.length > 0 ? (ws.workOrders.some((w) => w.status === "in_progress") ? "busy" : "idle") : "idle",
-      workOrders: ws.workOrders.map((w) => ({
-        orderNo: w.orderNo,
-        materialName: w.productionOrder.material.name,
-        plannedQty: w.plannedQty,
-        actualQty: w.actualQty,
-        progress: w.plannedQty > 0 ? Math.round((w.actualQty / w.plannedQty) * 100) : 0,
-      })),
-    })),
-    todaySummary: {
-      totalReports: todayReports.length,
-      totalOutputQty: totalReportsToday,
-      totalScrapQty: totalScrapToday,
-      yieldRate: totalReportsToday > 0 ? Math.round(((totalReportsToday - totalScrapToday) / totalReportsToday) * 100) : 100,
-    },
   };
 }
 

@@ -11,10 +11,6 @@ const purchaseStatusLabel: Record<string, string> = {
   draft: "草稿", confirmed: "已确认", partial_received: "部分到货", received: "已到货", cancelled: "已取消",
 };
 
-const workStatusLabel: Record<string, string> = {
-  pending: "待开工", in_progress: "加工中", paused: "暂停", completed: "已完成", cancelled: "已取消",
-};
-
 const date = (d: Date | null | undefined) => (d ? new Date(d).toLocaleString("zh-CN", { hour12: false }) : "");
 
 // ===== 物料 =====
@@ -74,32 +70,80 @@ export async function stockExport() {
   return { filename: `库存现况_${today()}.csv`, csv: toCsv(headers, rows) };
 }
 
-// ===== 加工单 =====
-export async function workOrderExport() {
-  const list = await prisma.workOrder.findMany({
+// ===== 生产批次 =====
+const batchStatusLabel: Record<string, string> = {
+  planned: "已计划", in_progress: "生产中", completed: "已完成", cancelled: "已取消",
+};
+
+export async function batchExport() {
+  const list = await prisma.productionBatch.findMany({
+    where: { status: { not: "cancelled" } },
     include: {
       productionOrder: { include: { material: { select: { code: true, name: true } } } },
-      workstation: { select: { code: true, name: true } },
-      operator: { select: { realName: true } },
     },
     orderBy: { createdAt: "desc" },
   });
-  const headers = ["加工单号", "所属生产订单", "产品编码", "产品名称", "工位", "操作人员", "计划数量", "完成数量", "报废数量", "进度", "状态", "创建时间"];
-  const rows = list.map((w) => [
-    w.orderNo,
-    w.productionOrder.orderNo,
-    w.productionOrder.material.code,
-    w.productionOrder.material.name,
-    w.workstation?.name ?? "",
-    w.operator?.realName ?? "",
-    w.plannedQty,
-    w.actualQty,
-    w.scrapQty,
-    w.plannedQty > 0 ? `${Math.round((w.actualQty / w.plannedQty) * 100)}%` : "0%",
-    workStatusLabel[w.status] ?? w.status,
-    date(w.createdAt),
+  const headers = ["所属生产订单", "产品编码", "产品名称", "批次号", "计划数量", "已入库数量", "计划开始", "计划结束", "状态", "备注"];
+  const rows = list.map((b) => [
+    b.productionOrder.orderNo,
+    b.productionOrder.material.code,
+    b.productionOrder.material.name,
+    `第${b.batchNo}批`,
+    b.quantity,
+    b.receivedQty,
+    date(b.planStartDate),
+    date(b.planEndDate),
+    batchStatusLabel[b.status] ?? b.status,
+    b.remark ?? "",
   ]);
-  return { filename: `加工单_${today()}.csv`, csv: toCsv(headers, rows) };
+  return { filename: `生产批次_${today()}.csv`, csv: toCsv(headers, rows) };
+}
+
+// ===== 员工报工报表 =====
+export async function employeeReportExport(where: any = {}) {
+  const { from, to, reporterId, orderNo } = where;
+  const filters: any = {};
+  if (reporterId) filters.reporterId = Number(reporterId);
+  if (orderNo) filters.batch = { productionOrder: { orderNo: { contains: orderNo } } };
+  if (from || to) {
+    const gte = from ? new Date(from) : undefined;
+    const lte = to ? new Date(to) : undefined;
+    if (lte) lte.setHours(23, 59, 59, 999);
+    filters.reportTime = { gte, lte };
+  }
+
+  const list = await prisma.workReport.findMany({
+    where: filters,
+    include: {
+      reporter: { select: { realName: true } },
+      batch: { include: { productionOrder: { include: { material: { select: { code: true, name: true } } } } } },
+    },
+    orderBy: { reportTime: "desc" },
+  });
+
+  // processStepId 是 ProductionOrderStep 裸外键，无 relation，需手动映射工序名
+  const stepIds = [...new Set(list.map((r) => r.processStepId))];
+  const steps = stepIds.length
+    ? await prisma.productionOrderStep.findMany({ where: { id: { in: stepIds } }, select: { id: true, code: true, name: true } })
+    : [];
+  const stepMap = new Map(steps.map((s) => [s.id, `${s.code} ${s.name}`]));
+
+  const headers = ["报工时间", "生产订单号", "产品编码", "产品名称", "批次", "工序", "员工", "完成数量", "不良数量", "工时(h)", "耗用物料", "备注"];
+  const rows = list.map((r) => [
+    date(r.reportTime),
+    r.batch?.productionOrder?.orderNo ?? "",
+    r.batch?.productionOrder?.material?.code ?? "",
+    r.batch?.productionOrder?.material?.name ?? "",
+    r.batch ? `第${r.batch.batchNo}批` : "",
+    stepMap.get(r.processStepId) ?? "",
+    r.reporter?.realName ?? "",
+    r.quantity,
+    r.scrapQty,
+    r.workHours,
+    r.materialUsed,
+    r.remark ?? "",
+  ]);
+  return { filename: `员工报工报表_${today()}.csv`, csv: toCsv(headers, rows) };
 }
 
 // ===== 采购订单 =====

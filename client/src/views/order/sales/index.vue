@@ -19,6 +19,7 @@ const prevDeliveryDate = ref('')
 const form = reactive<any>({
   id: null,
   customerId: null,
+  customerCode: '',
   customerName: '',
   orderDate: '',
   channel: '',
@@ -38,11 +39,19 @@ const userOptions = ref<string[]>([])
 
 async function loadSellers() {
   try {
-    const res: any = await systemApi.users({ pageSize: 100, status: 1 })
-    const items: any[] = res.data.items || res.data || []
+    const res: any = await systemApi.salespersons()
+    const items: any[] = res.data?.items || res.data || []
     userOptions.value = [...new Set(items.map((u: any) => u.realName || u.username).filter(Boolean))]
   } catch {
     userOptions.value = []
+  }
+}
+
+function validateDeliveryDate(_rule: any, value: string, callback: (e?: Error) => void) {
+  if (value && form.orderDate && value < form.orderDate) {
+    callback(new Error('交货日期不能早于订货日期'))
+  } else {
+    callback()
   }
 }
 
@@ -50,7 +59,10 @@ const rules = {
   customerName: [{ required: true, message: '请选择客户', trigger: 'change' }],
   orderDate: [{ required: true, message: '请选择订货日期', trigger: 'change' }],
   seller1: [{ required: true, message: '请选择销售员1', trigger: 'change' }],
-  deliveryDate: [{ required: true, message: '请选择交货日期', trigger: 'change' }],
+  deliveryDate: [
+    { required: true, message: '请选择交货日期', trigger: 'change' },
+    { validator: validateDeliveryDate, trigger: 'change' },
+  ],
 }
 
 const statusOptions = [
@@ -95,6 +107,18 @@ async function openDialog(row?: any) {
   }
   await loadOptions()
   loadSellers()
+  customerFilter.value = ''
+  if (isEdit.value && form.customerId) {
+    const found = customers.value.find((c: any) => c.id === form.customerId)
+    if (found) {
+      form.customerCode = form.customerCode || found.code
+    } else {
+      customers.value = [
+        { id: form.customerId, code: form.customerCode || '', name: form.customerName || '' },
+        ...customers.value,
+      ]
+    }
+  }
   prevDeliveryDate.value = form.deliveryDate || ''
   dialogVisible.value = true
 }
@@ -122,9 +146,33 @@ async function loadOptions() {
   await searchProducts('')
 }
 
+const customerFilter = ref('')
+
+const filteredCustomers = computed(() => {
+  const q = customerFilter.value.trim().toLowerCase()
+  if (!q) return customers.value
+  const list = customers.value.filter(
+    (c: any) => String(c.code || '').toLowerCase().includes(q) || String(c.name || '').toLowerCase().includes(q),
+  )
+  const selected = customers.value.find((c: any) => c.id === form.customerId)
+  if (selected && !list.includes(selected)) list.unshift(selected)
+  return list
+})
+
+function filterCustomerMethod(query: string) {
+  customerFilter.value = query
+}
+
+function onCustomerVisible(visible: boolean) {
+  if (!visible) customerFilter.value = ''
+}
+
 function onCustomerChange(val: any) {
   const c = customers.value.find((x) => x.id === val)
-  if (c) form.customerName = c.name
+  if (c) {
+    form.customerName = c.name
+    form.customerCode = c.code
+  }
 }
 
 function addItem() {
@@ -136,6 +184,10 @@ function onDeliveryDateChange(val: string) {
     if (!item.deliveryDate || item.deliveryDate === prevDeliveryDate.value) item.deliveryDate = val || ''
   }
   prevDeliveryDate.value = val || ''
+}
+
+function onOrderDateChange() {
+  if (form.deliveryDate) formRef.value?.validateField('deliveryDate', () => {})
 }
 
 function onProductChange(row: any, materialId: number) {
@@ -185,6 +237,7 @@ async function handleSave() {
   }
   const payload = {
     customerId: form.customerId,
+    customerCode: form.customerCode,
     customerName: form.customerName,
     orderDate: form.orderDate,
     channel: form.channel,
@@ -209,25 +262,16 @@ async function handleSave() {
     ElMessage.success('更新成功')
   } else {
     await orderApi.create(payload)
-    ElMessage.success('创建成功')
+    ElMessage.success('创建成功，订单已确认')
   }
   dialogVisible.value = false
   loadData()
 }
 
-async function handleConfirm(row: any) {
-  try {
-    await ElMessageBox.confirm(`确认订单 ${row.orderNo} ？`, '提示', { type: 'warning' })
-    await orderApi.confirm(row.id)
-    ElMessage.success('订单已确认，可进行MRP运算')
-    loadData()
-  } catch { /* canceled */ }
-}
-
 const cancelTitle = computed(() => {
   const parts: string[] = []
   if (cancelInfo.value?.plannedCount) parts.push(`${cancelInfo.value.plannedCount} 张未开工生产订单将整单取消`)
-  if (cancelInfo.value?.inProgressCount) parts.push(`${cancelInfo.value.inProgressCount} 张加工中订单仅取消其 ${cancelInfo.value.pendingWorkOrderCount} 个未开工加工单`)
+  if (cancelInfo.value?.inProgressCount) parts.push(`${cancelInfo.value.inProgressCount} 张加工中订单仅取消其 ${cancelInfo.value.pendingBatchCount} 个未开工批次`)
   return parts.join('；')
 })
 
@@ -302,9 +346,6 @@ const flatRows = computed(() =>
             <span v-if="row._first">{{ row.customerName }}</span>
           </template>
         </el-table-column>
-        <el-table-column label="渠道" width="90">
-          <template #default="{ row }">{{ row._first ? (row.channel || '-') : '' }}</template>
-        </el-table-column>
         <el-table-column label="物料" min-width="200">
           <template #default="{ row }">
             <span v-if="row.material">{{ row.material.code }} - {{ row.material.name }}{{ (row.unit || row.material.unit) ? ` (${row.unit || row.material.unit})` : '' }}</span>
@@ -320,11 +361,6 @@ const flatRows = computed(() =>
         <el-table-column label="行金额" width="110" align="right">
           <template #default="{ row }">{{ row.unitPrice != null && row.quantity ? `¥${(row.unitPrice * row.quantity).toLocaleString()}` : '-' }}</template>
         </el-table-column>
-        <el-table-column label="状态" width="100">
-          <template #default="{ row }">
-            <el-tag v-if="row._first" :type="statusType(row.status)">{{ formatStatus(row.status) }}</el-tag>
-          </template>
-        </el-table-column>
         <el-table-column label="交期" width="110">
           <template #default="{ row }">
             <span :class="{ 'text-overdue': (row._lineDeliveryDate || row.deliveryDate) && new Date(row._lineDeliveryDate || row.deliveryDate) < new Date() && !['completed','shipped'].includes(row.status) }">
@@ -332,12 +368,16 @@ const flatRows = computed(() =>
             </span>
           </template>
         </el-table-column>
+        <el-table-column label="状态" width="100">
+          <template #default="{ row }">
+            <el-tag v-if="row._first" :type="statusType(row.status)">{{ formatStatus(row.status) }}</el-tag>
+          </template>
+        </el-table-column>
         <el-table-column label="操作" width="180" fixed="right">
           <template #default="{ row }">
             <el-button size="small" type="primary" link @click="router.push(`/order/print?id=${row.id}`)">打印</el-button>
             <el-button size="small" type="primary" link @click="router.push(`/order/tracking?id=${row.id}`)">跟踪</el-button>
             <el-button v-if="['draft','confirmed','in_production'].includes(row.status)" size="small" type="primary" link @click="openDialog(row)">编辑</el-button>
-            <el-button v-if="row.status === 'draft'" size="small" type="success" link @click="handleConfirm(row)">确认</el-button>
             <el-button v-if="row.status === 'completed'" size="small" type="primary" link @click="handleShip(row)">发货</el-button>
             <el-button v-if="['draft','confirmed','in_production'].includes(row.status)" size="small" type="danger" link @click="openCancelDialog(row)">取消</el-button>
           </template>
@@ -354,7 +394,7 @@ const flatRows = computed(() =>
         <div>订单将被标记为「已取消」，从 MRP 运算与统计中剔除。</div>
         <template v-if="cancelInfo?.canCancelProduction">
           <el-alert :title="cancelTitle" type="warning" :closable="false" style="margin: 12px 0" />
-          <el-checkbox v-model="cancelWithProduction">取消未开工生产订单及未开工加工单（加工中的订单保留）</el-checkbox>
+          <el-checkbox v-model="cancelWithProduction">取消未开工生产订单及未开工批次（加工中的订单保留）</el-checkbox>
         </template>
       </div>
       <template #footer>
@@ -370,21 +410,31 @@ const flatRows = computed(() =>
         <el-row :gutter="16">
           <el-col :span="12">
             <el-form-item label="客户" prop="customerName">
-              <el-select v-model="form.customerId" filterable style="width: 100%" @change="onCustomerChange">
-                <el-option v-for="c in customers" :key="c.id" :label="`${c.name}`" :value="c.id" />
+              <el-select
+                v-model="form.customerId"
+                filterable
+                :filter-method="filterCustomerMethod"
+                style="width: 100%"
+                @change="onCustomerChange"
+                @visible-change="onCustomerVisible"
+              >
+                <el-option v-for="c in filteredCustomers" :key="c.id" :label="c.code" :value="c.id">
+                  <span>{{ c.code }}</span>
+                  <span style="margin-left: 10px; color: #909399">{{ c.name }}</span>
+                </el-option>
               </el-select>
             </el-form-item>
           </el-col>
           <el-col :span="12">
-            <el-form-item label="客户名称" prop="customerName">
-              <el-input v-model="form.customerName" />
+            <el-form-item label="客户名称">
+              <el-tag v-if="form.customerName" type="info">{{ form.customerName }}</el-tag>
             </el-form-item>
           </el-col>
         </el-row>
         <el-row :gutter="16">
           <el-col :span="12">
             <el-form-item label="订货日期" prop="orderDate">
-              <el-date-picker v-model="form.orderDate" type="date" value-format="YYYY-MM-DD" style="width: 100%" placeholder="选择订货日期" />
+              <el-date-picker v-model="form.orderDate" type="date" value-format="YYYY-MM-DD" style="width: 100%" placeholder="选择订货日期" @change="onOrderDateChange" />
             </el-form-item>
           </el-col>
           <el-col :span="12">
@@ -396,14 +446,14 @@ const flatRows = computed(() =>
         <el-row :gutter="16">
           <el-col :span="12">
             <el-form-item label="销售员1" prop="seller1">
-              <el-select v-model="form.seller1" filterable allow-create default-first-option placeholder="选择或输入" style="width: 100%">
+              <el-select v-model="form.seller1" filterable placeholder="选择销售员" style="width: 100%">
                 <el-option v-for="s in userOptions" :key="s" :label="s" :value="s" />
               </el-select>
             </el-form-item>
           </el-col>
           <el-col :span="12">
             <el-form-item label="销售员2" prop="seller2">
-              <el-select v-model="form.seller2" filterable allow-create default-first-option placeholder="选择或输入" style="width: 100%">
+              <el-select v-model="form.seller2" filterable clearable placeholder="选择销售员" style="width: 100%">
                 <el-option v-for="s in userOptions" :key="s" :label="s" :value="s" />
               </el-select>
             </el-form-item>
@@ -417,10 +467,12 @@ const flatRows = computed(() =>
               </el-select>
             </el-form-item>
           </el-col>
+          <el-col :span="12">
+            <el-form-item label="交货日期" prop="deliveryDate">
+              <el-date-picker v-model="form.deliveryDate" type="date" value-format="YYYY-MM-DD" style="width: 100%" placeholder="选择交货日期" @change="onDeliveryDateChange" />
+            </el-form-item>
+          </el-col>
         </el-row>
-        <el-form-item label="交货日期" prop="deliveryDate">
-          <el-date-picker v-model="form.deliveryDate" type="date" value-format="YYYY-MM-DD" style="width: 100%" placeholder="选择交货日期" @change="onDeliveryDateChange" />
-        </el-form-item>
         </div>
 
         <div class="erp-group">

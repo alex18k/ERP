@@ -11,6 +11,15 @@ export async function listUserHandler(req: Request, res: Response) {
   }
 }
 
+export async function listSalespersonHandler(req: Request, res: Response) {
+  try {
+    const data = await systemService.listSalespersons();
+    return success(res, data);
+  } catch (error: any) {
+    return fail(res, 500, error.message, 500);
+  }
+}
+
 export async function createUserHandler(req: Request, res: Response) {
   try {
     const data = await systemService.createUser(req.body);

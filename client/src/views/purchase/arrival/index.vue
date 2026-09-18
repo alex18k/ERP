@@ -25,8 +25,6 @@ onMounted(loadData)
         <el-button type="primary" @click="loadData"><el-icon><Refresh /></el-icon>刷新</el-button>
       </div>
 
-      <el-alert type="warning" :closable="false" show-icon title="以下采购明细尚未完全收货，逾期以红色标注，请及时跟进。" style="margin-bottom: 16px" />
-
       <el-table :data="list" v-loading="loading" stripe max-height="calc(100vh - 260px)">
         <el-table-column prop="orderNo" label="采购单号" width="140" />
         <el-table-column prop="supplierName" label="供应商" min-width="140" />

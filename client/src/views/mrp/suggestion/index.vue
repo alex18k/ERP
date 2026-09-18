@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { mrpApi } from '../../../api'
 
@@ -11,10 +11,24 @@ const safetyChecking = ref(false)
 const selectedRows = ref<any[]>([])
 const page = ref(1)
 const pageSize = ref(50)
+const typeFilter = ref('')
+
+const materialTypes = computed(() =>
+  [...new Set(suggestions.value.map((s: any) => s.materialType).filter(Boolean))].sort() as string[]
+)
+
+const filteredSuggestions = computed(() =>
+  typeFilter.value
+    ? suggestions.value.filter((s: any) => (s.materialType || '') === typeFilter.value)
+    : suggestions.value
+)
+
 const pagedSuggestions = computed(() => {
   const start = (page.value - 1) * pageSize.value
-  return suggestions.value.slice(start, start + pageSize.value)
+  return filteredSuggestions.value.slice(start, start + pageSize.value)
 })
+
+watch(typeFilter, () => { page.value = 1 })
 
 function onSelectionChange(rows: any[]) {
   selectedRows.value = rows
@@ -107,6 +121,9 @@ onMounted(loadData)
     <div class="page-card">
       <div class="table-toolbar">
         <span class="toolbar-title">采购建议清单</span>
+        <el-select v-model="typeFilter" placeholder="物料类型" clearable style="width: 170px; margin-left: 16px">
+          <el-option v-for="t in materialTypes" :key="t" :label="t" :value="t" />
+        </el-select>
         <div style="flex: 1" />
         <el-button :loading="safetyChecking" @click="handleSafetyCheck">
           <el-icon><Search /></el-icon>安全库存检查
@@ -116,12 +133,6 @@ onMounted(loadData)
         </el-button>
         <el-button @click="loadData"><el-icon><Refresh /></el-icon>刷新</el-button>
       </div>
-
-      <el-alert
-        type="info" :closable="false" show-icon
-        title="建议由MRP运算自动生成。勾选后可一键转为采购订单（草稿状态，需在采购订单页确认后方可收货）。"
-        style="margin-bottom: 16px"
-      />
 
       <el-table :data="pagedSuggestions" v-loading="loading" stripe :row-key="rowKey" @selection-change="onSelectionChange" max-height="calc(100vh - 260px)">
         <el-table-column type="selection" width="45" :selectable="selectable" reserve-selection />
@@ -146,6 +157,9 @@ onMounted(loadData)
         <el-table-column prop="materialCode" label="物料编码" width="110" />
         <el-table-column prop="materialName" label="物料名称" min-width="150" />
         <el-table-column prop="specification" label="型号规格" min-width="140" />
+        <el-table-column prop="materialType" label="物料类型" width="120">
+          <template #default="{ row }">{{ row.materialType || '-' }}</template>
+        </el-table-column>
         <el-table-column label="来源" width="100">
           <template #default="{ row }">{{ row.source === 'safety' ? '安全库存' : 'MRP需求' }}</template>
         </el-table-column>
@@ -166,7 +180,7 @@ onMounted(loadData)
       </el-table>
 
       <div class="pagination-wrap">
-        <el-pagination v-model:current-page="page" v-model:page-size="pageSize" :total="suggestions.length" :page-sizes="[20, 50, 100]" layout="total, sizes, prev, pager, next" />
+        <el-pagination v-model:current-page="page" v-model:page-size="pageSize" :total="filteredSuggestions.length" :page-sizes="[20, 50, 100]" layout="total, sizes, prev, pager, next" />
       </div>
     </div>
   </div>

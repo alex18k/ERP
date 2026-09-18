@@ -20,7 +20,7 @@ const shortcuts = [
   { title: '物料管理', desc: '物料主数据维护', path: '/base/material', icon: 'Box' },
   { title: '销售订单', desc: '录入与跟踪订单', path: '/order/sales', icon: 'Tickets' },
   { title: 'MRP运算', desc: '计算物料需求', path: '/mrp/calculate', icon: 'Aim' },
-  { title: '生产报工', desc: '车间执行报工', path: '/production/work-order', icon: 'Clock' },
+  { title: '生产报工', desc: '车间执行报工', path: '/production/work-report', icon: 'Clock' },
   { title: '采购订货', desc: '创建采购订单', path: '/purchase/order', icon: 'ShoppingCart' },
   { title: '库存查询', desc: '查看当前库存', path: '/inventory/query', icon: 'Search' },
 ]

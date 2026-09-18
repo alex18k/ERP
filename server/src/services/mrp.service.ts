@@ -6,6 +6,7 @@ export interface MrpParams {
   orderIds?: number[];        // 指定订单，不传则全部未完成订单
   deductStock?: boolean;      // 扣除现有库存
   deductInTransit?: boolean;  // 扣除在途采购量
+  deductInProcess?: boolean;  // 扣除在制量（未完工生产订单未入库量 + 已发料量）
   considerSafetyStock?: boolean; // 考虑安全库存
 }
 
@@ -29,6 +30,8 @@ interface ShortageItem {
   grossDemand: number;
   stockQuantity: number;
   inTransit: number;
+  wipQuantity: number; // 在制量（未完工生产订单尚未入库数量，仅制造类可能>0）
+  issuedQuantity: number; // 已发料量（已按未完工生产订单发料的承诺量）
   safetyStock: number;
   netDemand: number;
   needDate: Date | null;
@@ -247,6 +250,41 @@ export async function runMrp(params: MrpParams = {}, userId?: number): Promise<M
     inTransitMap.set(r.materialId, (inTransitMap.get(r.materialId) ?? 0) + remaining);
   }
 
+  // 在制量（在途供给）：未完工生产订单（planned/in_progress）中尚未完工入库的数量。
+  // 已发料量（承诺量）：已按未完工生产订单发料（ProductionBatchMaterial.issuedQty）的物料，库存已扣、不会退回。
+  const openProductionRows = await prisma.productionOrder.findMany({
+    where: { materialId: { in: [...materialIds] }, status: { in: ["planned", "in_progress"] } },
+    select: {
+      materialId: true,
+      salesOrderId: true,
+      quantity: true,
+      batches: { where: { status: { not: "cancelled" } }, select: { receivedQty: true } },
+    },
+  });
+  const wipMap = new Map<number, number>(); // materialId -> 在制供给量
+  const openByOrderKey = new Map<string, number>(); // `${materialId}:${salesOrderId}` -> 在制量（生产建议扣减用）
+  for (const o of openProductionRows) {
+    const received = o.batches.reduce((s, b) => s + b.receivedQty, 0);
+    const remaining = Math.max(0, o.quantity - received);
+    if (remaining <= 0) continue;
+    wipMap.set(o.materialId, (wipMap.get(o.materialId) ?? 0) + remaining);
+    const key = `${o.materialId}:${o.salesOrderId ?? "manual"}`;
+    openByOrderKey.set(key, (openByOrderKey.get(key) ?? 0) + remaining);
+  }
+
+  const issuedWipRows = await prisma.productionBatchMaterial.findMany({
+    where: {
+      materialId: { in: [...materialIds] },
+      issuedQty: { gt: 0 },
+      batch: { status: { not: "cancelled" }, productionOrder: { status: { in: ["planned", "in_progress"] } } },
+    },
+    select: { materialId: true, issuedQty: true },
+  });
+  const issuedWipMap = new Map<number, number>();
+  for (const r of issuedWipRows) {
+    issuedWipMap.set(r.materialId, (issuedWipMap.get(r.materialId) ?? 0) + r.issuedQty);
+  }
+
   // 计算净需求（按物料的订货周期对需求分桶：周期内合并，周期外拆分）
   const shortages: ShortageItem[] = [];
   for (const materialId of demandMap.keys()) {
@@ -255,6 +293,8 @@ export async function runMrp(params: MrpParams = {}, userId?: number): Promise<M
 
     const stock = params.deductStock !== false ? (stockMap.get(materialId) ?? 0) : 0;
     const inTransit = params.deductInTransit !== false ? (inTransitMap.get(materialId) ?? 0) : 0;
+    const wipQuantity = params.deductInProcess !== false ? (wipMap.get(materialId) ?? 0) : 0;
+    const issuedQuantity = params.deductInProcess !== false ? (issuedWipMap.get(materialId) ?? 0) : 0;
     const safetyStock = params.considerSafetyStock !== false ? material.safetyStock : 0;
 
     // 按订单汇总需求，并带上需求日期（销售订单交货期）
@@ -265,15 +305,17 @@ export async function runMrp(params: MrpParams = {}, userId?: number): Promise<M
 
     const buckets = bucketByOrderCycle(orderDemands, material.orderCycleDays ?? 0);
 
-    // 库存/在途按需求日期由早到晚依次冲抵；安全库存只计入最早一个桶
+    // 库存/在途/在制/已发料按需求日期由早到晚依次冲抵；安全库存只计入最早一个桶
     let remainingStock = stock;
     let remainingInTransit = inTransit;
+    let remainingWip = wipQuantity;
+    let remainingIssued = issuedQuantity;
     let safetyApplied = false;
     for (const bucket of buckets) {
       const bucketSafety = safetyApplied ? 0 : safetyStock;
       safetyApplied = true;
 
-      // 安全库存先计入需求，再用库存/在途冲抵，避免剩余库存无法覆盖安全库存导致重复建议
+      // 安全库存先计入需求，再用库存/在途/在制/已发料冲抵，避免剩余库存无法覆盖安全库存导致重复建议
       let need = bucket.grossDemand + bucketSafety;
       const useStock = Math.min(remainingStock, need);
       remainingStock -= useStock;
@@ -281,6 +323,12 @@ export async function runMrp(params: MrpParams = {}, userId?: number): Promise<M
       const useInTransit = Math.min(remainingInTransit, need);
       remainingInTransit -= useInTransit;
       need -= useInTransit;
+      const useWip = Math.min(remainingWip, need);
+      remainingWip -= useWip;
+      need -= useWip;
+      const useIssued = Math.min(remainingIssued, need);
+      remainingIssued -= useIssued;
+      need -= useIssued;
 
       const netDemand = Math.max(0, need);
       if (netDemand <= 0) continue;
@@ -294,6 +342,8 @@ export async function runMrp(params: MrpParams = {}, userId?: number): Promise<M
         grossDemand: bucket.grossDemand,
         stockQuantity: useStock,
         inTransit: useInTransit,
+        wipQuantity: useWip,
+        issuedQuantity: useIssued,
         safetyStock: bucketSafety,
         netDemand,
         needDate: bucket.needDate,
@@ -345,8 +395,21 @@ export async function runMrp(params: MrpParams = {}, userId?: number): Promise<M
     const material = materialMap.get(materialId)!;
     const demandByOrder = demandMap.get(materialId);
     if (!demandByOrder) continue;
+
+    // 成品/半成品现库存：按物料共用，需求日期早的订单优先分配（demandByOrder 按交货期升序插入）
+    let remainingStockForProd = params.deductStock !== false ? (stockMap.get(materialId) ?? 0) : 0;
+
     for (const [orderId, qty] of demandByOrder) {
       const order = orders.find((o) => o.id === orderId);
+      // 在制量冲抵：该物料对该销售订单已下达未完工的生产订单剩余量不重复建议
+      const wipCovered = params.deductInProcess !== false ? (openByOrderKey.get(`${materialId}:${orderId}`) ?? 0) : 0;
+      // 已入库/现库存冲抵：成品、半成品有库存则从建议量中扣除
+      let need = Math.max(0, qty - wipCovered);
+      const useStock = Math.min(remainingStockForProd, need);
+      remainingStockForProd -= useStock;
+      need -= useStock;
+      const suggestQty = Math.ceil(Math.max(0, need) * 100) / 100;
+      if (suggestQty <= 0) continue;
       const needDate = order?.deliveryDate
         ? new Date(order.deliveryDate.getTime() - (material.leadTime ?? 0) * 24 * 60 * 60 * 1000)
         : null;
@@ -354,7 +417,7 @@ export async function runMrp(params: MrpParams = {}, userId?: number): Promise<M
         materialId,
         materialCode: material.code,
         materialName: material.name,
-        quantity: qty,
+        quantity: suggestQty,
         relatedOrderId: orderId,
         orderNo: order?.orderNo ?? "",
         customerName: order?.customerName ?? "",
@@ -587,6 +650,19 @@ export async function listShortages() {
     });
   }
 
+  // 补充物料类型（运行结果JSON与数据库建议均可能缺失，统一按物料回查）
+  const suggestionMaterialIds = [...new Set(suggestions.map((s: any) => s.materialId))].filter(
+    (v): v is number => typeof v === "number"
+  );
+  if (suggestionMaterialIds.length > 0) {
+    const materialTypes = await prisma.material.findMany({
+      where: { id: { in: suggestionMaterialIds } },
+      select: { id: true, materialType: true },
+    });
+    const typeMap = new Map(materialTypes.map((m) => [m.id, m.materialType]));
+    suggestions = suggestions.map((s: any) => ({ ...s, materialType: typeMap.get(s.materialId) ?? null }));
+  }
+
   return {
     latestRun: {
       id: latestRun.id,
@@ -630,12 +706,11 @@ export async function generatePurchaseOrders(
   const resolveSupplier = (s: (typeof suggestions)[number]): number | null =>
     supplierOverrides?.[String(s.materialId)] ?? s.supplierId ?? null;
 
-  // 按（供应商 + 需求日期桶）分组：同一物料不同订货周期的需求分开下单
-  const dayKey = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : "none");
+  // 按供应商分组：同一供应商勾选的建议合并为一张采购单，不同需求日期在明细行的 expectedDate 区分
   const byGroup = new Map<string, { supplierId: number | null; items: typeof suggestions }>();
   for (const s of suggestions) {
     const supplierId = resolveSupplier(s);
-    const key = `${supplierId ?? "null"}|${dayKey(s.needDate)}`;
+    const key = `${supplierId ?? "null"}`;
     if (!byGroup.has(key)) byGroup.set(key, { supplierId, items: [] });
     byGroup.get(key)!.items.push(s);
   }

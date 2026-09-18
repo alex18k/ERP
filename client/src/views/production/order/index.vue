@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { productionApi, mrpApi, materialApi, orderApi } from '../../../api'
+import { productionApi, mrpApi, materialApi, orderApi, processRouteApi } from '../../../api'
 
 const loading = ref(false)
 const list = ref<any[]>([])
@@ -42,13 +42,16 @@ const manualFormRef = ref()
 const manualMaterials = ref<any[]>([])
 const manualMaterialMap = new Map<number, any>()
 const manualMaterialLoading = ref(false)
+const processRoutes = ref<any[]>([])
+const processRouteLoading = ref(false)
 const salesOrders = ref<any[]>([])
 const salesOrderLoading = ref(false)
 const manualForm = reactive<any>({
-  materialId: null, quantity: 1, salesOrderNo: '', planStartDate: '', planEndDate: '', planner: '', releaseDate: '', remark: '',
+  materialId: null, processRouteId: null, quantity: 1, salesOrderNo: '', planStartDate: '', planEndDate: '', planner: '', releaseDate: '', remark: '',
 })
 const manualRules = {
   materialId: [{ required: true, message: '请选择产品', trigger: 'change' }],
+  processRouteId: [{ required: true, message: '请选择工艺路线', trigger: 'change' }],
   quantity: [{ required: true, message: '请输入生产数量', trigger: 'blur' }],
   planStartDate: [{ required: true, message: '请选择计划开始日期', trigger: 'change' }],
   planEndDate: [{ required: true, message: '请选择计划结束日期', trigger: 'change' }],
@@ -91,11 +94,29 @@ async function loadSalesOrders() {
   }
 }
 
+async function loadProcessRoutes() {
+  processRouteLoading.value = true
+  try {
+    const res: any = await processRouteApi.list({ page: 1, pageSize: 500 })
+    processRoutes.value = res.data?.items || []
+  } catch {
+    /* ignore */
+  } finally {
+    processRouteLoading.value = false
+  }
+}
+
+function onManualMaterialChange(materialId: number) {
+  const m = manualMaterialMap.get(materialId)
+  manualForm.processRouteId = m?.processRouteId ?? null
+}
+
 async function openManualDialog() {
-  Object.assign(manualForm, { materialId: null, quantity: 1, salesOrderNo: '', planStartDate: '', planEndDate: '', planner: '', releaseDate: todayStr(), remark: '' })
+  Object.assign(manualForm, { materialId: null, processRouteId: null, quantity: 1, salesOrderNo: '', planStartDate: '', planEndDate: '', planner: '', releaseDate: todayStr(), remark: '' })
   manualMaterialMap.clear()
   manualMaterials.value = []
   loadSalesOrders()
+  loadProcessRoutes()
   await searchManualMaterials('')
   manualDialogVisible.value = true
 }
@@ -110,6 +131,7 @@ async function submitManualOrder() {
   try {
     const res: any = await productionApi.createOrders([{
       materialId: manualForm.materialId,
+      processRouteId: manualForm.processRouteId,
       quantity: manualForm.quantity,
       salesOrderNo: manualForm.salesOrderNo || undefined,
       planStartDate: manualForm.planStartDate,
@@ -305,7 +327,7 @@ async function submitSchedule() {
   scheduling.value = true
   try {
     const res: any = await productionApi.schedule(scheduleOrder.value.id, { batches, planner: schedulePlanner.value })
-    ElMessage.success(`排产完成，生成 ${res.data?.workOrders?.length ?? 0} 张加工单`)
+    ElMessage.success(`排产完成，生成 ${res.data?.batches?.length ?? 0} 个批次`)
     scheduleDialogVisible.value = false
     loadData()
   } catch { /* error shown */ } finally {
@@ -382,8 +404,8 @@ onMounted(() => {
         <el-table-column label="下达日期" width="110">
           <template #default="{ row }">{{ row.releaseDate?.slice(0, 10) || '-' }}</template>
         </el-table-column>
-        <el-table-column label="加工单" width="80">
-          <template #default="{ row }">{{ row.workOrders?.length || 0 }}</template>
+        <el-table-column label="批次" width="80">
+          <template #default="{ row }">{{ row.batches?.length || 0 }}</template>
         </el-table-column>
         <el-table-column label="批次/已排" width="120">
           <template #default="{ row }">
@@ -413,8 +435,13 @@ onMounted(() => {
     <el-dialog v-model="manualDialogVisible" title="新增生产订单" width="560px" destroy-on-close>
       <el-form ref="manualFormRef" :model="manualForm" :rules="manualRules" label-width="110px">
         <el-form-item label="产品" prop="materialId">
-          <el-select v-model="manualForm.materialId" filterable remote reserve-keyword :remote-method="searchManualMaterials" :loading="manualMaterialLoading" placeholder="输入编码/名称搜索制造类物料" style="width: 100%">
+          <el-select v-model="manualForm.materialId" filterable remote reserve-keyword :remote-method="searchManualMaterials" :loading="manualMaterialLoading" placeholder="输入编码/名称搜索制造类物料" style="width: 100%" @change="onManualMaterialChange">
             <el-option v-for="m in manualMaterials" :key="m.id" :label="`${m.code} - ${m.name}${m.specification ? ' / ' + m.specification : ''}`" :value="m.id" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="工艺路线" prop="processRouteId">
+          <el-select v-model="manualForm.processRouteId" filterable clearable :loading="processRouteLoading" placeholder="默认取产品工艺路线，可下拉选择" style="width: 100%">
+            <el-option v-for="r in processRoutes" :key="r.id" :label="`${r.code} - ${r.name}`" :value="r.id" />
           </el-select>
         </el-form-item>
         <el-form-item label="生产数量" prop="quantity">

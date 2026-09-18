@@ -12,6 +12,9 @@ router.post("/users", requirePermission("user:manage"), systemController.createU
 router.put("/users/:id", requirePermission("user:manage"), systemController.updateUserHandler);
 router.delete("/users/:id", requirePermission("user:manage"), systemController.deleteUserHandler);
 
+// 销售员下拉选项（供销售订单使用，需订单查看权限）
+router.get("/salespersons", requirePermission("order:view"), systemController.listSalespersonHandler);
+
 // 角色管理
 router.get("/roles", requirePermission("role:manage"), systemController.listRoleHandler);
 router.post("/roles", requirePermission("role:manage"), systemController.createRoleHandler);
