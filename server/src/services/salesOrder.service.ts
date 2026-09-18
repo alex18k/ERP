@@ -35,6 +35,43 @@ export async function generateOrderNo(): Promise<string> {
   return `SO${dateStr}${String(count + 1).padStart(4, "0")}`;
 }
 
+// 可发运订单：未发完且非草稿/取消的订单
+export async function listShippableOrders(where: any) {
+  const { orderNo, customerName, page = 1, pageSize = 20 } = where;
+
+  const filters: Prisma.SalesOrderWhereInput = {
+    status: { in: ["confirmed", "in_production", "completed"] },
+  };
+  if (orderNo) filters.orderNo = { contains: orderNo };
+  if (customerName) filters.customerName = { contains: customerName };
+
+  const all = await prisma.salesOrder.findMany({
+    where: filters,
+    include: {
+      customer: { select: { id: true, name: true } },
+      items: {
+        include: {
+          material: { select: { id: true, code: true, name: true, unit: true, specification: true, category: true } },
+        },
+      },
+    },
+    orderBy: { orderNo: "desc" },
+  });
+
+  const shippable = all
+    .filter((o) => o.items.some((it) => it.status !== "cancelled" && it.quantity - (it.deliveredQty ?? 0) > 0.0001))
+    .map((o) => ({
+      ...o,
+      items: o.items
+        .filter((it) => it.status !== "cancelled")
+        .map((it) => ({ ...it, remaining: Number((it.quantity - (it.deliveredQty ?? 0)).toFixed(4)) })),
+    }));
+
+  const total = shippable.length;
+  const start = (Number(page) - 1) * Number(pageSize);
+  return { total, page: Number(page), pageSize: Number(pageSize), items: shippable.slice(start, start + Number(pageSize)) };
+}
+
 export async function listOrders(where: any) {
   const { orderNo, customerName, status, page = 1, pageSize = 20, startDate, endDate } = where;
 
@@ -355,6 +392,87 @@ export async function shipOrder(id: number, userId: number) {
   });
 }
 
+// 销售发运（库存管理）：按明细指定发运数量与出库仓库，扣减库存并更新订单已发量
+export async function shipOrderItems(
+  id: number,
+  userId: number,
+  data: { items: { itemId: number; quantity: number; warehouseId: number; remark?: string }[]; effectiveDate?: string },
+) {
+  if (!data.items?.length) throw new Error("请填写发运明细");
+
+  const order = await prisma.salesOrder.findUnique({
+    where: { id },
+    include: { items: { include: { material: true } } },
+  });
+  if (!order) throw new Error("订单不存在");
+  if (order.status === "cancelled") throw new Error("已取消订单不能发运");
+  if (order.status === "shipped") throw new Error("订单已全部发运");
+
+  const shipType = await prisma.stockTransactionType.findUnique({ where: { code: "ISS-SO" } });
+
+  // 校验明细归属与数量
+  const itemMap = new Map(order.items.map((it) => [it.id, it]));
+  for (const line of data.items) {
+    const item = itemMap.get(line.itemId);
+    if (!item) throw new Error("发运明细不属于该订单");
+    if (line.quantity <= 0) throw new Error("发运数量必须大于0");
+    const remaining = item.quantity - (item.deliveredQty ?? 0);
+    if (line.quantity > remaining + 1e-6) throw new Error(`${item.material?.code} 发运数量超过未发数量 ${remaining}`);
+  }
+
+  return prisma.$transaction(async (tx) => {
+    const shippedItems: { itemId: number; deliveredQty: number }[] = [];
+    for (const [idx, line] of data.items.entries()) {
+      const item = itemMap.get(line.itemId)!;
+
+      // 扣减库存
+      const stock = await tx.stock.findFirst({
+        where: { materialId: item.materialId, warehouseId: line.warehouseId },
+      });
+      if (!stock || stock.quantity < line.quantity) {
+        throw new Error(`${item.material?.code ?? item.materialId} 库存不足（当前 ${stock?.quantity ?? 0}）`);
+      }
+      await tx.stock.update({
+        where: { id: stock.id },
+        data: { quantity: { decrement: line.quantity }, lastOutDate: new Date() },
+      });
+      await tx.stockRecord.create({
+        data: {
+          materialId: item.materialId,
+          warehouseId: line.warehouseId,
+          type: "out",
+          quantity: line.quantity,
+          relatedType: "sales-order",
+          relatedId: id,
+          transactionTypeId: shipType?.id,
+          documentNo: order.orderNo,
+          lineNo: idx + 1,
+          effectiveDate: data.effectiveDate ? new Date(data.effectiveDate) : null,
+          operatorId: userId,
+          remark: line.remark ?? "销售发运出库",
+        },
+      });
+
+      const newDelivered = (item.deliveredQty ?? 0) + line.quantity;
+      const newStatus = newDelivered >= item.quantity - 1e-6 ? "shipped" : item.status;
+      await tx.salesOrderItem.update({
+        where: { id: item.id },
+        data: { deliveredQty: newDelivered, status: newStatus },
+      });
+      shippedItems.push({ itemId: item.id, deliveredQty: newDelivered });
+    }
+
+    // 全部分批发完后订单状态置为已发货
+    const items = await tx.salesOrderItem.findMany({ where: { orderId: id } });
+    const allShipped = items.length > 0 && items.every((it) => it.status === "shipped");
+    if (allShipped) {
+      await tx.salesOrder.update({ where: { id }, data: { status: "shipped" } });
+    }
+
+    return { shippedItems, orderStatus: allShipped ? "shipped" : order.status };
+  });
+}
+
 export async function getOrderTrack(id: number) {
   const order = await prisma.salesOrder.findUnique({
     where: { id },
@@ -401,9 +519,36 @@ export async function getOrderTrack(id: number) {
       })
     : [];
 
+  // 本订单的销售发运出库记录（销售发运 ISS-SO）
+  const shipmentRecords = await prisma.stockRecord.findMany({
+    where: { relatedType: "sales-order", relatedId: id, type: "out" },
+    include: {
+      material: { select: { id: true, code: true, name: true, unit: true } },
+      warehouse: { select: { id: true, code: true, name: true } },
+      operator: { select: { id: true, realName: true } },
+      transactionType: { select: { id: true, code: true, description: true } },
+    },
+    orderBy: { createdAt: "desc" },
+  });
+
   return {
     order,
     statusNodes: buildStatusTrack(order.status),
+    shipments: shipmentRecords.map((r) => ({
+      id: r.id,
+      documentNo: r.documentNo,
+      transactionTypeName: r.transactionType?.description ?? r.transactionType?.code ?? "销售发运",
+      materialCode: r.material.code,
+      materialName: r.material.name,
+      unit: r.material.unit,
+      warehouseCode: r.warehouse?.code ?? null,
+      warehouseName: r.warehouse?.name ?? null,
+      quantity: r.quantity,
+      operatorName: r.operator?.realName ?? "-",
+      effectiveDate: r.effectiveDate,
+      createdAt: r.createdAt,
+      remark: r.remark,
+    })),
     receipts: receiptRecords.map((r) => ({
       id: r.id,
       documentNo: r.documentNo,

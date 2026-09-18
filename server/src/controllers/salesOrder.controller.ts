@@ -23,6 +23,24 @@ export async function shipHandler(req: AuthRequest, res: Response) {
   }
 }
 
+export async function shippableHandler(req: Request, res: Response) {
+  try {
+    const data = await orderService.listShippableOrders(req.query as any);
+    return success(res, data);
+  } catch (error: any) {
+    return fail(res, 500, error.message, 500);
+  }
+}
+
+export async function shippingHandler(req: AuthRequest, res: Response) {
+  try {
+    const data = await orderService.shipOrderItems(Number(req.params.id), req.user!.id, req.body);
+    return success(res, data, "发运完成");
+  } catch (error: any) {
+    return fail(res, 400, error.message);
+  }
+}
+
 export async function listHandler(req: Request, res: Response) {
   try {
     const data = await orderService.listOrders(req.query as any);

@@ -62,6 +62,7 @@ const routes = [
       { path: 'inventory/receive', name: 'InventoryReceive', component: () => import('../views/inventory/receive/index.vue'), meta: { title: '采购收货' } },
       { path: 'inventory/issue', name: 'InventoryIssue', component: () => import('../views/inventory/issue/index.vue'), meta: { title: '生产领料' } },
       { path: 'inventory/production-receive', name: 'InventoryProductionReceive', component: () => import('../views/inventory/productionReceive/index.vue'), meta: { title: '生产入库' } },
+      { path: 'inventory/shipping', name: 'InventoryShipping', component: () => import('../views/inventory/shipping/index.vue'), meta: { title: '销售发运' } },
       { path: 'inventory/transaction-type', name: 'StockTransactionType', component: () => import('../views/inventory/transactionType/index.vue'), meta: { title: '事务类型维护' } },
       // 看板
       { path: 'dashboard/inventory-board', name: 'InventoryBoard', component: () => import('../views/dashboard/inventory/index.vue'), meta: { title: '库存看板' } },
