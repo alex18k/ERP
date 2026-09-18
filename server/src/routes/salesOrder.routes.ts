@@ -6,6 +6,7 @@ const router = Router();
 
 router.use(authMiddleware);
 
+router.get("/shippable", requirePermission("order:view"), orderController.shippableHandler);
 router.get("/overdue", requirePermission("order:view"), orderController.overdueHandler);
 router.get("/export", requirePermission("order:view"), orderController.exportHandler);
 router.get("/:id/downstream", requirePermission("order:view"), orderController.downstreamHandler);
@@ -17,5 +18,6 @@ router.put("/:id", requirePermission("order:edit"), orderController.updateHandle
 router.put("/:id/confirm", requirePermission("order:confirm"), orderController.confirmHandler);
 router.put("/:id/cancel", requirePermission("order:edit"), orderController.cancelHandler);
 router.put("/:id/ship", requirePermission("order:ship"), orderController.shipHandler);
+router.put("/:id/shipping", requirePermission("order:ship"), orderController.shippingHandler);
 
 export default router;

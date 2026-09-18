@@ -16,6 +16,10 @@ const receiptTotal = computed(() =>
   (tracking.value?.receipts || []).reduce((s: number, r: any) => s + (r.quantity ?? 0), 0)
 )
 
+const shipmentTotal = computed(() =>
+  (tracking.value?.shipments || []).reduce((s: number, r: any) => s + (r.quantity ?? 0), 0)
+)
+
 // 列表模式（从菜单进入，未指定订单）
 const orders = ref<any[]>([])
 const total = ref(0)
@@ -243,6 +247,30 @@ watch(() => route.query.id, (id) => {
           <el-table-column prop="remark" label="备注" min-width="140" show-overflow-tooltip />
         </el-table>
         <el-empty v-if="!(tracking.receipts || []).length" description="暂无入库记录" :image-size="60" />
+      </div>
+
+      <div class="page-card" v-if="tracking">
+        <div class="table-toolbar">
+          <span class="toolbar-title">发运信息</span>
+          <div style="flex: 1" />
+          <span style="color: var(--el-text-color-secondary); font-size: 13px">累计发运 {{ shipmentTotal }}</span>
+        </div>
+        <el-table :data="tracking.shipments || []" size="small" stripe max-height="320">
+          <el-table-column prop="documentNo" label="发运单号" width="160" />
+          <el-table-column label="发运时间" width="160">
+            <template #default="{ row }">{{ String(row.effectiveDate || row.createdAt || '').slice(0, 19).replace('T', ' ') }}</template>
+          </el-table-column>
+          <el-table-column label="产品" min-width="180">
+            <template #default="{ row }">{{ row.materialCode }} - {{ row.materialName }}</template>
+          </el-table-column>
+          <el-table-column label="出库仓库" min-width="130">
+            <template #default="{ row }">{{ row.warehouseName ? `${row.warehouseCode} - ${row.warehouseName}` : '-' }}</template>
+          </el-table-column>
+          <el-table-column prop="quantity" label="发运数量" width="100" />
+          <el-table-column prop="operatorName" label="操作员" width="100" />
+          <el-table-column prop="remark" label="备注" min-width="140" show-overflow-tooltip />
+        </el-table>
+        <el-empty v-if="!(tracking.shipments || []).length" description="暂无发运记录" :image-size="60" />
       </div>
 
       <el-empty v-if="!order && !loading" description="订单不存在" />

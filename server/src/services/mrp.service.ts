@@ -411,7 +411,7 @@ export async function runMrp(params: MrpParams = {}, userId?: number): Promise<M
       const suggestQty = Math.ceil(Math.max(0, need) * 100) / 100;
       if (suggestQty <= 0) continue;
       const needDate = order?.deliveryDate
-        ? new Date(order.deliveryDate.getTime() - (material.leadTime ?? 0) * 24 * 60 * 60 * 1000)
+        ? new Date(order.deliveryDate.getTime() - ((material.manufactureLeadTime ?? material.leadTime) ?? 0) * 24 * 60 * 60 * 1000)
         : null;
       productionOrders.push({
         materialId,
@@ -531,11 +531,11 @@ export async function getMrpRun(id: number) {
       }),
       prisma.material.findMany({
         where: { id: { in: [...new Set(prodOrders.map((p: any) => p.materialId))] } },
-        select: { id: true, leadTime: true },
+        select: { id: true, leadTime: true, manufactureLeadTime: true },
       }),
     ]);
     const orderMap = new Map(orders.map((o) => [o.id, o]));
-    const leadMap = new Map(materials.map((m) => [m.id, m.leadTime ?? 0]));
+    const leadMap = new Map(materials.map((m) => [m.id, m.manufactureLeadTime ?? m.leadTime ?? 0]));
     const dayMs = 24 * 60 * 60 * 1000;
     result.productionOrders = prodOrders.map((p: any) => {
       const order = orderMap.get(p.relatedOrderId);

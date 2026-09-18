@@ -106,7 +106,8 @@ model Material {
   safetyStock         Float                @default(0)
   minStock            Float                @default(0)
   maxStock            Float                @default(0)
-  leadTime            Int                  @default(0)
+  leadTime            Int                  @default(0) // 采购提前期（天数）
+  manufactureLeadTime Int                  @default(0) // 制造提前期（天数）
   orderCycleDays      Int                  @default(30) // 订货周期（天数）：MRP 按此周期合并需求，超出则分开下单
   materialType        String? // 物料类别（自由填写，如五金件/电子件/包装材料）
   minOrderQty         Float                @default(0) // 最小订量

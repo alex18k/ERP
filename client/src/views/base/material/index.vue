@@ -62,6 +62,7 @@ const form = reactive<any>({
   minStock: 0,
   maxStock: 0,
   leadTime: 0,
+  manufactureLeadTime: 0,
   orderCycleDays: 30,
   minOrderQty: 0,
   cost: 0,
@@ -91,6 +92,7 @@ async function openDialog(row?: any) {
     form.minStock = 0
     form.maxStock = 0
     form.leadTime = 0
+    form.manufactureLeadTime = 0
     form.orderCycleDays = 30
     form.minOrderQty = 0
     form.cost = 0
@@ -210,7 +212,8 @@ onMounted(() => {
         </el-table-column>
         <el-table-column prop="unit" label="单位" width="70" />
         <el-table-column prop="safetyStock" label="安全库存" width="90" />
-        <el-table-column prop="leadTime" label="提前期(天)" width="100" />
+        <el-table-column prop="leadTime" label="采购提前期" width="110" />
+        <el-table-column prop="manufactureLeadTime" label="制造提前期" width="110" />
         <el-table-column prop="orderCycleDays" label="订货周期(天)" width="110" />
         <el-table-column prop="minOrderQty" label="最小订量" width="90" />
         <el-table-column prop="cost" label="成本" width="80" />
@@ -302,6 +305,9 @@ onMounted(() => {
           <el-col :span="12">
             <el-form-item label="采购提前期">
               <el-input-number v-model="form.leadTime" :min="0" style="width: 100%" />
+            </el-form-item>
+            <el-form-item label="制造提前期">
+              <el-input-number v-model="form.manufactureLeadTime" :min="0" style="width: 100%" />
             </el-form-item>
             <el-form-item label="订货周期(天)">
               <el-input-number v-model="form.orderCycleDays" :min="0" style="width: 100%" />

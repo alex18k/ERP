@@ -11,6 +11,7 @@ export interface MaterialCreateInput {
   minStock?: number;
   maxStock?: number;
   leadTime?: number;
+  manufactureLeadTime?: number;
   orderCycleDays?: number;
   materialType?: string;
   minOrderQty?: number;
@@ -148,6 +149,7 @@ export async function createMaterial(data: MaterialCreateInput) {
       minStock: data.minStock ?? 0,
       maxStock: data.maxStock ?? 0,
       leadTime: data.leadTime ?? 0,
+      manufactureLeadTime: data.manufactureLeadTime ?? 0,
       minOrderQty: data.minOrderQty ?? 0,
       cost: data.cost ?? 0,
     },

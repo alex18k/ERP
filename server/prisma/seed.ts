@@ -376,8 +376,8 @@ async function main() {
     { code: "M-003", name: "六角螺栓", specification: "M6×20", category: "purchase", unit: "个", safetyStock: 2000, minStock: 1000, maxStock: 10000, leadTime: 3, supplierId: supplier2.id },
     { code: "M-004", name: "六角螺母", specification: "M6", category: "purchase", unit: "个", safetyStock: 2000, minStock: 1000, maxStock: 10000, leadTime: 3, supplierId: supplier2.id },
     { code: "M-005", name: "包装纸箱", specification: "600×400×300", category: "purchase", unit: "个", safetyStock: 500, minStock: 200, maxStock: 2000, leadTime: 5, supplierId: supplier3.id },
-    { code: "M-100", name: "设备外壳组件", specification: "HF-1000", category: "manufacture", unit: "套", safetyStock: 50, minStock: 20, maxStock: 200, leadTime: 10 },
-    { code: "M-200", name: "标准设备产品A", specification: "HF-A2000", category: "manufacture", unit: "台", safetyStock: 20, minStock: 10, maxStock: 100, leadTime: 15 },
+    { code: "M-100", name: "设备外壳组件", specification: "HF-1000", category: "manufacture", unit: "套", safetyStock: 50, minStock: 20, maxStock: 200, leadTime: 10, manufactureLeadTime: 10 },
+    { code: "M-200", name: "标准设备产品A", specification: "HF-A2000", category: "manufacture", unit: "台", safetyStock: 20, minStock: 10, maxStock: 100, leadTime: 15, manufactureLeadTime: 15 },
   ];
 
   const materials = new Map<string, { id: number }>();
