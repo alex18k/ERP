@@ -173,7 +173,7 @@ onMounted(loadData)
         </el-table-column>
         <el-table-column prop="version" label="版本" width="70" />
         <el-table-column label="明细数" width="80">
-          <template #default="{ row }">{{ row.items?.length ?? 0 }}</template>
+          <template #default="{ row }">{{ row._count?.items ?? 0 }}</template>
         </el-table-column>
         <el-table-column label="状态" width="90">
           <template #default="{ row }">{{ formatStatus(row.status) }}</template>

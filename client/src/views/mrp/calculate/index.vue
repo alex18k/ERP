@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
-import { ElMessageBox } from 'element-plus'
+import { ref, reactive, onMounted, onUnmounted } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { mrpApi, orderApi } from '../../../api'
 import { materialCategoryLabel } from '../../../utils/category'
 
@@ -15,6 +15,36 @@ const runType = ref<'all' | 'selected'>('all')
 const selectedOrders = ref<number[]>([])
 const resultDialogVisible = ref(false)
 const result = ref<any>(null)
+let pollTimer: ReturnType<typeof setTimeout> | null = null
+
+function pollRun(runId: number) {
+  const check = async () => {
+    try {
+      const res: any = await mrpApi.getRun(runId)
+      const data = res.data || {}
+      if (data.status === 'running') {
+        pollTimer = setTimeout(check, 1500)
+        return
+      }
+      running.value = false
+      if (data.status === 'failed') {
+        ElMessage.error((data.result?.error as string) || 'MRP运算失败')
+      } else {
+        result.value = { ...data, ...(data.result || {}) }
+        resultDialogVisible.value = true
+      }
+      loadData()
+    } catch {
+      running.value = false
+      loadData()
+    }
+  }
+  pollTimer = setTimeout(check, 1500)
+}
+
+onUnmounted(() => {
+  if (pollTimer) clearTimeout(pollTimer)
+})
 
 async function loadData() {
   loading.value = true
@@ -43,11 +73,17 @@ async function handleRun() {
   try {
     const payload = runType.value === 'selected' ? { orderIds: selectedOrders.value } : {}
     const res: any = await mrpApi.calculate(payload)
-    running.value = false
-    runDialogVisible.value = false
-    result.value = res.data
-    resultDialogVisible.value = true
-    loadData()
+    if (res.data?.runId) {
+      runDialogVisible.value = false
+      ElMessage.success(`MRP运算已提交（${res.data.runNo}），后台运算中，完成后将自动展示结果`)
+      pollRun(res.data.runId)
+      loadData()
+    } else {
+      running.value = false
+      result.value = res.data
+      resultDialogVisible.value = true
+      loadData()
+    }
   } catch {
     running.value = false
   }
@@ -168,8 +204,17 @@ onMounted(loadData)
                 </template>
               </el-table-column>
               <el-table-column prop="leadTime" label="提前期" width="90" />
-              <el-table-column label="建议日期" width="110">
+              <el-table-column label="需求日期" width="110">
                 <template #default="{ row }">{{ row.needDate?.slice?.(0, 10) || '-' }}</template>
+              </el-table-column>
+              <el-table-column label="建议下单日期" width="130">
+                <template #default="{ row }">{{ row.orderDate?.slice?.(0, 10) || '-' }}</template>
+              </el-table-column>
+              <el-table-column label="下单状态" width="100">
+                <template #default="{ row }">
+                  <el-tag v-if="row.purchaseOverdue" type="danger" size="small">需立即下单</el-tag>
+                  <el-tag v-else type="success" size="small">正常</el-tag>
+                </template>
               </el-table-column>
             </el-table>
           </el-tab-pane>
@@ -180,8 +225,17 @@ onMounted(loadData)
               </el-table-column>
               <el-table-column prop="quantity" label="建议生产量" width="110" />
               <el-table-column prop="orderNo" label="关联订单" width="160" />
-              <el-table-column label="截止日期" width="110">
+              <el-table-column label="需求交期" width="110">
                 <template #default="{ row }">{{ row.needDate?.slice?.(0, 10) || '-' }}</template>
+              </el-table-column>
+              <el-table-column label="建议开工日期" width="130">
+                <template #default="{ row }">{{ row.orderDate?.slice?.(0, 10) || '-' }}</template>
+              </el-table-column>
+              <el-table-column label="状态" width="110">
+                <template #default="{ row }">
+                  <el-tag v-if="row.overdue" type="danger" size="small">已逾期</el-tag>
+                  <el-tag v-else type="success" size="small">正常</el-tag>
+                </template>
               </el-table-column>
             </el-table>
           </el-tab-pane>

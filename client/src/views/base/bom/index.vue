@@ -55,8 +55,9 @@ const rules = {
 async function openDialog(row?: any) {
   isEdit.value = !!row
   if (row) {
-    Object.assign(form, row)
-    form.items = row.items?.map((i: any) => ({ ...i })) || []
+    const full: any = await bomApi.get(row.id)
+    Object.assign(form, row, full.data)
+    form.items = full.data.items?.map((i: any) => ({ ...i })) || []
     matList.value = (form.items || [])
       .map((i: any) => i.material && { id: i.material.id, code: i.material.code, name: i.material.name, specification: i.material.specification, unit: i.material.unit })
       .filter((m: any) => !!m)
@@ -91,7 +92,7 @@ async function queryProducts(keyword: string) {
 
 // 「子BOM」标记集合：页面上缓存，非每次打开弹窗都请求
 async function loadActiveBoms() {
-  const activeRes: any = await bomApi.list({ pageSize: 500, status: 'active' })
+  const activeRes: any = await bomApi.list({ pageSize: 500, status: 'active', lite: true })
   activeBomProducts.value = new Set((activeRes.data.items as any[]).map((b: any) => b.productId))
 }
 
@@ -307,7 +308,7 @@ onMounted(() => {
         </el-table-column>
         <el-table-column prop="version" label="版本" width="70" />
         <el-table-column label="明细数" width="80">
-          <template #default="{ row }">{{ row.items?.length ?? 0 }}</template>
+          <template #default="{ row }">{{ row._count?.items ?? 0 }}</template>
         </el-table-column>
         <el-table-column label="状态" width="90">
           <template #default="{ row }">{{ formatStatus(row.status) }}</template>

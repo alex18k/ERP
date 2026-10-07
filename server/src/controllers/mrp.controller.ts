@@ -1,12 +1,12 @@
 import { Request, Response } from "express";
-import { runMrp, listMrpHistory, getMrpRun, listShortages, generatePurchaseOrders, createSafetyStockSuggestions } from "../services/mrp.service";
+import { startMrp, listMrpHistory, getMrpRun, listShortages, generatePurchaseOrders, createSafetyStockSuggestions } from "../services/mrp.service";
 import { success, fail } from "../utils/response";
 import { AuthRequest } from "../middleware/auth";
 
 export async function calculateHandler(req: AuthRequest, res: Response) {
   try {
-    const data = await runMrp(req.body || {}, req.user?.id);
-    return success(res, data, "MRP运算完成");
+    const data = await startMrp(req.body || {}, req.user?.id);
+    return success(res, data, "MRP运算已提交，正在后台执行");
   } catch (error: any) {
     return fail(res, 400, error.message);
   }

@@ -452,7 +452,7 @@ model PurchaseOrder {
   totalAmount  Float               @default(0)
   orderDate    DateTime?
   expectedDate DateTime?
-  status       String              @default("draft") // draft, confirmed, partial_received, received, cancelled
+  status       String              @default("draft") // draft, confirmed, partial_received, received, cancelled, closed
   settleMethod String? // 结算方式（来自供应商，下单时快照）
   taxIncluded  Boolean             @default(false) // 含税（表头默认，来自供应商）
   taxRate      Float               @default(0) // 税率(%)（表头默认，来自供应商）
@@ -600,6 +600,7 @@ model PurchaseSuggestion {
   supplierId       Int?
   leadTime         Int?
   needDate         DateTime?
+  orderDate        DateTime?
   status           String    @default("pending") // pending, converted, cancelled
   convertedOrderId Int?
   createdAt        DateTime  @default(now())

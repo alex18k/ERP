@@ -232,12 +232,12 @@ export async function confirmPurchaseOrder(id: number) {
   return prisma.purchaseOrder.update({ where: { id }, data: { status: "confirmed" } });
 }
 
-const MAINTAINABLE_STATUSES = ["draft", "confirmed", "cancelled"];
+const MAINTAINABLE_STATUSES = ["draft", "confirmed", "cancelled", "closed"];
 
-// 主表状态下拉维护：仅允许草稿/已确认/已取消，收货相关状态由收货操作驱动
+// 主表状态下拉维护：仅允许草稿/已确认/已取消/已关闭，收货相关状态由收货操作驱动
 export async function updatePurchaseOrderStatus(id: number, status: string) {
   if (!MAINTAINABLE_STATUSES.includes(status)) {
-    throw new Error("仅支持草稿、已确认、已取消三种状态");
+    throw new Error("仅支持草稿、已确认、已取消、已关闭四种状态");
   }
   const exists = await prisma.purchaseOrder.findUnique({ where: { id } });
   if (!exists) throw new Error("采购单不存在");
@@ -283,6 +283,7 @@ export async function receivePurchaseOrder(
   if (!po) throw new Error("采购单不存在");
   if (po.status === "draft") throw new Error("采购单为草稿状态，请先确认后再收货");
   if (po.status === "cancelled") throw new Error("采购单已取消，不能收货");
+  if (po.status === "closed") throw new Error("采购单已关闭，不能收货");
   if (po.status === "received") throw new Error("采购单已全部收货");
 
   const receiptType = await prisma.stockTransactionType.findUnique({ where: { code: "RCT-PO" } });

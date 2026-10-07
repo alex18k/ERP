@@ -56,7 +56,7 @@ async function openCreateDialog() {
   const issued = new Set((keysRes.data || []).map((k: any) => `${k.materialId}-${k.salesOrderId}`))
   suggestions.value = (detail.data.result?.productionOrders || [])
     .filter((s: any) => !issued.has(`${s.materialId}-${s.relatedOrderId}`))
-    .map((s: any) => ({ ...s, issued: false, planEndDate: s.needDate?.slice?.(0, 10) || '' }))
+    .map((s: any) => ({ ...s, issued: false, planStartDate: s.orderDate?.slice?.(0, 10) || '', planEndDate: s.needDate?.slice?.(0, 10) || '' }))
   selectedProd.value = []
   createDialogVisible.value = true
 }
@@ -82,7 +82,7 @@ async function handleCreateOrders() {
         materialId: s.materialId,
         quantity: s.quantity,
         salesOrderId: s.relatedOrderId,
-        planStartDate: new Date().toISOString().slice(0, 10),
+        planStartDate: s.planStartDate || new Date().toISOString().slice(0, 10),
         planEndDate: s.planEndDate,
         remark: `来自MRP建议-${s.orderNo || ''}`,
       }))

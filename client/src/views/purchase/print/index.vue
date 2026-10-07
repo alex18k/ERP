@@ -12,7 +12,7 @@ const COMPANY_NAME = '肇庆市博士芯电子科技有限公司'
 const COMPANY_CONTACT = '采购部 | 电话：000-0000-0000 | 地址：肇庆市端州区睦岗街道太和南路创新创业园'
 
 const statusLabel = (v: string) =>
-  ({ draft: '草稿', confirmed: '已确认', partial_received: '部分收货', received: '已收货', cancelled: '已取消' })[v] || v
+  ({ draft: '草稿', confirmed: '已确认', partial_received: '部分收货', received: '已收货', cancelled: '已取消', closed: '已关闭' })[v] || v
 
 function fmt(d: string | null | undefined) {
   return d ? String(d).slice(0, 10) : '-'

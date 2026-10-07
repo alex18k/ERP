@@ -8,7 +8,7 @@ ERP生产管理系统 (MRP-driven manufacturing ERP). Monorepo, two apps at repo
 # backend (port 3000) — ALWAYS tsx
 cd server && npm run dev            # tsx watch src/index.ts
 
-# frontend (port 5173, vite proxies /api -> localhost:3000)
+# frontend (port 63130, vite proxies /api -> localhost:3000)
 cd client && npm run dev            # vite
 
 # typecheck + build (MUST use these; npx vite build skips vue-tsc)

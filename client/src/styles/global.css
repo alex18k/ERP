@@ -12,23 +12,23 @@
 }
 
 :root {
-  /* ---- 画布 & 中性色（冷调浅蓝） ---- */
-  --erp-paper:      #eef4fb;
-  --erp-surface:    #ffffff;
-  --erp-hairline:   #d3deeb;
-  --erp-hairline-2: #e2eaf3;
-  --erp-grid:       #9aabc0;
+  /* ---- 画布 & 中性色 ---- */
+  --erp-paper:      #F3F5F7;
+  --erp-surface:    #FFFFFF;
+  --erp-hairline:   #D9E1EC;
+  --erp-hairline-2: #E5EBF2;
+  --erp-grid:       #D9E1EC;
 
   /* ---- 文字 ---- */
-  --erp-ink:        #1c2a3d;   /* 深墨蓝（导航/标题文字） */
+  --erp-ink:        #1F2937;
   --erp-ink-2:      #223044;
   --erp-ink-deep:   #16233a;
-  --erp-inktext:    #39465a;   /* 正文主色 */
-  --erp-steel:      #64748b;   /* 次级文字 */
+  --erp-inktext:    #1F2937;
+  --erp-steel:      #6B7280;
 
-  /* ---- 品牌主色：明亮蓝 ---- */
-  --erp-blue:       #3b8ae0;
-  --erp-blue-deep:  #2f77cc;
+  /* ---- 品牌主色 ---- */
+  --erp-blue:       #1F5F99;
+  --erp-blue-deep:  #174A78;
 
   /* ---- 语义色 ---- */
   --erp-amber:      #b07a12;
@@ -88,9 +88,9 @@
   --el-border-color-lighter:     var(--erp-hairline-2);
   --el-border-color-extra-light: #eef2f7;
 
-  --el-border-radius-base:       6px;
-  --el-border-radius-small:      4px;
-  --el-border-radius-round:      20px;
+  --el-border-radius-base:       3px;
+  --el-border-radius-small:      3px;
+  --el-border-radius-round:      3px;
 
   --el-font-family:              var(--erp-font);
 }
@@ -100,10 +100,10 @@ html, body, #app {
   font-family: var(--erp-font);
   background-color: var(--erp-paper);
   color: var(--erp-inktext);
-  font-size: 14px;
+  font-size: 13px;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
-  line-height: 1.55;
+  line-height: 1.45;
 }
 
 ::selection {
@@ -113,16 +113,15 @@ html, body, #app {
 /* ============ 页面骨架 ============ */
 
 .page-container {
-  padding: 14px;
+  padding: 12px;
 }
 
 .page-card {
   background: var(--erp-surface);
   border: 1px solid var(--erp-hairline);
-  border-radius: 10px;
-  padding: 14px;
-  margin-bottom: 12px;
-  box-shadow: 0 1px 2px rgba(18, 34, 58, 0.04), 0 6px 18px -6px rgba(18, 34, 58, 0.06);
+  border-radius: 3px;
+  padding: 12px;
+  margin-bottom: 8px;
 }
 
 /* 面板标题：品牌蓝左侧刻线 */
@@ -152,7 +151,7 @@ html, body, #app {
   flex-wrap: wrap;
   gap: 8px;
   align-items: center;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
 }
 
 .table-toolbar {
@@ -185,15 +184,13 @@ html, body, #app {
 .stat-card {
   background: var(--erp-surface);
   border: 1px solid var(--erp-hairline);
-  border-radius: 10px;
-  padding: 14px 16px;
-  box-shadow: 0 1px 2px rgba(18, 34, 58, 0.03);
-  transition: transform 0.18s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.18s ease;
+  border-radius: 3px;
+  padding: 12px 14px;
 }
 
 .stat-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 8px 20px -8px rgba(18, 34, 58, 0.12);
+  box-shadow: none;
+  transform: none;
 }
 
 .stat-card .title,
@@ -243,12 +240,12 @@ html, body, #app {
   --el-table-border-color: var(--erp-hairline);
   --el-table-row-hover-bg-color: #eef5fc;
   font-size: 13px;
-  border-radius: 8px;
+  border-radius: 3px;
   font-variant-numeric: tabular-nums;
 }
 
 .el-table th.el-table__cell {
-  padding: 6px 0;
+  padding: 4px 0;
   color: #232b39;
   font-weight: 700;
   font-size: 12px;
@@ -256,7 +253,7 @@ html, body, #app {
 }
 
 .el-table td.el-table__cell {
-  padding: 5px 0;
+  padding: 3px 0;
   color: #1a1f2a;
 }
 
@@ -327,9 +324,9 @@ html, body, #app {
 }
 
 .el-dialog {
-  border-radius: 14px;
+  border-radius: 4px;
   border: 1px solid var(--erp-hairline);
-  box-shadow: 0 2px 8px rgba(16, 30, 52, 0.06), 0 16px 48px rgba(16, 30, 52, 0.12);
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.12);
   overflow: hidden;
 }
 
@@ -362,15 +359,15 @@ html, body, #app {
 
 .el-card {
   --el-card-border-color: var(--erp-hairline);
-  --el-card-border-radius: 10px;
-  --el-card-padding: 14px;
+  --el-card-border-radius: 3px;
+  --el-card-padding: 12px;
 }
 
 /* ============ 输入框 / 下拉 ============ */
 
 .el-input__wrapper,
 .el-select__wrapper {
-  border-radius: 6px;
+  border-radius: 3px;
   transition: box-shadow 0.15s ease;
 }
 
@@ -387,7 +384,7 @@ html, body, #app {
 /* ============ 标签 ============ */
 
 .el-tag {
-  border-radius: 6px;
+  border-radius: 3px;
   font-variant-numeric: tabular-nums;
 }
 
@@ -423,18 +420,18 @@ html, body, #app {
 }
 
 .el-button--primary {
-  --el-button-text-color:            #409eff;
+  --el-button-text-color:            #ffffff;
   --el-button-hover-text-color:      #ffffff;
   --el-button-active-text-color:     #ffffff;
-  --el-button-bg-color:              #ecf5ff;
-  --el-button-border-color:          #b3d8ff;
-  --el-button-hover-bg-color:        #409eff;
-  --el-button-hover-border-color:    #409eff;
-  --el-button-active-bg-color:       #3a8ee6;
-  --el-button-active-border-color:   #3a8ee6;
-  --el-button-disabled-text-color:   #8cc5ff;
-  --el-button-disabled-bg-color:     #ecf5ff;
-  --el-button-disabled-border-color: #d9ecff;
+  --el-button-bg-color:              var(--erp-blue);
+  --el-button-border-color:          var(--erp-blue);
+  --el-button-hover-bg-color:        var(--erp-blue-deep);
+  --el-button-hover-border-color:    var(--erp-blue-deep);
+  --el-button-active-bg-color:       var(--erp-blue-deep);
+  --el-button-active-border-color:   var(--erp-blue-deep);
+  --el-button-disabled-text-color:   #9db9d4;
+  --el-button-disabled-bg-color:     #d7e6f3;
+  --el-button-disabled-border-color: #d7e6f3;
 }
 
 /* 新增类按钮：参考 Bosx-MRP 绿色 is-plain 样式（浅绿底 + 绿字，hover 反转为实心绿白字） */

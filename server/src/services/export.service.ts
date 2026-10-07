@@ -8,7 +8,7 @@ const saleStatusLabel: Record<string, string> = {
 };
 
 const purchaseStatusLabel: Record<string, string> = {
-  draft: "草稿", confirmed: "已确认", partial_received: "部分到货", received: "已到货", cancelled: "已取消",
+  draft: "草稿", confirmed: "已确认", partial_received: "部分到货", received: "已到货", cancelled: "已取消", closed: "已关闭",
 };
 
 const date = (d: Date | null | undefined) => (d ? new Date(d).toLocaleString("zh-CN", { hour12: false }) : "");

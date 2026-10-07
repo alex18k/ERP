@@ -143,7 +143,7 @@ async function handleLogout() {
 
 <template>
   <el-container class="layout">
-    <el-aside width="224px" class="aside">
+    <el-aside width="220px" class="aside">
       <div class="logo">
         <div class="logo-mark">
           <el-icon :size="20"><Cpu /></el-icon>
@@ -230,8 +230,8 @@ async function handleLogout() {
 
 /* ---------- 侧边栏：冷调浅蓝 ---------- */
 .aside {
-  background: linear-gradient(180deg, #eef4fb 0%, #e3ecf6 100%);
-  border-right: 1px solid #cdd9e6;
+  background: #F8FAFC;
+  border-right: 1px solid var(--erp-hairline);
   overflow-y: auto;
   display: flex;
   flex-direction: column;
@@ -244,12 +244,12 @@ async function handleLogout() {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 14px 16px;
+  padding: 10px 14px;
   color: #23324a;
   font-weight: 700;
-  font-size: 15px;
+  font-size: 14px;
   letter-spacing: 0.02em;
-  border-bottom: 1px solid #d0dbe8;
+  border-bottom: 1px solid var(--erp-hairline);
   flex-shrink: 0;
 }
 
@@ -260,8 +260,8 @@ async function handleLogout() {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(180deg, #4a94e0, #2f77cc);
-  border-radius: 8px;
+  background: var(--erp-blue);
+  border-radius: 3px;
   color: #fff;
 }
 
@@ -281,19 +281,19 @@ async function handleLogout() {
   --el-menu-bg-color: transparent;
   --el-menu-text-color: #4b5b70;
   --el-menu-hover-bg-color: rgba(255, 255, 255, 0.85);
-  --el-menu-active-color: #1f5e9e;
-  --el-menu-item-height: 40px;
-  --el-menu-sub-item-height: 38px;
+  --el-menu-active-color: #1F5F99;
+  --el-menu-item-height: 34px;
+  --el-menu-sub-item-height: 32px;
 }
 
 .side-menu :deep(.el-menu-item),
 .side-menu :deep(.el-sub-menu__title) {
-  height: 40px;
-  line-height: 40px;
+  height: 34px;
+  line-height: 34px;
   margin: 1px 8px;
-  border-radius: 8px;
+  border-radius: 3px;
   color: #4b5b70;
-  font-size: 13.5px;
+  font-size: 13px;
   transition: background-color 0.15s ease, color 0.15s ease;
 }
 
@@ -314,7 +314,7 @@ async function handleLogout() {
 }
 
 .side-menu :deep(.el-menu-item.is-active) {
-  color: #1f5e9e;
+  color: #1F5F99;
   font-weight: 600;
   box-shadow: inset 3px 0 0 0 var(--erp-blue);
 }
@@ -333,7 +333,7 @@ async function handleLogout() {
 }
 
 .side-menu :deep(.el-sub-menu .el-menu-item.is-active) {
-  color: #1f5e9e;
+  color: #1F5F99;
   box-shadow: inset 3px 0 0 0 var(--erp-blue);
 }
 
@@ -372,11 +372,10 @@ async function handleLogout() {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  height: 52px;
-  padding: 0 20px;
+  height: 48px;
+  padding: 0 16px;
   background: var(--erp-surface);
   border-bottom: 1px solid var(--erp-hairline);
-  box-shadow: 0 1px 0 var(--erp-hairline-2), 0 2px 6px -4px rgba(18, 34, 58, 0.08);
 }
 
 .header :deep(.el-breadcrumb) {
@@ -410,7 +409,7 @@ async function handleLogout() {
   outline: none;
   padding: 4px 8px;
   margin-right: -8px;
-  border-radius: 8px;
+  border-radius: 3px;
   transition: background-color 0.15s ease;
 }
 
