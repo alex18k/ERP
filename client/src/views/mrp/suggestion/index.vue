@@ -164,17 +164,19 @@ onMounted(loadData)
           <template #default="{ row }">{{ row.source === 'safety' ? '安全库存' : 'MRP需求' }}</template>
         </el-table-column>
         <el-table-column prop="suggestedQty" label="建议采购量" width="110" />
+        <el-table-column label="建议下单日期" width="120">
+          <template #default="{ row }">{{ row.orderDate?.slice?.(0, 10) || '-' }}</template>
+        </el-table-column>
         <el-table-column label="建议需求日" width="120">
           <template #default="{ row }">{{ row.needDate?.slice?.(0, 10) || '-' }}</template>
         </el-table-column>
         <el-table-column prop="leadTime" label="采购提前期" width="100">
           <template #default="{ row }">{{ row.leadTime ?? '-' }} 天</template>
         </el-table-column>
-        <el-table-column label="状态" width="100">
+        <el-table-column label="下单状态" width="110">
           <template #default="{ row }">
-            <el-tag :type="row.status === 'converted' ? 'success' : 'warning'" size="small">
-              {{ row.status === 'converted' ? '已转采购单' : '待处理' }}
-            </el-tag>
+            <el-tag v-if="row.purchaseOverdue" type="danger" size="small">需立即下单</el-tag>
+            <el-tag v-else type="success" size="small">正常</el-tag>
           </template>
         </el-table-column>
       </el-table>

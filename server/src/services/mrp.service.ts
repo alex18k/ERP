@@ -90,6 +90,8 @@ interface SuggestionItem {
   supplierId: number | null;
   leadTime: number;
   needDate: Date;
+  orderDate: Date; // 建议下单日期 = 需求日期 − 采购提前期
+  purchaseOverdue: boolean; // 建议下单日期已早于今天，应立即下单
   sourceOrders: { orderId: number; orderNo: string; quantity: number; deliveryDate: Date | null }[];
 }
 
@@ -101,7 +103,9 @@ interface ProductionDemand {
   relatedOrderId: number;
   orderNo: string;
   customerName: string;
-  needDate: Date | null;
+  needDate: Date | null; // 需求交期（销售订单交货期）
+  orderDate: Date | null; // 建议开工日期 = 交期 − 制造提前期
+  overdue: boolean; // 建议开工日期已早于今天，来不及按提前期排产
 }
 
 // ===== 1. 获取订单及明细 =====
@@ -124,23 +128,48 @@ async function fetchOrders(orderIds?: number[]) {
   });
 }
 
-// ===== 2. BOM展开（递归） =====
+// ===== 2. BOM展开（递归 + 全量内存缓存，消除 N+1） =====
 const MAX_BOM_DEPTH = 20;
+
+type BomWithItems = Prisma.BomGetPayload<{ include: { items: true } }>;
 
 interface ExpandedDemand {
   materialId: number;
   quantity: number;
   orderId: number;
   orderNo: string;
+  needDate: Date | null;
   isSemiProduct: boolean;
 }
 
+export interface MrpCache {
+  bomMap: Map<number, BomWithItems>; // productId -> active BOM
+  materialMap: Map<number, Prisma.MaterialGetPayload<{}>>;
+}
+
+// 一次性加载全部有效BOM与物料进内存，供展开过程复用（仅两次查询）
+export async function buildMrpCache(): Promise<MrpCache> {
+  const [boms, materials] = await Promise.all([
+    prisma.bom.findMany({ where: { status: "active" }, include: { items: true } }),
+    prisma.material.findMany(),
+  ]);
+  const bomMap = new Map<number, BomWithItems>();
+  for (const b of boms) {
+    if (!bomMap.has(b.productId)) bomMap.set(b.productId, b);
+  }
+  const materialMap = new Map(materials.map((m) => [m.id, m]));
+  return { bomMap, materialMap };
+}
+
 // visited 采用回溯式（仅祖先链），支持菱形结构：同一子BOM可在多个分支复用
+// BOM与物料均来自调用方内存缓存，展开过程零额外DB查询
 async function expandDemand(
   materialId: number,
   quantity: number,
   orderId: number,
   orderNo: string,
+  needDate: Date | null,
+  cache: MrpCache,
   visited: Set<number> = new Set(),
   depth = 0
 ): Promise<ExpandedDemand[]> {
@@ -148,11 +177,8 @@ async function expandDemand(
     throw new Error(`BOM层级过深，超过最大深度 ${MAX_BOM_DEPTH} 层`);
   }
 
-  const bom = await prisma.bom.findFirst({
-    where: { productId: materialId, status: "active" },
-    include: { items: true },
-  });
-
+  const { bomMap, materialMap } = cache;
+  const bom = bomMap.get(materialId);
   const results: ExpandedDemand[] = [];
   if (!bom) {
     // 无BOM，直接作为采购/生产需求
@@ -166,21 +192,17 @@ async function expandDemand(
 
   for (const item of bom.items) {
     const totalQty = quantity * item.quantity * (1 + (item.lossRate ?? 0));
-    const itemMaterial = await prisma.material.findUnique({ where: { id: item.materialId } });
-
+    const itemMaterial = materialMap.get(item.materialId);
     if (!itemMaterial) continue;
 
-    const hasSubBom = await prisma.bom.findFirst({
-      where: { productId: item.materialId, status: "active" },
-      select: { id: true },
-    });
+    const hasSubBom = bomMap.has(item.materialId);
 
     if (hasSubBom) {
-      results.push({ materialId: item.materialId, quantity: totalQty, orderId, orderNo, isSemiProduct: true });
-      const sub = await expandDemand(item.materialId, totalQty, orderId, orderNo, visited, depth + 1);
+      results.push({ materialId: item.materialId, quantity: totalQty, orderId, orderNo, needDate, isSemiProduct: true });
+      const sub = await expandDemand(item.materialId, totalQty, orderId, orderNo, needDate, cache, visited, depth + 1);
       results.push(...sub);
     } else {
-      results.push({ materialId: item.materialId, quantity: totalQty, orderId, orderNo, isSemiProduct: false });
+      results.push({ materialId: item.materialId, quantity: totalQty, orderId, orderNo, needDate, isSemiProduct: false });
     }
   }
 
@@ -189,11 +211,15 @@ async function expandDemand(
 }
 
 // ===== 3. 执行MRP运算 =====
-export async function runMrp(params: MrpParams = {}, userId?: number): Promise<MrpResult> {
+export async function runMrp(params: MrpParams = {}, userId?: number, existingRunId?: number): Promise<MrpResult> {
   const orders = await fetchOrders(params.orderIds);
   if (orders.length === 0) {
     throw new Error("没有符合条件的销售订单");
   }
+
+  // 全量加载BOM/物料缓存一次，展开过程零额外查询
+  const cache = await buildMrpCache();
+  const allMaterialMap = cache.materialMap;
 
   // 展开需求
   const allDemands: ExpandedDemand[] = [];
@@ -205,29 +231,32 @@ export async function runMrp(params: MrpParams = {}, userId?: number): Promise<M
         quantity: item.quantity,
         orderId: order.id,
         orderNo: order.orderNo,
+        needDate: item.deliveryDate ?? order.deliveryDate ?? null,
         isSemiProduct: true,
       });
 
-      const expanded = await expandDemand(item.materialId, item.quantity, order.id, order.orderNo);
+      const expanded = await expandDemand(item.materialId, item.quantity, order.id, order.orderNo, item.deliveryDate ?? order.deliveryDate ?? null, cache);
       allDemands.push(...expanded);
     }
   }
 
-  // 汇总毛需求（按物料 × 订单分组）
-  const demandMap = new Map<number, Map<number, number>>(); // materialId -> orderId -> qty
+  // 汇总毛需求（按物料 × 订单明细行分组：同一订单不同明细行交货期各算一行）
+  interface LineDemand { orderId: number; orderNo: string; quantity: number; needDate: Date | null; }
+  const demandMap = new Map<number, Map<string, LineDemand>>(); // materialId -> lineKey -> demand
   const materialIds = new Set<number>();
 
   for (const d of allDemands) {
     materialIds.add(d.materialId);
     if (!demandMap.has(d.materialId)) demandMap.set(d.materialId, new Map());
-    const orderDemand = demandMap.get(d.materialId)!;
-    orderDemand.set(d.orderId, (orderDemand.get(d.orderId) ?? 0) + d.quantity);
+    const lineMap = demandMap.get(d.materialId)!;
+    const lineKey = `${d.orderId}|${d.needDate ? d.needDate.getTime() : "null"}`;
+    const prev = lineMap.get(lineKey);
+    if (prev) prev.quantity += d.quantity;
+    else lineMap.set(lineKey, { orderId: d.orderId, orderNo: d.orderNo, quantity: d.quantity, needDate: d.needDate });
   }
 
-  const materials = await prisma.material.findMany({
-    where: { id: { in: [...materialIds] } },
-  });
-  const materialMap = new Map(materials.map((m) => [m.id, m]));
+  // 物料信息全部来自缓存（一次查询），无需再次查询
+  const materialMap = allMaterialMap;
 
   // 获取库存、在途采购、安全库存（仅统计启用状态仓库，停用仓库库存不参与MRP）
   const stocks = await prisma.stock.findMany({
@@ -240,13 +269,13 @@ export async function runMrp(params: MrpParams = {}, userId?: number): Promise<M
     where: {
       materialId: { in: [...materialIds] },
       status: { in: ["pending", "partial_received"] },
-      order: { status: { not: "cancelled" } },
+      order: { status: { notIn: ["cancelled", "closed"] } },
     },
     include: { order: true },
   });
   const inTransitMap = new Map<number, number>();
   for (const r of inTransitRows) {
-    const remaining = r.quantity - r.receivedQty;
+    const remaining = Math.max(0, r.quantity - r.receivedQty);
     inTransitMap.set(r.materialId, (inTransitMap.get(r.materialId) ?? 0) + remaining);
   }
 
@@ -261,15 +290,20 @@ export async function runMrp(params: MrpParams = {}, userId?: number): Promise<M
       batches: { where: { status: { not: "cancelled" } }, select: { receivedQty: true } },
     },
   });
-  const wipMap = new Map<number, number>(); // materialId -> 在制供给量
-  const openByOrderKey = new Map<string, number>(); // `${materialId}:${salesOrderId}` -> 在制量（生产建议扣减用）
+    const wipMap = new Map<number, number>(); // materialId -> 在制供给量
+    const openByOrderKey = new Map<string, number>(); // `${materialId}:${salesOrderId}` -> 在制量（生产建议扣减用）
+    const manualWipMap = new Map<number, number>(); // materialId -> 手工生产订单（无销售订单）在制剩余量
   for (const o of openProductionRows) {
     const received = o.batches.reduce((s, b) => s + b.receivedQty, 0);
     const remaining = Math.max(0, o.quantity - received);
     if (remaining <= 0) continue;
     wipMap.set(o.materialId, (wipMap.get(o.materialId) ?? 0) + remaining);
-    const key = `${o.materialId}:${o.salesOrderId ?? "manual"}`;
-    openByOrderKey.set(key, (openByOrderKey.get(key) ?? 0) + remaining);
+    if (o.salesOrderId == null) {
+      manualWipMap.set(o.materialId, (manualWipMap.get(o.materialId) ?? 0) + remaining);
+    } else {
+      const key = `${o.materialId}:${o.salesOrderId}`;
+      openByOrderKey.set(key, (openByOrderKey.get(key) ?? 0) + remaining);
+    }
   }
 
   const issuedWipRows = await prisma.productionBatchMaterial.findMany({
@@ -297,11 +331,13 @@ export async function runMrp(params: MrpParams = {}, userId?: number): Promise<M
     const issuedQuantity = params.deductInProcess !== false ? (issuedWipMap.get(materialId) ?? 0) : 0;
     const safetyStock = params.considerSafetyStock !== false ? material.safetyStock : 0;
 
-    // 按订单汇总需求，并带上需求日期（销售订单交货期）
-    const orderDemands: OrderDemand[] = [...demandMap.get(materialId)!.entries()].map(([oid, qty]) => {
-      const order = orders.find((o) => o.id === oid);
-      return { orderId: oid, orderNo: order?.orderNo ?? "", quantity: qty, needDate: order?.deliveryDate ?? null };
-    });
+    // 按订单明细行汇总需求，需求日期取明细行交货期（无则回退订单主表交货期）
+    const orderDemands: OrderDemand[] = [...demandMap.get(materialId)!.values()].map((d) => ({
+      orderId: d.orderId,
+      orderNo: d.orderNo,
+      quantity: d.quantity,
+      needDate: d.needDate,
+    }));
 
     const buckets = bucketByOrderCycle(orderDemands, material.orderCycleDays ?? 0);
 
@@ -369,6 +405,7 @@ export async function runMrp(params: MrpParams = {}, userId?: number): Promise<M
     .filter((s) => s.category === "purchase")
     .map((s) => {
       const material = materialMap.get(s.materialId)!;
+      const needDate = s.needDate ?? fallbackNeedDate();
       return {
         materialId: s.materialId,
         materialCode: s.materialCode,
@@ -377,7 +414,9 @@ export async function runMrp(params: MrpParams = {}, userId?: number): Promise<M
         suggestedQty: Math.ceil(s.netDemand * 100) / 100,
         supplierId: material.supplierId,
         leadTime: material.leadTime,
-        needDate: s.needDate ?? fallbackNeedDate(),
+        needDate,
+        orderDate: new Date(needDate.getTime() - (material.leadTime ?? 0) * 24 * 60 * 60 * 1000),
+        purchaseOverdue: needDate.getTime() - (material.leadTime ?? 0) * 24 * 60 * 60 * 1000 < Date.now(),
         sourceOrders: s.affectedOrders,
       };
     });
@@ -396,22 +435,41 @@ export async function runMrp(params: MrpParams = {}, userId?: number): Promise<M
     const demandByOrder = demandMap.get(materialId);
     if (!demandByOrder) continue;
 
-    // 成品/半成品现库存：按物料共用，需求日期早的订单优先分配（demandByOrder 按交货期升序插入）
+    // 成品/半成品现库存：按物料共用，需求日期早的订单优先分配
     let remainingStockForProd = params.deductStock !== false ? (stockMap.get(materialId) ?? 0) : 0;
+    // 手工未完工生产订单的在制剩余量：按物料共用，需求日期早的订单优先冲抵
+    let remainingManualWip = params.deductInProcess !== false ? (manualWipMap.get(materialId) ?? 0) : 0;
+    // 在制量冲抵余额：同一订单多个明细行共用该订单的在制剩余量，依次扣减不重复
+    const remainingOrderWip = new Map<number, number>();
+    for (const [key, v] of openByOrderKey) {
+      const [matId, orderId] = key.split(":");
+      if (Number(matId) === materialId) remainingOrderWip.set(Number(orderId), v);
+    }
 
-    for (const [orderId, qty] of demandByOrder) {
+    const lines = [...demandByOrder.values()].sort((a, b) => {
+      const ta = a.needDate ? a.needDate.getTime() : Infinity;
+      const tb = b.needDate ? b.needDate.getTime() : Infinity;
+      return ta - tb;
+    });
+    for (const line of lines) {
+      const { orderId, quantity: qty } = line;
       const order = orders.find((o) => o.id === orderId);
       // 在制量冲抵：该物料对该销售订单已下达未完工的生产订单剩余量不重复建议
-      const wipCovered = params.deductInProcess !== false ? (openByOrderKey.get(`${materialId}:${orderId}`) ?? 0) : 0;
+      const wipAvail = params.deductInProcess !== false ? (remainingOrderWip.get(orderId) ?? 0) : 0;
+      const wipCovered = Math.min(wipAvail, qty);
+      remainingOrderWip.set(orderId, wipAvail - wipCovered);
+      const manualCovered = Math.min(remainingManualWip, Math.max(0, qty - wipCovered));
+      remainingManualWip -= manualCovered;
       // 已入库/现库存冲抵：成品、半成品有库存则从建议量中扣除
-      let need = Math.max(0, qty - wipCovered);
+      let need = Math.max(0, qty - wipCovered - manualCovered);
       const useStock = Math.min(remainingStockForProd, need);
       remainingStockForProd -= useStock;
       need -= useStock;
       const suggestQty = Math.ceil(Math.max(0, need) * 100) / 100;
       if (suggestQty <= 0) continue;
-      const needDate = order?.deliveryDate
-        ? new Date(order.deliveryDate.getTime() - ((material.manufactureLeadTime ?? material.leadTime) ?? 0) * 24 * 60 * 60 * 1000)
+      const needDate = line.needDate ? new Date(line.needDate) : null;
+      const orderDate = needDate
+        ? new Date(needDate.getTime() - ((material.manufactureLeadTime ?? material.leadTime) ?? 0) * 24 * 60 * 60 * 1000)
         : null;
       productionOrders.push({
         materialId,
@@ -422,24 +480,41 @@ export async function runMrp(params: MrpParams = {}, userId?: number): Promise<M
         orderNo: order?.orderNo ?? "",
         customerName: order?.customerName ?? "",
         needDate,
+        orderDate,
+        overdue: orderDate !== null && orderDate.getTime() < Date.now(),
       });
     }
   }
 
-  // 创建MRP运行记录并保存结果
-  const runNo = `MRP${localDateCompact()}${Date.now().toString().slice(-4)}`;
-  const run = await prisma.mrpRun.create({
-    data: {
-      runNo,
-      orderCount: orders.length,
-      materialCount: demandMap.size,
-      shortageCount: shortages.length,
-      status: "completed",
-      completedAt: new Date(),
-      createdBy: userId,
-      result: "{}",
-    },
-  });
+  // 创建MRP运行记录并保存结果（后台模式下复用调用方预建的 run 记录，前台/直调时自建）
+  let run: { id: number };
+  if (existingRunId) {
+    await prisma.mrpRun.update({
+      where: { id: existingRunId },
+      data: {
+        orderCount: orders.length,
+        materialCount: demandMap.size,
+        shortageCount: shortages.length,
+        status: "completed",
+        completedAt: new Date(),
+      },
+    });
+    run = { id: existingRunId };
+  } else {
+    const runNo = `MRP${localDateCompact()}${Date.now().toString().slice(-4)}`;
+    run = await prisma.mrpRun.create({
+      data: {
+        runNo,
+        orderCount: orders.length,
+        materialCount: demandMap.size,
+        shortageCount: shortages.length,
+        status: "completed",
+        completedAt: new Date(),
+        createdBy: userId,
+        result: "{}",
+      },
+    });
+  }
 
   // 保存缺料明细
   for (const s of shortages) {
@@ -457,26 +532,30 @@ export async function runMrp(params: MrpParams = {}, userId?: number): Promise<M
     });
   }
 
-  // 保存采购建议：新运行替代旧建议，先作废上一次仍待处理的采购建议
-  await prisma.purchaseSuggestion.updateMany({
-    where: { status: "pending" },
-    data: { status: "cancelled" },
-  });
-  const createdSuggestionIds: number[] = [];
-  for (const s of purchaseSuggestions) {
-    const row = await prisma.purchaseSuggestion.create({
-      data: {
-        runId: run.id,
-        materialId: s.materialId,
-        suggestedQty: s.suggestedQty,
-        supplierId: s.supplierId,
-        leadTime: s.leadTime,
-        needDate: s.needDate,
-        status: "pending",
-      },
+  // 保存采购建议：新运行替代旧建议，先作废上一次仍待处理的采购建议（与创建同事务，避免中途失败丢状态）
+  const createdSuggestionIds: number[] = await prisma.$transaction(async (tx) => {
+    await tx.purchaseSuggestion.updateMany({
+      where: { status: "pending" },
+      data: { status: "cancelled" },
     });
-    createdSuggestionIds.push(row.id);
-  }
+    const ids: number[] = [];
+    for (const s of purchaseSuggestions) {
+      const row = await tx.purchaseSuggestion.create({
+        data: {
+          runId: run.id,
+          materialId: s.materialId,
+          suggestedQty: s.suggestedQty,
+          supplierId: s.supplierId,
+          leadTime: s.leadTime,
+          needDate: s.needDate,
+          orderDate: s.orderDate,
+          status: "pending",
+        },
+      });
+      ids.push(row.id);
+    }
+    return ids;
+  });
 
   // 回写运行结果（含采购建议ID，便于按建议维度合并状态）
   const resultPayload = {
@@ -484,15 +563,17 @@ export async function runMrp(params: MrpParams = {}, userId?: number): Promise<M
     purchaseSuggestions: purchaseSuggestions.map((s, i) => ({
       ...s,
       needDate: s.needDate.toISOString(),
+      orderDate: s.orderDate.toISOString(),
       suggestionId: createdSuggestionIds[i],
     })),
     productionOrders,
   };
   await prisma.mrpRun.update({ where: { id: run.id }, data: { result: JSON.stringify(resultPayload) } });
 
+  const runRow = await prisma.mrpRun.findUnique({ where: { id: run.id } });
   return {
     runId: run.id,
-    runNo,
+    runNo: runRow?.runNo ?? `MRP${run.id}`,
     orderCount: orders.length,
     materialCount: demandMap.size,
     shortageCount: shortages.length,
@@ -500,6 +581,40 @@ export async function runMrp(params: MrpParams = {}, userId?: number): Promise<M
     purchaseSuggestions,
     productionOrders,
   };
+}
+
+// ===== 后台执行MRP：立即返回running记录，运算在后台完成并回写 =====
+export async function startMrp(params: MrpParams = {}, userId?: number): Promise<{ runId: number; runNo: string; status: string }> {
+  // 已存在运算中的记录时拒绝并发（避免同时作废/改写采购建议）
+  const running = await prisma.mrpRun.findFirst({ where: { status: "running" } });
+  if (running) {
+    throw new Error(`已有MRP运算进行中（${running.runNo}），请等待完成后再执行`);
+  }
+
+  const runNo = `MRP${localDateCompact()}${Date.now().toString().slice(-4)}`;
+  const run = await prisma.mrpRun.create({
+    data: {
+      runNo,
+      orderCount: 0,
+      materialCount: 0,
+      shortageCount: 0,
+      status: "running",
+      createdBy: userId,
+      result: "{}",
+    },
+  });
+
+  // 后台异步执行，不阻塞HTTP响应。校验性错误（无订单等）直接置为 failed
+  runMrp(params, userId, run.id)
+    .then(() => {})
+    .catch(async (error: any) => {
+      await prisma.mrpRun.update({
+        where: { id: run.id },
+        data: { status: "failed", completedAt: new Date(), result: JSON.stringify({ error: error.message }) },
+      });
+    });
+
+  return { runId: run.id, runNo, status: "running" };
 }
 
 // ===== 查询MRP历史 =====
@@ -539,16 +654,19 @@ export async function getMrpRun(id: number) {
     const dayMs = 24 * 60 * 60 * 1000;
     result.productionOrders = prodOrders.map((p: any) => {
       const order = orderMap.get(p.relatedOrderId);
-      const needDate = p.needDate
-        ? new Date(p.needDate)
-        : order?.deliveryDate
-          ? new Date(order.deliveryDate.getTime() - (leadMap.get(p.materialId) ?? 0) * dayMs)
+      const resolvedNeedDate = order?.deliveryDate ? new Date(order.deliveryDate) : (p.needDate ? new Date(p.needDate) : null);
+      const resolvedOrderDate = p.orderDate
+        ? new Date(p.orderDate)
+        : resolvedNeedDate
+          ? new Date(resolvedNeedDate.getTime() - (leadMap.get(p.materialId) ?? 0) * dayMs)
           : null;
       return {
         ...p,
         orderNo: p.orderNo || order?.orderNo || "",
         customerName: p.customerName || order?.customerName || "",
-        needDate,
+        needDate: resolvedNeedDate,
+        orderDate: resolvedOrderDate,
+        overdue: resolvedOrderDate !== null && resolvedOrderDate.getTime() < Date.now(),
       };
     });
   }
@@ -563,13 +681,23 @@ export async function getMrpRun(id: number) {
         select: { id: true, deliveryDate: true },
       });
       const dateMap = new Map(orders.map((o) => [o.id, o.deliveryDate]));
-      result.purchaseSuggestions = suggestions.map((s: any) => ({
-        ...s,
-        sourceOrders: (s.sourceOrders || []).map((o: any) => ({
-          ...o,
-          deliveryDate: o.deliveryDate ?? dateMap.get(o.orderId) ?? null,
-        })),
-      }));
+      result.purchaseSuggestions = suggestions.map((s: any) => {
+        const needDate = s.needDate ?? null;
+        const orderDate = s.orderDate
+          ? new Date(s.orderDate)
+          : needDate
+            ? new Date(new Date(needDate).getTime() - (s.leadTime ?? 0) * 24 * 60 * 60 * 1000)
+            : null;
+        return {
+          ...s,
+          orderDate,
+          purchaseOverdue: orderDate !== null && orderDate.getTime() < Date.now(),
+          sourceOrders: (s.sourceOrders || []).map((o: any) => ({
+            ...o,
+            deliveryDate: o.deliveryDate ?? dateMap.get(o.orderId) ?? null,
+          })),
+        };
+      });
     }
   }
   return { ...run, result };
@@ -578,6 +706,7 @@ export async function getMrpRun(id: number) {
 // ===== 获取当前缺料榜 =====
 export async function listShortages() {
   const latestRun = await prisma.mrpRun.findFirst({
+    where: { status: "completed" },
     orderBy: { startedAt: "desc" },
   });
   if (!latestRun) return { latestRun: null, shortages: [] };
@@ -616,13 +745,22 @@ export async function listShortages() {
       select: { id: true, deliveryDate: true },
     });
     const rawDateMap = new Map(rawOrders.map((o) => [o.id, o.deliveryDate]));
-    suggestions = suggestions.map((s: any) => ({
-      ...s,
-      sourceOrders: (s.sourceOrders || []).map((o: any) => ({
-        ...o,
-        deliveryDate: o.deliveryDate ?? rawDateMap.get(o.orderId) ?? null,
-      })),
-    }));
+    suggestions = suggestions.map((s: any) => {
+      const orderDate = s.orderDate
+        ? new Date(s.orderDate)
+        : s.needDate
+          ? new Date(new Date(s.needDate).getTime() - (s.leadTime ?? 0) * 24 * 60 * 60 * 1000)
+          : null;
+      return {
+        ...s,
+        orderDate,
+        purchaseOverdue: orderDate !== null && orderDate.getTime() < Date.now(),
+        sourceOrders: (s.sourceOrders || []).map((o: any) => ({
+          ...o,
+          deliveryDate: o.deliveryDate ?? rawDateMap.get(o.orderId) ?? null,
+        })),
+      };
+    });
   }
 
   // 追加数据库中的待处理采购建议（如安全库存补货建议），不依赖运行结果JSON
@@ -643,6 +781,8 @@ export async function listShortages() {
       supplierId: s.supplierId ?? s.material.supplierId,
       leadTime: s.leadTime ?? s.material.leadTime,
       needDate: s.needDate,
+      orderDate: s.orderDate ?? (s.needDate ? new Date(s.needDate.getTime() - (s.leadTime ?? s.material.leadTime ?? 0) * 24 * 60 * 60 * 1000) : null),
+      purchaseOverdue: (s.orderDate ?? (s.needDate ? new Date(s.needDate.getTime() - (s.leadTime ?? s.material.leadTime ?? 0) * 24 * 60 * 60 * 1000) : null)) !== null && (s.orderDate ?? (s.needDate ? new Date(s.needDate.getTime() - (s.leadTime ?? s.material.leadTime ?? 0) * 24 * 60 * 60 * 1000) : null))!.getTime() < Date.now(),
       sourceOrders: [],
       source: "safety",
       status: s.status,
@@ -802,7 +942,7 @@ export async function generatePurchaseOrders(
 }
 // ===== 安全库存检查：采购件可用量低于安全库存时生成采购建议 =====
 export async function createSafetyStockSuggestions() {
-  const latestRun = await prisma.mrpRun.findFirst({ orderBy: { startedAt: "desc" } });
+  const latestRun = await prisma.mrpRun.findFirst({ where: { status: "completed" }, orderBy: { startedAt: "desc" } });
   if (!latestRun) throw new Error("请先执行MRP运算");
 
   // 现存量：启用仓库库存合计
@@ -812,11 +952,11 @@ export async function createSafetyStockSuggestions() {
 
   // 在途：未取消采购单未收数量
   const inTransitRows = await prisma.purchaseOrderItem.findMany({
-    where: { status: { in: ["pending", "partial_received"] }, order: { status: { not: "cancelled" } } },
+    where: { status: { in: ["pending", "partial_received"] }, order: { status: { notIn: ["cancelled", "closed"] } } },
   });
   const inTransitMap = new Map<number, number>();
   for (const r of inTransitRows) {
-    inTransitMap.set(r.materialId, (inTransitMap.get(r.materialId) ?? 0) + (r.quantity - r.receivedQty));
+    inTransitMap.set(r.materialId, (inTransitMap.get(r.materialId) ?? 0) + Math.max(0, r.quantity - r.receivedQty));
   }
 
   // 候选：启用中的采购件，安全库存>0
@@ -841,6 +981,7 @@ export async function createSafetyStockSuggestions() {
     }
     const needDate = new Date();
     needDate.setDate(needDate.getDate() + (m.leadTime ?? 0));
+    const orderDate = new Date();
     const suggestion = await prisma.purchaseSuggestion.create({
       data: {
         runId: latestRun.id,
@@ -850,6 +991,7 @@ export async function createSafetyStockSuggestions() {
         supplierId: m.supplierId,
         leadTime: m.leadTime,
         needDate,
+        orderDate,
         status: "pending",
       },
     });
