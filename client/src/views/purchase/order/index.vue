@@ -17,8 +17,9 @@ const statusOptions = [
   { label: '部分收货', value: 'partial_received', type: 'warning' },
   { label: '已收货', value: 'received', type: 'success' },
   { label: '已取消', value: 'cancelled', type: 'danger' },
+  { label: '已关闭', value: 'closed', type: 'info' },
 ]
-const editableStatusOptions = statusOptions.filter((o) => ['draft', 'confirmed', 'cancelled'].includes(o.value))
+const editableStatusOptions = statusOptions.filter((o) => ['draft', 'confirmed', 'cancelled', 'closed'].includes(o.value))
 
 const dialogVisible = ref(false)
 const formRef = ref()
@@ -369,7 +370,7 @@ onMounted(loadData)
         <el-table-column label="状态" width="120">
           <template #default="{ row }">
             <el-select
-              v-if="['draft', 'confirmed', 'cancelled'].includes(row.status)"
+              v-if="['draft', 'confirmed', 'cancelled', 'closed'].includes(row.status)"
               :model-value="row.status"
               size="small"
               style="width: 100%"

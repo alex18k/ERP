@@ -16,7 +16,7 @@ export interface BomCreateInput {
 }
 
 export async function listBoms(where: any) {
-  const { code, name, productKeyword, status, page = 1, pageSize = 20 } = where;
+  const { code, name, productKeyword, status, page = 1, pageSize = 20, lite } = where;
 
   const filters: Prisma.BomWhereInput = {};
   if (code) filters.code = { contains: code };
@@ -34,18 +34,24 @@ export async function listBoms(where: any) {
 
   const [total, items] = await Promise.all([
     prisma.bom.count({ where: filters }),
-    prisma.bom.findMany({
-      where: filters,
-      include: {
-        product: { select: { id: true, code: true, name: true, specification: true, category: true } },
-        items: {
-          include: { material: { select: { id: true, code: true, name: true, specification: true, unit: true } } },
-        },
-      },
-      orderBy: { updatedAt: "desc" },
-      skip: (Number(page) - 1) * Number(pageSize),
-      take: Number(pageSize),
-    }),
+    lite
+      ? prisma.bom.findMany({
+          where: filters,
+          select: { id: true, productId: true, code: true, name: true, status: true },
+          orderBy: { updatedAt: "desc" },
+          skip: (Number(page) - 1) * Number(pageSize),
+          take: Number(pageSize),
+        })
+      : prisma.bom.findMany({
+          where: filters,
+          include: {
+            product: { select: { id: true, code: true, name: true, specification: true, category: true } },
+            _count: { select: { items: true } },
+          },
+          orderBy: { updatedAt: "desc" },
+          skip: (Number(page) - 1) * Number(pageSize),
+          take: Number(pageSize),
+        }),
   ]);
 
   return { total, page: Number(page), pageSize: Number(pageSize), items };
