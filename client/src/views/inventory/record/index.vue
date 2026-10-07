@@ -15,7 +15,7 @@ const materials = ref<any[]>([])
 const materialLoading = ref(false)
 const materialMap = new Map<number, any>()
 const transactionTypes = ref<any[]>([])
-const form = reactive<any>({ materialId: null, warehouseId: null, quantity: 1, transactionTypeId: null, effectiveDate: todayStr(), documentNo: '', lineNo: null, remark: '' })
+const form = reactive<any>({ materialId: null, warehouseId: null, batchNo: '', quantity: 1, transactionTypeId: null, effectiveDate: todayStr(), documentNo: '', lineNo: null, remark: '' })
 
 function todayStr() {
   const d = new Date()
@@ -50,7 +50,7 @@ async function loadOptions() {
 }
 
 function openDialog() {
-  Object.assign(form, { materialId: null, warehouseId: null, quantity: 1, transactionTypeId: null, effectiveDate: todayStr(), documentNo: '', lineNo: null, remark: '' })
+  Object.assign(form, { materialId: null, warehouseId: null, batchNo: '', quantity: 1, transactionTypeId: null, effectiveDate: todayStr(), documentNo: '', lineNo: null, remark: '' })
   dialogVisible.value = true
 }
 
@@ -64,6 +64,7 @@ async function handleSubmit() {
   const payload = {
     materialId: form.materialId,
     warehouseId: form.warehouseId,
+    batchNo: form.batchNo || undefined,
     quantity: form.quantity,
     transactionTypeId: form.transactionTypeId,
     effectiveDate: form.effectiveDate,
@@ -152,6 +153,7 @@ onMounted(async () => {
         <el-table-column label="库位" width="120">
           <template #default="{ row }">{{ row.warehouse?.name }}</template>
         </el-table-column>
+        <el-table-column prop="batchNo" label="批号" width="150" />
         <el-table-column label="数量" width="100">
           <template #default="{ row }">
             <span :style="{ color: row.type === 'out' ? 'var(--el-color-danger)' : 'var(--el-color-success)', fontWeight: 600 }">
@@ -198,6 +200,9 @@ onMounted(async () => {
           <el-select v-model="form.warehouseId" placeholder="选择仓库" style="width: 100%">
             <el-option v-for="w in warehouses" :key="w.id" :label="`${w.code} - ${w.name}`" :value="w.id" />
           </el-select>
+        </el-form-item>
+        <el-form-item label="批号">
+          <el-input v-model="form.batchNo" placeholder="启用批号管理的物料必填/出库必填；入库不填自动生成" />
         </el-form-item>
         <el-form-item label="数量" required>
           <el-input-number v-model="form.quantity" :min="1" style="width: 100%" />

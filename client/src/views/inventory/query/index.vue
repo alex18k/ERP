@@ -8,6 +8,14 @@ const list = ref<any[]>([])
 const total = ref(0)
 const warehouses = ref<any[]>([])
 const query = reactive({ page: 1, pageSize: 20, materialCode: '', materialName: '', warehouseId: '' })
+const batchCache = reactive<Record<string, any[]>>({})
+
+async function expandBatches(row: any) {
+  const key = `${row.materialId}-${row.warehouseId}`
+  if (batchCache[key]) return
+  const res: any = await stockApi.batches({ materialId: row.materialId, warehouseId: row.warehouseId, pageSize: 200 })
+  batchCache[key] = res.data.items || []
+}
 
 async function loadData() {
   loading.value = true
@@ -49,7 +57,23 @@ onMounted(async () => {
         <el-button @click="stockApi.exportCsv()"><el-icon><Download /></el-icon>导出</el-button>
       </div>
 
-      <el-table :data="list" v-loading="loading" stripe max-height="calc(100vh - 260px)">
+      <el-table :data="list" v-loading="loading" stripe max-height="calc(100vh - 260px)" @expand-change="(row: any) => expandBatches(row)">
+        <el-table-column type="expand" width="40">
+          <template #default="{ row }">
+            <div style="padding: 8px 40px">
+              <el-table :data="batchCache[`${row.materialId}-${row.warehouseId}`] || []" size="small" stripe>
+                <el-table-column label="批号" min-width="180">
+                  <template #default="{ row: b }">{{ b.batchNo }}</template>
+                </el-table-column>
+                <el-table-column label="现存量" width="100" prop="quantity" />
+                <el-table-column label="最近更新时间" width="170">
+                  <template #default="{ row: b }">{{ b.updatedAt?.slice(0, 19)?.replace('T', ' ') }}</template>
+                </el-table-column>
+              </el-table>
+              <div v-if="(batchCache[`${row.materialId}-${row.warehouseId}`] || []).length === 0" style="color: var(--el-text-color-secondary)">暂无批号库存（非批号管理物料）</div>
+            </div>
+          </template>
+        </el-table-column>
         <el-table-column label="物料编码" width="110">
           <template #default="{ row }">{{ row.material?.code }}</template>
         </el-table-column>

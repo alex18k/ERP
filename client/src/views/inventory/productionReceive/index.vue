@@ -13,7 +13,7 @@ const query = reactive({ page: 1, pageSize: 20, orderNo: '', onlyReceivable: 'tr
 const dialogVisible = ref(false)
 const submitting = ref(false)
 const current = ref<any>(null)
-const form = reactive<any>({ quantity: 0, warehouseId: null })
+const form = reactive<any>({ quantity: 0, warehouseId: null, batchNo: '' })
 
 function remaining(row: any) {
   return (row.quantity ?? 0) - (row.receivedQty ?? 0)
@@ -42,6 +42,7 @@ async function loadWarehouses() {
 function openDialog(row: any) {
   current.value = row
   form.quantity = remaining(row)
+  form.batchNo = row.batchNo != null ? String(row.batchNo) : ''
   form.warehouseId = warehouseIdByLocation(warehouses.value, row.productionOrder?.material?.location) || warehouses.value[0]?.id || null
   dialogVisible.value = true
 }
@@ -61,7 +62,7 @@ async function submit() {
   }
   submitting.value = true
   try {
-    await productionApi.receiveBatch(current.value.id, { quantity: form.quantity, warehouseId: form.warehouseId })
+    await productionApi.receiveBatch(current.value.id, { quantity: form.quantity, warehouseId: form.warehouseId, batchNo: form.batchNo || undefined })
     ElMessage.success('生产入库成功')
     dialogVisible.value = false
     loadData()
@@ -150,6 +151,9 @@ onMounted(async () => {
         </el-form-item>
         <el-form-item label="入库数量" required>
           <el-input-number v-model="form.quantity" :min="0" :precision="2" :controls="false" style="width: 100%" />
+        </el-form-item>
+        <el-form-item label="批号">
+          <el-input v-model="form.batchNo" placeholder="空则自动生成；批号管理物料建议填生产批次号" />
         </el-form-item>
       </el-form>
       <template #footer>

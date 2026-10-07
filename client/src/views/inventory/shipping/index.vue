@@ -56,6 +56,7 @@ function openDialog(row: any) {
     location: it.material?.location || '',
     warehouseId: null,
     shipQty: 0,
+    batchNo: '',
     remark: '',
   }))
   dialogVisible.value = true
@@ -72,6 +73,7 @@ async function submit() {
       itemId: l.itemId,
       quantity: l.shipQty,
       warehouseId: l.warehouseId,
+      batchNo: l.batchNo || undefined,
       remark: l.remark || undefined,
     }))
   if (items.length === 0) {
@@ -197,6 +199,11 @@ onMounted(async () => {
             <el-select v-model="row.warehouseId" size="small" placeholder="选择仓库" style="width: 100%">
               <el-option v-for="w in warehouses" :key="w.id" :label="`${w.code} - ${w.name}`" :value="w.id" />
             </el-select>
+          </template>
+        </el-table-column>
+        <el-table-column label="批号" width="150">
+          <template #default="{ row }">
+            <el-input v-model="row.batchNo" size="small" placeholder="批号管理物料必填" />
           </template>
         </el-table-column>
         <el-table-column label="备注" width="130">

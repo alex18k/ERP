@@ -75,6 +75,7 @@ function openReceive(row: any) {
     receivedQty: it.receivedQty ?? 0,
     remaining: it.quantity - (it.receivedQty ?? 0),
     receiveQty: it.quantity - (it.receivedQty ?? 0),
+    batchNo: '',
   }))
   receiveForm.effectiveDate = todayStr()
   const locs = new Set<string>((row.items || []).map((it: any) => it.material?.location).filter(Boolean))
@@ -85,7 +86,7 @@ function openReceive(row: any) {
 async function submitReceive() {
   const items = receiveItems.value
     .filter((it) => it.receiveQty > 0)
-    .map((it) => ({ itemId: it.itemId, quantity: it.receiveQty }))
+    .map((it) => ({ itemId: it.itemId, quantity: it.receiveQty, batchNo: it.batchNo || undefined }))
   if (items.length === 0) {
     ElMessage.warning('请填写收货数量')
     return
@@ -184,6 +185,11 @@ onMounted(loadData)
         <el-table-column label="本次收货" width="140">
           <template #default="{ row }">
             <el-input-number v-model="row.receiveQty" :min="0" :max="row.remaining" :precision="2" size="small" style="width: 100%" />
+          </template>
+        </el-table-column>
+        <el-table-column label="批号" width="170">
+          <template #default="{ row }">
+            <el-input v-model="row.batchNo" placeholder="空则自动生成" size="small" />
           </template>
         </el-table-column>
       </el-table>

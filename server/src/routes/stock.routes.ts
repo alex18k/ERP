@@ -10,6 +10,7 @@ router.get("/alert", requirePermission("stock:view"), stockController.alertHandl
 router.get("/export", requirePermission("stock:view"), stockController.exportHandler);
 router.get("/", requirePermission("stock:view"), stockController.listHandler);
 router.get("/records", requirePermission("stock:view"), stockController.recordsHandler);
+router.get("/batches", requirePermission("stock:view"), stockController.batchesHandler);
 router.post("/in", requirePermission("stock:edit"), stockController.inHandler);
 router.post("/out", requirePermission("stock:edit"), stockController.outHandler);
 

@@ -167,6 +167,7 @@ export const stockApi = {
   in: (data: any) => request.post('/stocks/in', data),
   out: (data: any) => request.post('/stocks/out', data),
   alert: (params?: any) => request.get('/stocks/alert', { params }),
+  batches: (params: PageParams) => request.get('/stocks/batches', { params }),
   exportCsv: () => downloadCsv('/stocks/export', '库存现况'),
 }
 

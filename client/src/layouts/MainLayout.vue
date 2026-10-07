@@ -108,6 +108,7 @@ const menuItems: MenuNode[] = [
       { path: '/base/warehouse', title: '仓库管理', icon: 'OfficeBuilding' },
       { path: '/base/workshop', title: '车间管理', icon: 'OfficeBuilding' },
       { path: '/base/workstation', title: '工位管理', icon: 'Monitor' },
+      { path: '/inventory/batch', title: '批号库存', icon: 'List' },
       { path: '/inventory/transaction-type', title: '事务类型维护', icon: 'SetUp' },
     ],
   },

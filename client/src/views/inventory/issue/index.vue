@@ -95,6 +95,7 @@ async function onBatchChange() {
     issuedQty: m.issuedQty ?? 0,
     location: m.material?.location || '',
     issueQty: 0,
+    batchNo: '',
   }))
   buildLocationOptions()
   form.issueQty = data.quantity ?? 0
@@ -118,7 +119,7 @@ async function submit() {
   }
   const items = detail.value
     .filter((l) => Number(l.issueQty) > 0)
-    .map((l) => ({ batchMaterialId: l.batchMaterialId, quantity: l.issueQty, location: l.location || undefined }))
+    .map((l) => ({ batchMaterialId: l.batchMaterialId, quantity: l.issueQty, location: l.location || undefined, batchNo: l.batchNo || undefined }))
   if (items.length === 0) {
     ElMessage.warning('请填写发放数量')
     return
@@ -249,6 +250,11 @@ onMounted(async () => {
         <el-table-column label="本次发放" width="140">
           <template #default="{ row }">
             <el-input-number v-model="row.issueQty" :min="0" :precision="2" :controls="false" style="width: 100%" />
+          </template>
+        </el-table-column>
+        <el-table-column label="批号" width="160">
+          <template #default="{ row }">
+            <el-input v-model="row.batchNo" placeholder="批号管理物料必填" size="small" />
           </template>
         </el-table-column>
       </el-table>

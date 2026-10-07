@@ -1,7 +1,7 @@
 import prisma from "../config/prisma";
 import { Prisma } from "@prisma/client";
 import { localDateCompact } from "../utils/date";
-import { generateStockDocNo } from "./stock.service";
+import { generateStockDocNo, applyBatchIn, applyBatchOut } from "./stock.service";
 
 // ===== 生产订单 =====
 export async function generateProductionOrderNo(): Promise<string> {
@@ -725,7 +725,7 @@ export async function getBatchMaterials(batchId: number) {
 export async function issueBatchMaterials(
   batchId: number,
   warehouseId: number,
-  items: { batchMaterialId: number; quantity: number; location?: string }[],
+  items: { batchMaterialId: number; quantity: number; location?: string; batchNo?: string }[],
   userId: number,
   effectiveDate?: string
 ) {
@@ -739,7 +739,7 @@ export async function issueBatchMaterials(
 
   const rows = await prisma.productionBatchMaterial.findMany({
     where: { batchId, id: { in: items.map((i) => i.batchMaterialId) } },
-    include: { material: { select: { id: true, code: true, name: true } } },
+    include: { material: { select: { id: true, code: true, name: true, batchManaged: true } } },
   });
   const map = new Map(rows.map((r) => [r.id, r]));
   const issueType = await prisma.stockTransactionType.findUnique({ where: { code: "ISS-WO" } });
@@ -777,12 +777,14 @@ export async function issueBatchMaterials(
         where: { id: stock.id },
         data: { quantity: stock.quantity - qty, lastOutDate: new Date() },
       });
+      const resolvedBatchNo = await applyBatchOut(tx, row.material, warehouseId, it.batchNo, qty);
       await tx.stockRecord.create({
         data: {
           materialId: row.materialId,
           warehouseId,
           type: "out",
           quantity: qty,
+          batchNo: resolvedBatchNo,
           relatedType: "ProductionBatch",
           relatedId: batchId,
           transactionTypeId: issueType?.id,
@@ -1054,7 +1056,8 @@ export async function receiveBatchProduct(
   batchId: number,
   quantity: number,
   warehouseId: number,
-  userId: number
+  userId: number,
+  batchNo?: string
 ) {
   if (!Number.isFinite(quantity) || quantity <= 0) throw new Error("入库数量必须大于0");
   if (!warehouseId) throw new Error("请选择入库仓库");
@@ -1084,12 +1087,14 @@ export async function receiveBatchProduct(
         data: { materialId: material.id, warehouseId, quantity, lastInDate: new Date() },
       });
     }
+    const resolvedBatchNo = await applyBatchIn(tx, material, warehouseId, batchNo, quantity);
     await tx.stockRecord.create({
       data: {
         materialId: material.id,
         warehouseId,
         type: "in",
         quantity,
+        batchNo: resolvedBatchNo,
         relatedType: "ProductionBatch",
         relatedId: batch.id,
         transactionTypeId: receiveType?.id,

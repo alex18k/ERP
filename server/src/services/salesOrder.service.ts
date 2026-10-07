@@ -1,6 +1,7 @@
 import prisma from "../config/prisma";
 import { Prisma } from "@prisma/client";
 import { localDateCompact } from "../utils/date";
+import { applyBatchOut } from "./stock.service";
 
 export interface SalesOrderCreateInput {
   customerId?: number;
@@ -368,21 +369,52 @@ export async function shipOrder(id: number, userId: number) {
             where: { id: stock.id },
             data: { quantity: { decrement: deduct }, lastOutDate: new Date() },
           });
-          await tx.stockRecord.create({
-            data: {
-              materialId: item.materialId,
-              warehouseId: stock.warehouseId,
-              type: "out",
-              quantity: deduct,
-              relatedType: "sales-order",
-              relatedId: id,
-              transactionTypeId: shipType?.id,
-              documentNo: order.orderNo,
-              lineNo: idx + 1,
-              operatorId: userId,
-              remark: "销售订单发货出库",
-            },
-          });
+          // 批号管理物料：自动出库按批号先进先出分配，逐批记录流水
+          if (item.material.batchManaged) {
+            const batches = await tx.materialBatch.findMany({
+              where: { materialId: item.materialId, warehouseId: stock.warehouseId, quantity: { gt: 0 } },
+              orderBy: { createdAt: "asc" },
+            });
+            let remaining = deduct;
+            for (const b of batches) {
+              if (remaining <= 0) break;
+              const use = Math.min(remaining, b.quantity);
+              await tx.materialBatch.update({ where: { id: b.id }, data: { quantity: b.quantity - use } });
+              await tx.stockRecord.create({
+                data: {
+                  materialId: item.materialId,
+                  warehouseId: stock.warehouseId,
+                  type: "out",
+                  quantity: use,
+                  batchNo: b.batchNo,
+                  relatedType: "sales-order",
+                  relatedId: id,
+                  transactionTypeId: shipType?.id,
+                  documentNo: order.orderNo,
+                  lineNo: idx + 1,
+                  operatorId: userId,
+                  remark: "销售订单发货出库",
+                },
+              });
+              remaining -= use;
+            }
+          } else {
+            await tx.stockRecord.create({
+              data: {
+                materialId: item.materialId,
+                warehouseId: stock.warehouseId,
+                type: "out",
+                quantity: deduct,
+                relatedType: "sales-order",
+                relatedId: id,
+                transactionTypeId: shipType?.id,
+                documentNo: order.orderNo,
+                lineNo: idx + 1,
+                operatorId: userId,
+                remark: "销售订单发货出库",
+              },
+            });
+          }
         }
       }
     }
@@ -396,7 +428,7 @@ export async function shipOrder(id: number, userId: number) {
 export async function shipOrderItems(
   id: number,
   userId: number,
-  data: { items: { itemId: number; quantity: number; warehouseId: number; remark?: string }[]; effectiveDate?: string },
+  data: { items: { itemId: number; quantity: number; warehouseId: number; remark?: string; batchNo?: string }[]; effectiveDate?: string },
 ) {
   if (!data.items?.length) throw new Error("请填写发运明细");
 
@@ -436,12 +468,14 @@ export async function shipOrderItems(
         where: { id: stock.id },
         data: { quantity: { decrement: line.quantity }, lastOutDate: new Date() },
       });
+      const resolvedBatchNo = await applyBatchOut(tx, item.material, line.warehouseId, line.batchNo, line.quantity);
       await tx.stockRecord.create({
         data: {
           materialId: item.materialId,
           warehouseId: line.warehouseId,
           type: "out",
           quantity: line.quantity,
+          batchNo: resolvedBatchNo,
           relatedType: "sales-order",
           relatedId: id,
           transactionTypeId: shipType?.id,

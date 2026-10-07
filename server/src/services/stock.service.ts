@@ -96,7 +96,90 @@ export async function listStockRecords(where: any) {
   return { total, page: Number(page), pageSize: Number(pageSize), items };
 }
 
-export async function stockIn(data: { materialId: number; quantity: number; warehouseId: number; relatedType?: string; relatedId?: number; transactionTypeId?: number; effectiveDate?: string; documentNo?: string; lineNo?: number; remark?: string }, userId: number) {
+// ===== 批号管理辅助 =====
+// 入库：批号管理物料必须带批号（调用方未提供则自动生成），累加批号库存；非批号管理物料直接返回传入批号（通常为空）
+export async function applyBatchIn(
+  tx: any,
+  material: { id: number; code: string; batchManaged?: boolean },
+  warehouseId: number,
+  batchNo: string | undefined,
+  quantity: number
+): Promise<string | null> {
+  // 未启用批号管理且未提供批号：不记批号明细
+  if (!material.batchManaged && !batchNo?.trim()) return null;
+  const resolved = batchNo?.trim() ? batchNo.trim() : await generateBatchNo(tx, material);
+  const existing = await tx.materialBatch.findUnique({
+    where: { materialId_warehouseId_batchNo: { materialId: material.id, warehouseId, batchNo: resolved } },
+  });
+  if (existing) {
+    await tx.materialBatch.update({ where: { id: existing.id }, data: { quantity: existing.quantity + quantity } });
+  } else {
+    await tx.materialBatch.create({ data: { materialId: material.id, warehouseId, batchNo: resolved, quantity } });
+  }
+  return resolved;
+}
+
+// 出库：批号管理物料必须指定批号且该批库存充足；非批号管理物料直接返回传入批号
+export async function applyBatchOut(
+  tx: any,
+  material: { id: number; code: string; batchManaged?: boolean },
+  warehouseId: number,
+  batchNo: string | undefined,
+  quantity: number
+): Promise<string | null> {
+  // 未启用批号管理且未提供批号：不校验批号明细
+  if (!material.batchManaged && !batchNo?.trim()) return null;
+  if (!batchNo?.trim()) throw new Error(`物料 ${material.code} 启用批号管理，出库必须指定批号`);
+  const resolved = batchNo.trim();
+  const existing = await tx.materialBatch.findUnique({
+    where: { materialId_warehouseId_batchNo: { materialId: material.id, warehouseId, batchNo: resolved } },
+  });
+  if (!existing || existing.quantity + 1e-6 < quantity) {
+    throw new Error(`物料 ${material.code} 批号 ${resolved} 库存不足（当前 ${existing?.quantity ?? 0}）`);
+  }
+  await tx.materialBatch.update({ where: { id: existing.id }, data: { quantity: existing.quantity - quantity } });
+  return resolved;
+}
+
+async function generateBatchNo(tx: any, material: { id: number; code: string }): Promise<string> {
+  const d = new Date();
+  const ymd = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}`;
+  const prefix = `${material.code}-${ymd}-`;
+  const rows = await tx.materialBatch.findMany({
+    where: { materialId: material.id, batchNo: { startsWith: prefix } },
+    select: { batchNo: true },
+  });
+  let max = 0;
+  for (const r of rows) {
+    const n = parseInt(r.batchNo.slice(prefix.length), 10);
+    if (!isNaN(n) && n > max) max = n;
+  }
+  return `${prefix}${String(max + 1).padStart(3, "0")}`;
+}
+
+export async function listBatches(where: any) {
+  const { materialId, materialKeyword, warehouseId, page = 1, pageSize = 20 } = where;
+  const filters: any = { quantity: { gt: 0 } };
+  if (materialId) filters.materialId = Number(materialId);
+  if (materialKeyword) filters.material = { OR: [{ code: { contains: materialKeyword } }, { name: { contains: materialKeyword } }] };
+  if (warehouseId) filters.warehouseId = Number(warehouseId);
+  const [total, items] = await Promise.all([
+    prisma.materialBatch.count({ where: filters }),
+    prisma.materialBatch.findMany({
+      where: filters,
+      include: {
+        material: { select: { id: true, code: true, name: true, unit: true, batchManaged: true } },
+        warehouse: { select: { id: true, code: true, name: true } },
+      },
+      orderBy: [{ material: { code: "asc" } }, { batchNo: "asc" }],
+      skip: (Number(page) - 1) * Number(pageSize),
+      take: Number(pageSize),
+    }),
+  ]);
+  return { total, page: Number(page), pageSize: Number(pageSize), items };
+}
+
+export async function stockIn(data: { materialId: number; quantity: number; warehouseId: number; batchNo?: string; relatedType?: string; relatedId?: number; transactionTypeId?: number; effectiveDate?: string; documentNo?: string; lineNo?: number; remark?: string }, userId: number) {
   if (data.quantity <= 0) throw new Error("入库数量必须大于0");
 
   const material = await prisma.material.findUnique({ where: { id: data.materialId } });
@@ -128,12 +211,15 @@ export async function stockIn(data: { materialId: number; quantity: number; ware
       });
     }
 
+    const resolvedBatchNo = await applyBatchIn(tx, material, data.warehouseId, data.batchNo, data.quantity);
+
     await tx.stockRecord.create({
       data: {
         materialId: data.materialId,
         warehouseId: data.warehouseId,
         type: "in",
         quantity: data.quantity,
+        batchNo: resolvedBatchNo,
         relatedType: data.relatedType,
         relatedId: data.relatedId,
         transactionTypeId: data.transactionTypeId,
@@ -145,12 +231,15 @@ export async function stockIn(data: { materialId: number; quantity: number; ware
       },
     });
 
-    return { success: true };
+    return { success: true, batchNo: resolvedBatchNo };
   });
 }
 
-export async function stockOut(data: { materialId: number; quantity: number; warehouseId: number; relatedType?: string; relatedId?: number; transactionTypeId?: number; effectiveDate?: string; documentNo?: string; lineNo?: number; remark?: string }, userId: number) {
+export async function stockOut(data: { materialId: number; quantity: number; warehouseId: number; batchNo?: string; relatedType?: string; relatedId?: number; transactionTypeId?: number; effectiveDate?: string; documentNo?: string; lineNo?: number; remark?: string }, userId: number) {
   if (data.quantity <= 0) throw new Error("出库数量必须大于0");
+
+  const material = await prisma.material.findUnique({ where: { id: data.materialId } });
+  if (!material) throw new Error("物料不存在");
 
   const stock = await prisma.stock.findFirst({
     where: { materialId: data.materialId, warehouseId: data.warehouseId },
@@ -167,12 +256,15 @@ export async function stockOut(data: { materialId: number; quantity: number; war
       data: { quantity: stock.quantity - data.quantity, lastOutDate: new Date() },
     });
 
+    const resolvedBatchNo = await applyBatchOut(tx, material, data.warehouseId, data.batchNo, data.quantity);
+
     await tx.stockRecord.create({
       data: {
         materialId: data.materialId,
         warehouseId: data.warehouseId,
         type: "out",
         quantity: data.quantity,
+        batchNo: resolvedBatchNo,
         relatedType: data.relatedType,
         relatedId: data.relatedId,
         transactionTypeId: data.transactionTypeId,
@@ -184,7 +276,7 @@ export async function stockOut(data: { materialId: number; quantity: number; war
       },
     });
 
-    return { success: true, remainingQty: stock.quantity - data.quantity };
+    return { success: true, remainingQty: stock.quantity - data.quantity, batchNo: resolvedBatchNo };
   });
 }
 

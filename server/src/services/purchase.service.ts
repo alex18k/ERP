@@ -1,6 +1,7 @@
 import prisma from "../config/prisma";
 import { Prisma } from "@prisma/client";
 import { localDateCompact } from "../utils/date";
+import { applyBatchIn } from "./stock.service";
 
 export async function generatePurchaseOrderNo(): Promise<string> {
   const dateStr = localDateCompact();
@@ -273,12 +274,12 @@ export async function cancelPurchaseOrder(id: number) {
 export async function receivePurchaseOrder(
   id: number,
   userId: number,
-  receipts?: { itemId: number; quantity: number }[],
+  receipts?: { itemId: number; quantity: number; batchNo?: string }[],
   options?: { effectiveDate?: string; location?: string }
 ) {
   const po = await prisma.purchaseOrder.findUnique({
     where: { id },
-    include: { items: true },
+    include: { items: { include: { material: true } } },
   });
   if (!po) throw new Error("采购单不存在");
   if (po.status === "draft") throw new Error("采购单为草稿状态，请先确认后再收货");
@@ -289,14 +290,16 @@ export async function receivePurchaseOrder(
   const receiptType = await prisma.stockTransactionType.findUnique({ where: { code: "RCT-PO" } });
 
   // 本次各明细的收货数量：传了 receipts 用传入值，否则默认收完剩余
-  const receiveMap = new Map<number, number>();
+  const receiptsByItem = new Map<number, { quantity: number; batchNo?: string }>();
   if (receipts && receipts.length > 0) {
     for (const r of receipts) {
-      if (r.quantity > 0) receiveMap.set(r.itemId, r.quantity);
+      if (r.quantity > 0) receiptsByItem.set(r.itemId, { quantity: r.quantity, batchNo: r.batchNo });
     }
   } else {
-    for (const it of po.items) receiveMap.set(it.id, it.quantity - it.receivedQty);
+    for (const it of po.items) receiptsByItem.set(it.id, { quantity: it.quantity - it.receivedQty });
   }
+  const receiveMap = new Map<number, number>();
+  for (const [itemId, r] of receiptsByItem) receiveMap.set(itemId, r.quantity);
   if (receiveMap.size === 0) throw new Error("请填写收货数量");
 
   // 库位映射到仓库（库位编码 = 仓库编码），将收货库存记入指定库位对应的仓库
@@ -353,6 +356,8 @@ export async function receivePurchaseOrder(
         warehouseId = wh;
       }
 
+      const resolvedBatchNo = await applyBatchIn(tx, item.material, warehouseId, receiptsByItem.get(item.id)?.batchNo, qty);
+
       // 库存流水
       await tx.stockRecord.create({
         data: {
@@ -360,6 +365,7 @@ export async function receivePurchaseOrder(
           warehouseId,
           type: "in",
           quantity: qty,
+          batchNo: resolvedBatchNo,
           relatedType: "PurchaseOrder",
           relatedId: po.id,
           transactionTypeId: receiptType?.id,

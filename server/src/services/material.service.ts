@@ -19,6 +19,7 @@ export interface MaterialCreateInput {
   processRouteId?: number;
   location?: string;
   supplierId?: number;
+  batchManaged?: boolean;
   remark?: string;
 }
 

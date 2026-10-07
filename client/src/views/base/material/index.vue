@@ -68,6 +68,7 @@ const form = reactive<any>({
   cost: 0,
   processRouteId: null,
   supplierId: null,
+  batchManaged: false,
   location: '',
   remark: '',
 })
@@ -98,6 +99,7 @@ async function openDialog(row?: any) {
     form.cost = 0
     form.processRouteId = null
     form.location = ''
+    form.batchManaged = false
     form.status = 1
   }
   dialogVisible.value = true
@@ -308,6 +310,9 @@ onMounted(() => {
             </el-form-item>
             <el-form-item label="制造提前期">
               <el-input-number v-model="form.manufactureLeadTime" :min="0" style="width: 100%" />
+            </el-form-item>
+            <el-form-item label="批号管理">
+              <el-switch v-model="form.batchManaged" />
             </el-form-item>
             <el-form-item label="订货周期(天)">
               <el-input-number v-model="form.orderCycleDays" :min="0" style="width: 100%" />
