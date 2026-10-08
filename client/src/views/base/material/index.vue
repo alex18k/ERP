@@ -305,21 +305,29 @@ onMounted(() => {
             </el-form-item>
           </el-col>
           <el-col :span="12">
-            <el-form-item label="采购提前期">
-              <el-input-number v-model="form.leadTime" :min="0" style="width: 100%" />
-            </el-form-item>
-            <el-form-item label="制造提前期">
-              <el-input-number v-model="form.manufactureLeadTime" :min="0" style="width: 100%" />
-            </el-form-item>
             <el-form-item label="批号管理">
               <el-switch v-model="form.batchManaged" />
-            </el-form-item>
-            <el-form-item label="订货周期(天)">
-              <el-input-number v-model="form.orderCycleDays" :min="0" style="width: 100%" />
             </el-form-item>
           </el-col>
         </el-row>
         <el-row :gutter="16">
+          <el-col :span="12">
+            <el-form-item label="采购提前期">
+              <el-input-number v-model="form.leadTime" :min="0" style="width: 100%" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="制造提前期">
+              <el-input-number v-model="form.manufactureLeadTime" :min="0" style="width: 100%" />
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-row :gutter="16">
+          <el-col :span="12">
+            <el-form-item label="订货周期(天)">
+              <el-input-number v-model="form.orderCycleDays" :min="0" style="width: 100%" />
+            </el-form-item>
+          </el-col>
           <el-col :span="12">
             <el-form-item label="成本">
               <el-input-number v-model="form.cost" :min="0" :precision="2" style="width: 100%" />

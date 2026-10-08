@@ -44,6 +44,19 @@ export async function listStocks(where: any) {
     }),
   ]);
 
+  const batchRows = items.length > 0
+    ? await prisma.materialBatch.findMany({
+        where: { materialId: { in: [...new Set(items.map((s) => s.materialId))] }, warehouseId: { in: [...new Set(items.map((s) => s.warehouseId))] } },
+        orderBy: { batchNo: "asc" },
+      })
+    : [];
+  const batchByKey = new Map<string, { batchNo: string; quantity: number }[]>();
+  for (const b of batchRows) {
+    const key = `${b.materialId}|${b.warehouseId}`;
+    if (!batchByKey.has(key)) batchByKey.set(key, []);
+    batchByKey.get(key)!.push({ batchNo: b.batchNo, quantity: b.quantity });
+  }
+
   return {
     total,
     page: Number(page),
@@ -52,6 +65,7 @@ export async function listStocks(where: any) {
       ...s,
       availableQty: s.quantity - s.reservedQty,
       isLow: s.material.safetyStock > 0 && s.quantity <= s.material.safetyStock,
+      batches: batchByKey.get(`${s.materialId}|${s.warehouseId}`) ?? [],
     })),
   };
 }

@@ -262,7 +262,7 @@ html, body, #app {
 }
 
 .el-table--striped .el-table__body tr.el-table__row--striped td.el-table__cell {
-  background: #f4f8fd;
+  background: #fbfdff;
 }
 
 /* 列表内标签统一为纯文本：无背景、无边框、无着色，回归黑色正文 */

@@ -231,7 +231,7 @@ async function handleLogout() {
 
 /* ---------- 侧边栏：冷调浅蓝 ---------- */
 .aside {
-  background: #F8FAFC;
+  background: #EDF2F8;
   border-right: 1px solid var(--erp-hairline);
   overflow-y: auto;
   display: flex;
