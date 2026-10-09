@@ -55,7 +55,7 @@ const rows = computed(() => {
 async function loadData() {
   loading.value = true
   try {
-    const res: any = await purchaseApi.list({ ...query, status: 'confirmed,partial_received' })
+    const res: any = await purchaseApi.list({ ...query, receivable: true })
     list.value = res.data.items
     total.value = res.data.total
   } finally {
@@ -64,7 +64,10 @@ async function loadData() {
 }
 
 function statusLabel(s: string) {
-  return { confirmed: '已确认', partial_received: '部分收货' }[s] || s
+  return { confirmed: '已确认', partial_received: '部分收货', received: '已收货', draft: '草稿', cancelled: '已取消', closed: '已关闭' }[s] || s
+}
+function statusType(s: string) {
+  return { confirmed: 'primary', partial_received: 'warning', received: 'success', draft: 'info', cancelled: 'danger', closed: 'info' }[s] || 'primary'
 }
 
 function openReceiveByOrder(orderId: number) {
@@ -150,7 +153,7 @@ onMounted(loadData)
         <el-table-column prop="unitPrice" label="单价" width="80" />
         <el-table-column label="状态" width="100">
           <template #default="{ row }">
-            <el-tag :type="row.status === 'partial_received' ? 'warning' : 'primary'" size="small">{{ statusLabel(row.status) }}</el-tag>
+            <el-tag :type="statusType(row.status)" size="small">{{ statusLabel(row.status) }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column label="明细状态" width="100">

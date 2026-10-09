@@ -77,15 +77,6 @@ export async function updateStatusHandler(req: Request, res: Response) {
   }
 }
 
-export async function cancelHandler(req: Request, res: Response) {
-  try {
-    const data = await purchaseService.cancelPurchaseOrder(Number(req.params.id));
-    return success(res, data, "采购单已取消");
-  } catch (error: any) {
-    return fail(res, 400, error.message);
-  }
-}
-
 export async function receiveHandler(req: AuthRequest, res: Response) {
   try {
     const items = req.body?.items;

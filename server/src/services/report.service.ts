@@ -212,7 +212,10 @@ export async function getPurchaseReport(q: ReportQuery) {
 
   const orders = await prisma.purchaseOrder.findMany({
     where: { orderDate: dateFilter },
-    include: { supplier: { select: { id: true, name: true } } },
+    include: {
+      supplier: { select: { id: true, name: true } },
+      items: { select: { id: true, expectedDate: true, receivedQty: true } },
+    },
     orderBy: { orderDate: "asc" },
   });
 
@@ -222,20 +225,19 @@ export async function getPurchaseReport(q: ReportQuery) {
   let totalAmount = 0;
   let orderCount = 0;
   let inTransitAmount = 0;
-  const inTransitStatuses = ["draft", "confirmed", "partial_received"];
 
   for (const o of orders) {
-    if (o.status === "cancelled") continue;
+    if (o.status !== "confirmed") continue;
     orderCount++;
     totalAmount += o.totalAmount ?? 0;
-    if (inTransitStatuses.includes(o.status)) inTransitAmount += o.totalAmount ?? 0;
+    inTransitAmount += o.totalAmount ?? 0;
     const key = bucketKey(o.orderDate ?? o.createdAt, groupBy);
     amountByBucket.set(key, (amountByBucket.get(key) ?? 0) + (o.totalAmount ?? 0));
     supplierMap.set(o.supplier?.name ?? "未知", (supplierMap.get(o.supplier?.name ?? "未知") ?? 0) + (o.totalAmount ?? 0));
   }
 
-  // 供应商到货准时率：以收货入库流水时间对比【明细行】的截止日期
-  const receivedOrders = orders.filter((o) => ["received", "partial_received"].includes(o.status));
+  // 供应商到货准时率：以收货入库流水时间对比【明细行】的截止日期（有已收数量的明细订单）
+  const receivedOrders = orders.filter((o) => (o.items || []).some((it) => it.receivedQty > 0));
   const supplierRateMap = new Map<string, { total: number; onTime: number }>();
   const rateBucketMap = new Map<string, { total: number; onTime: number }>();
 

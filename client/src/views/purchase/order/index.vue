@@ -12,11 +12,14 @@ const query = reactive({ page: 1, pageSize: 20, orderNo: '', supplierId: '', sta
 const statusOptions = [
   { label: '草稿', value: 'draft', type: 'info' },
   { label: '已确认', value: 'confirmed', type: 'primary' },
-  { label: '部分收货', value: 'partial_received', type: 'warning' },
-  { label: '已收货', value: 'received', type: 'success' },
-  { label: '已取消', value: 'cancelled', type: 'danger' },
-  { label: '已关闭', value: 'closed', type: 'info' },
 ]
+// 历史数据兼容：旧的主表状态仅用于展示，不再参与任何逻辑
+const legacyStatusMap: Record<string, { label: string; type: string }> = {
+  partial_received: { label: '部分收货', type: 'warning' },
+  received: { label: '已收货', type: 'success' },
+  cancelled: { label: '已取消', type: 'danger' },
+  closed: { label: '已关闭', type: 'info' },
+}
 
 const suppliers = ref<any[]>([])
 
@@ -30,10 +33,10 @@ async function loadData() {
 }
 
 function statusLabel(s: string) {
-  return statusOptions.find(o => o.value === s)?.label || s
+  return statusOptions.find(o => o.value === s)?.label || legacyStatusMap[s]?.label || s
 }
 function statusType(s: string) {
-  return statusOptions.find(o => o.value === s)?.type || 'info'
+  return statusOptions.find(o => o.value === s)?.type || legacyStatusMap[s]?.type || 'info'
 }
 
 // 平铺明细行：每行 = 一个采购明细；有物料关键词时只保留匹配的明细行

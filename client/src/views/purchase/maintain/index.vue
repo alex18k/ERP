@@ -30,10 +30,6 @@ const itemStatusOptions = [
 const statusOptions = [
   { label: '草稿', value: 'draft', type: 'info' },
   { label: '已确认', value: 'confirmed', type: 'primary' },
-  { label: '部分收货', value: 'partial_received', type: 'warning' },
-  { label: '已收货', value: 'received', type: 'success' },
-  { label: '已取消', value: 'cancelled', type: 'danger' },
-  { label: '已关闭', value: 'closed', type: 'info' },
 ]
 
 const form = reactive<any>({ id: null, orderNo: '', supplierId: null, settleMethod: '', orderDate: '', expectedDate: '', buyer: '', taxIncluded: false, taxRate: 0, remark: '', items: [] })
@@ -125,6 +121,22 @@ async function loadBuyers() {
 async function loadOrderOptions() {
   const res: any = await purchaseApi.list({ page: 1, pageSize: 200 })
   orderOptions.value = res.data.items || []
+}
+
+const orderQuery = ref('')
+const orderFilterOptions = computed(() => {
+  const q = orderQuery.value.trim().toLowerCase()
+  return orderOptions.value
+    .filter((o: any) => !q || `${o.orderNo} ${o.supplier?.name || ''}`.toLowerCase().includes(q))
+    .map((o: any) => ({
+      value: o.id,
+      label: o.orderNo,
+      supplier: o.supplier?.name || '未指定',
+    }))
+})
+
+function filterOrderOptions(val: string) {
+  orderQuery.value = val
 }
 
 function resetForm() {
@@ -270,14 +282,14 @@ function onOrderSelect(id: number | null) {
           <el-col :span="12">
             <el-form-item label="采购单号">
               <div style="display: flex; align-items: center; gap: 8px">
-                <el-select v-model="selectedOrderId" filterable clearable placeholder="选择采购单号编辑，留空为新增" style="width: 280px" @change="(v: any) => onOrderSelect(v)">
-                  <el-option v-for="o in orderOptions" :key="o.id" :label="o.orderNo" :value="o.id">
-                    <span>{{ o.orderNo }}</span>
-                    <span style="color: var(--el-text-color-secondary); margin-left: 8px">{{ o.supplier?.name || '未指定' }}</span>
-                  </el-option>
-                </el-select>
+                <el-select-v2 v-model="selectedOrderId" filterable clearable placeholder="选择采购单号编辑，留空为新增" style="width: 280px" :options="orderFilterOptions" :filter-method="filterOrderOptions" @change="(v: any) => onOrderSelect(v)">
+                  <template #default="{ item }">
+                    <span>{{ item.label }}</span>
+                    <span style="color: var(--el-text-color-secondary); margin-left: 8px">{{ item.supplier }}</span>
+                  </template>
+                </el-select-v2>
                 <el-select v-if="form.status" :model-value="form.status" size="small" style="width: 110px" @change="(v: string) => handleStatusChange(v)">
-                  <el-option v-for="o in statusOptions.filter((o) => ['draft', 'confirmed', 'cancelled', 'closed'].includes(o.value))" :key="o.value" :label="o.label" :value="o.value" />
+                  <el-option v-for="o in statusOptions" :key="o.value" :label="o.label" :value="o.value" />
                 </el-select>
               </div>
             </el-form-item>

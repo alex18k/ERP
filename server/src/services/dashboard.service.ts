@@ -201,7 +201,7 @@ export async function getShortageAlertDashboard() {
   });
 
   const inTransitItems = await prisma.purchaseOrderItem.findMany({
-    where: { status: { in: ["pending", "partial_received"] } },
+    where: { status: { in: ["pending", "partial_received"] }, order: { status: "confirmed" } },
     include: { material: { select: { id: true, code: true, name: true } } },
   });
   const inTransitMap = new Map<number, number>();

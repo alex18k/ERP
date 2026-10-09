@@ -16,7 +16,6 @@ router.post("/", requirePermission("purchase:create"), purchaseController.create
 router.put("/:id", requirePermission("purchase:create"), purchaseController.updateHandler);
 router.put("/:id/confirm", requirePermission("purchase:approve"), purchaseController.confirmHandler);
 router.put("/:id/status", requirePermission("purchase:approve"), purchaseController.updateStatusHandler);
-router.put("/:id/cancel", requirePermission("purchase:approve"), purchaseController.cancelHandler);
 router.put("/:id/receive", requirePermission("stock:edit"), purchaseController.receiveHandler);
 
 export default router;

@@ -45,7 +45,7 @@ export interface PurchaseOrderInput {
 }
 
 export async function listPurchaseOrders(where: any) {
-  const { orderNo, supplierId, status, materialKeyword, materialCode, materialName, specification, page = 1, pageSize = 20 } = where;
+  const { orderNo, supplierId, status, receivable, materialKeyword, materialCode, materialName, specification, page = 1, pageSize = 20 } = where;
   const filters: Prisma.PurchaseOrderWhereInput = {};
   if (orderNo) filters.orderNo = { contains: orderNo };
   if (supplierId) filters.supplierId = Number(supplierId);
@@ -73,6 +73,18 @@ export async function listPurchaseOrders(where: any) {
           ...(materialName && { name: { contains: materialName } }),
           ...(specification && { specification: { contains: specification } }),
         },
+      },
+    };
+  }
+
+  // 收货列表：仅已确认的采购单、且有待收货/部分收货明细的才列出，明细状态驱动收货进度
+  if (receivable) {
+    filters.status = "confirmed";
+    const prev = filters.items as any;
+    filters.items = {
+      some: {
+        ...(prev?.some || {}),
+        status: { in: ["pending", "partial_received"] },
       },
     };
   }
@@ -204,15 +216,7 @@ export async function updatePurchaseOrder(id: number, data: PurchaseOrderInput) 
       });
     }
 
-    // 若原单处于收货相关状态，按编辑后的明细数量重新推算订单状态
-    let orderStatus = exists.status;
-    if (["received", "partial_received"].includes(exists.status)) {
-      const newItems = await tx.purchaseOrderItem.findMany({ where: { orderId: id } });
-      const active = newItems.filter((it) => it.status !== "cancelled");
-      const anyReceived = active.some((it) => it.receivedQty > 0);
-      const allReceived = active.length > 0 && active.every((it) => it.receivedQty >= it.quantity);
-      orderStatus = allReceived ? "received" : anyReceived ? "partial_received" : "confirmed";
-    }
+    // 主表状态不随明细编辑自动推算，仅由维护操作（确认/取消等）显式控制
 
     await tx.purchaseOrder.update({
       where: { id },
@@ -226,7 +230,6 @@ export async function updatePurchaseOrder(id: number, data: PurchaseOrderInput) 
         taxIncluded: data.taxIncluded ?? false,
         taxRate: data.taxRate ?? 0,
         remark: data.remark,
-        status: orderStatus,
       },
     });
 
@@ -253,44 +256,20 @@ export async function confirmPurchaseOrder(id: number) {
   return prisma.purchaseOrder.update({ where: { id }, data: { status: "confirmed" } });
 }
 
-const MAINTAINABLE_STATUSES = ["draft", "confirmed", "cancelled", "closed"];
+const MAINTAINABLE_STATUSES = ["draft", "confirmed"];
 
-// 主表状态下拉维护：仅允许草稿/已确认/已取消/已关闭，收货相关状态由收货操作驱动
+// 主表状态仅两种：草稿 / 已确认；已确认才可收货与参与MRP，已收货等进度全部由明细状态体现
 export async function updatePurchaseOrderStatus(id: number, status: string) {
   if (!MAINTAINABLE_STATUSES.includes(status)) {
-    throw new Error("仅支持草稿、已确认、已取消、已关闭四种状态");
+    throw new Error("仅支持草稿、已确认两种状态");
   }
   const exists = await prisma.purchaseOrder.findUnique({ where: { id } });
   if (!exists) throw new Error("采购单不存在");
-  if (["partial_received", "received"].includes(exists.status)) {
-    throw new Error("已收货或部分收货的采购单不能修改状态");
-  }
   if (exists.status === status) return exists;
 
-  return prisma.$transaction(async (tx) => {
-    await tx.purchaseOrderItem.updateMany({
-      where: { orderId: id, status: status === "cancelled" ? { not: "received" } : "cancelled" },
-      data: { status: status === "cancelled" ? "cancelled" : "pending" },
-    });
-    return tx.purchaseOrder.update({ where: { id }, data: { status } });
-  });
+  return prisma.purchaseOrder.update({ where: { id }, data: { status } });
 }
 
-export async function cancelPurchaseOrder(id: number) {
-  const exists = await prisma.purchaseOrder.findUnique({ where: { id } });
-  if (!exists) throw new Error("采购单不存在");
-  if (exists.status === "received") throw new Error("已收货的采购单不能取消");
-
-  return prisma.$transaction(async (tx) => {
-    await tx.purchaseOrderItem.updateMany({
-      where: { orderId: id, status: { in: ["pending", "partial_received"] } },
-      data: { status: "cancelled" },
-    });
-    return tx.purchaseOrder.update({ where: { id }, data: { status: "cancelled" } });
-  });
-}
-
-// ===== 收货（支持分批：传入 items 则按数量收，否则全部收完）=====
 export async function receivePurchaseOrder(
   id: number,
   userId: number,
@@ -302,15 +281,15 @@ export async function receivePurchaseOrder(
     include: { items: { include: { material: true } } },
   });
   if (!po) throw new Error("采购单不存在");
-  if (po.status === "draft") throw new Error("采购单为草稿状态，请先确认后再收货");
-  if (po.status === "cancelled") throw new Error("采购单已取消，不能收货");
-  if (po.status === "closed") throw new Error("采购单已关闭，不能收货");
-  if (po.status === "received") throw new Error("采购单已全部收货");
+
+  // 仅已确认的采购单可收货；收货进度由明细状态驱动
+  if (po.status !== "confirmed") throw new Error("仅已确认的采购单可收货");
+
+  const NON_RECEIVABLE = ["cancelled", "closed", "draft"];
+  const hasReceivable = po.items.some((it) => !NON_RECEIVABLE.includes(it.status) && it.receivedQty < it.quantity);
+  if (!hasReceivable) throw new Error("采购单没有可收货的明细");
 
   const receiptType = await prisma.stockTransactionType.findUnique({ where: { code: "RCT-PO" } });
-
-  // 不可收货的明细状态：取消 / 关闭 / 草稿
-  const NON_RECEIVABLE = ["cancelled", "closed", "draft"];
 
   // 本次各明细的收货数量：传了 receipts 用传入值，否则默认收完剩余
   const receiptsByItem = new Map<number, { quantity: number; batchNo?: string }>();
@@ -410,14 +389,8 @@ export async function receivePurchaseOrder(
       });
     }
 
-    // 汇总状态：全部收完→received，否则→partial_received
-    const updatedItems = await tx.purchaseOrderItem.findMany({ where: { orderId: id } });
-    const allReceived = updatedItems.filter((it) => it.status !== "cancelled").every((it) => it.receivedQty >= it.quantity);
-
-    return tx.purchaseOrder.update({
-      where: { id },
-      data: { status: allReceived ? "received" : "partial_received" },
-    });
+    // 主表状态不随收货自动更新，仅明细状态反映收货进度
+    return tx.purchaseOrder.findUnique({ where: { id }, include: { items: true } });
   });
 }
 
@@ -426,7 +399,7 @@ export async function getArrivalTracking() {
   const items = await prisma.purchaseOrderItem.findMany({
     where: {
       status: { in: ["pending", "partial_received"] },
-      order: { status: { not: "cancelled" } },
+      order: { status: "confirmed" },
     },
     include: {
       order: { include: { supplier: { select: { id: true, name: true } } } },
