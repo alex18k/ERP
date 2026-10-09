@@ -7,7 +7,7 @@ const loading = ref(false)
 const list = ref<any[]>([])
 const total = ref(0)
 const warehouses = ref<any[]>([])
-const query = reactive({ page: 1, pageSize: 20, materialKeyword: '', warehouseId: '', startDate: '', endDate: '', documentNo: '' })
+const query = reactive({ page: 1, pageSize: 20, materialKeyword: '', warehouseId: '', transactionTypeId: '', startDate: '', endDate: '', documentNo: '' })
 
 // ===== 增加库存事务 =====
 const dialogVisible = ref(false)
@@ -119,10 +119,13 @@ onMounted(async () => {
         <el-select v-model="query.warehouseId" placeholder="仓库" clearable style="width: 150px">
           <el-option v-for="w in warehouses" :key="w.id" :label="w.name" :value="w.id" />
         </el-select>
+        <el-select v-model="query.transactionTypeId" placeholder="事务类型" clearable filterable style="width: 160px">
+          <el-option v-for="t in transactionTypes" :key="t.id" :label="t.description || t.code" :value="t.id" />
+        </el-select>
         <el-input v-model="query.startDate" type="date" placeholder="开始" clearable style="width: 150px" />
         <el-input v-model="query.endDate" type="date" placeholder="结束" clearable style="width: 150px" />
         <el-button type="primary" @click="query.page = 1, loadData()"><el-icon><Search /></el-icon>查询</el-button>
-        <el-button @click="Object.assign(query, { materialKeyword: '', warehouseId: '', startDate: '', endDate: '', documentNo: '', page: 1 }), loadData()">重置</el-button>
+        <el-button @click="Object.assign(query, { materialKeyword: '', warehouseId: '', transactionTypeId: '', startDate: '', endDate: '', documentNo: '', page: 1 }), loadData()">重置</el-button>
       </div>
 
       <el-table :data="list" v-loading="loading" stripe max-height="calc(100vh - 260px)">

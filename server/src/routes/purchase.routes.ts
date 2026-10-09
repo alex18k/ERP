@@ -7,6 +7,7 @@ const router = Router();
 router.use(authMiddleware);
 
 router.get("/arrival", requirePermission("purchase:view"), purchaseController.arrivalHandler);
+router.get("/receipts", requirePermission("purchase:view"), purchaseController.receiptsHandler);
 router.get("/buyers", requirePermission("purchase:view"), purchaseController.buyersHandler);
 router.get("/export", requirePermission("purchase:view"), purchaseController.exportHandler);
 router.get("/", requirePermission("purchase:view"), purchaseController.listHandler);

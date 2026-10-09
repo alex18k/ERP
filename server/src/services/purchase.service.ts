@@ -28,6 +28,8 @@ export interface PurchaseOrderInput {
   taxRate?: number;
   remark?: string;
   items: {
+    id?: number;
+    receivedQty?: number;
     materialId: number;
     quantity: number;
     unit?: string;
@@ -37,6 +39,8 @@ export interface PurchaseOrderInput {
     location?: string;
     expectedDate?: string;
     remark?: string;
+    status?: string;
+    sourceOrderNo?: string;
   }[];
 }
 
@@ -143,8 +147,9 @@ export async function createPurchaseOrder(data: PurchaseOrderInput, userId: numb
           taxRate: item.taxRate ?? 0,
           location: item.location || null,
           expectedDate: item.expectedDate ? new Date(item.expectedDate) : null,
-          status: "pending",
+          status: item.status || "pending",
           remark: item.remark || null,
+          sourceOrderNo: item.sourceOrderNo || null,
         },
       });
     }
@@ -156,7 +161,6 @@ export async function createPurchaseOrder(data: PurchaseOrderInput, userId: numb
 export async function updatePurchaseOrder(id: number, data: PurchaseOrderInput) {
   const exists = await prisma.purchaseOrder.findUnique({ where: { id } });
   if (!exists) throw new Error("采购单不存在");
-  if (!["draft", "confirmed"].includes(exists.status)) throw new Error("仅草稿或已确认状态可编辑");
   if (!data.items || data.items.length === 0) throw new Error("采购单至少需要一个明细");
   if (!data.orderDate) throw new Error("请选择订货日期");
   if (!data.expectedDate) throw new Error("请选择截止日期");
@@ -174,6 +178,9 @@ export async function updatePurchaseOrder(id: number, data: PurchaseOrderInput) 
         ? (supplier?.settleMethod ?? null)
         : exists.settleMethod;
 
+  const existingItems = await prisma.purchaseOrderItem.findMany({ where: { orderId: id } });
+  const receivedById = new Map(existingItems.map((it) => [it.id, it.receivedQty]));
+
   return prisma.$transaction(async (tx) => {
     await tx.purchaseOrderItem.deleteMany({ where: { orderId: id } });
     for (const item of data.items) {
@@ -182,6 +189,7 @@ export async function updatePurchaseOrder(id: number, data: PurchaseOrderInput) 
           orderId: id,
           materialId: item.materialId,
           quantity: item.quantity,
+          receivedQty: item.id ? (receivedById.get(item.id) ?? 0) : 0,
           unit: item.unit || null,
           unitPrice: item.unitPrice ?? 0,
           amount: item.quantity * (item.unitPrice ?? 0),
@@ -189,10 +197,21 @@ export async function updatePurchaseOrder(id: number, data: PurchaseOrderInput) 
           taxRate: item.taxRate ?? 0,
           location: item.location || null,
           expectedDate: item.expectedDate ? new Date(item.expectedDate) : null,
-          status: "pending",
+          status: item.status || "pending",
           remark: item.remark || null,
+          sourceOrderNo: item.sourceOrderNo || null,
         },
       });
+    }
+
+    // 若原单处于收货相关状态，按编辑后的明细数量重新推算订单状态
+    let orderStatus = exists.status;
+    if (["received", "partial_received"].includes(exists.status)) {
+      const newItems = await tx.purchaseOrderItem.findMany({ where: { orderId: id } });
+      const active = newItems.filter((it) => it.status !== "cancelled");
+      const anyReceived = active.some((it) => it.receivedQty > 0);
+      const allReceived = active.length > 0 && active.every((it) => it.receivedQty >= it.quantity);
+      orderStatus = allReceived ? "received" : anyReceived ? "partial_received" : "confirmed";
     }
 
     await tx.purchaseOrder.update({
@@ -207,6 +226,7 @@ export async function updatePurchaseOrder(id: number, data: PurchaseOrderInput) 
         taxIncluded: data.taxIncluded ?? false,
         taxRate: data.taxRate ?? 0,
         remark: data.remark,
+        status: orderStatus,
       },
     });
 
@@ -289,14 +309,25 @@ export async function receivePurchaseOrder(
 
   const receiptType = await prisma.stockTransactionType.findUnique({ where: { code: "RCT-PO" } });
 
+  // 不可收货的明细状态：取消 / 关闭 / 草稿
+  const NON_RECEIVABLE = ["cancelled", "closed", "draft"];
+
   // 本次各明细的收货数量：传了 receipts 用传入值，否则默认收完剩余
   const receiptsByItem = new Map<number, { quantity: number; batchNo?: string }>();
   if (receipts && receipts.length > 0) {
     for (const r of receipts) {
-      if (r.quantity > 0) receiptsByItem.set(r.itemId, { quantity: r.quantity, batchNo: r.batchNo });
+      if (r.quantity <= 0) continue;
+      const target = po.items.find((it) => it.id === r.itemId);
+      if (target && NON_RECEIVABLE.includes(target.status)) {
+        throw new Error(`明细「${target.material?.name ?? target.id}」状态为「${target.status}」，不能收货`);
+      }
+      receiptsByItem.set(r.itemId, { quantity: r.quantity, batchNo: r.batchNo });
     }
   } else {
-    for (const it of po.items) receiptsByItem.set(it.id, { quantity: it.quantity - it.receivedQty });
+    for (const it of po.items) {
+      if (NON_RECEIVABLE.includes(it.status)) continue;
+      receiptsByItem.set(it.id, { quantity: it.quantity - it.receivedQty });
+    }
   }
   const receiveMap = new Map<number, number>();
   for (const [itemId, r] of receiptsByItem) receiveMap.set(itemId, r.quantity);
@@ -311,6 +342,7 @@ export async function receivePurchaseOrder(
     for (const [idx, item] of po.items.entries()) {
       const qty = receiveMap.get(item.id) ?? 0;
       if (qty <= 0) continue;
+      if (NON_RECEIVABLE.includes(item.status)) throw new Error(`明细「${item.material?.name ?? item.id}」状态为「${item.status}」，不能收货`);
 
       const remaining = item.quantity - item.receivedQty;
       if (qty > remaining) {
@@ -380,7 +412,7 @@ export async function receivePurchaseOrder(
 
     // 汇总状态：全部收完→received，否则→partial_received
     const updatedItems = await tx.purchaseOrderItem.findMany({ where: { orderId: id } });
-    const allReceived = updatedItems.every((it) => it.receivedQty >= it.quantity);
+    const allReceived = updatedItems.filter((it) => it.status !== "cancelled").every((it) => it.receivedQty >= it.quantity);
 
     return tx.purchaseOrder.update({
       where: { id },
@@ -425,4 +457,62 @@ export async function listBuyers() {
     select: { id: true, username: true, realName: true },
     orderBy: { id: "asc" },
   });
+}
+
+// ===== 采购收货记录（来源：采购单收货写入的库存流水）=====
+export async function listPurchaseReceipts(where: any) {
+  const { orderNo, materialKeyword, startDate, endDate, page = 1, pageSize = 20 } = where;
+
+  const filters: Prisma.StockRecordWhereInput = { relatedType: "PurchaseOrder", type: "in" };
+  if (orderNo) filters.documentNo = { contains: orderNo };
+  if (materialKeyword) {
+    filters.material = {
+      OR: [
+        { code: { contains: materialKeyword } },
+        { name: { contains: materialKeyword } },
+        { specification: { contains: materialKeyword } },
+      ],
+    };
+  }
+  if (startDate || endDate) {
+    filters.createdAt = {
+      gte: startDate ? new Date(startDate) : undefined,
+      lte: endDate ? new Date(endDate + "T23:59:59.999") : undefined,
+    };
+  }
+
+  const [total, items] = await Promise.all([
+    prisma.stockRecord.count({ where: filters }),
+    prisma.stockRecord.findMany({
+      where: filters,
+      include: {
+        material: { select: { id: true, code: true, name: true, specification: true, unit: true } },
+        warehouse: { select: { id: true, code: true, name: true } },
+        operator: { select: { id: true, realName: true, username: true } },
+      },
+      orderBy: { createdAt: "desc" },
+      skip: (Number(page) - 1) * Number(pageSize),
+      take: Number(pageSize),
+    }),
+  ]);
+
+  const orderIds = [...new Set(items.map((i) => i.relatedId).filter((x): x is number => !!x))];
+  const orders = orderIds.length
+    ? await prisma.purchaseOrder.findMany({
+        where: { id: { in: orderIds } },
+        select: { id: true, status: true, supplier: { select: { name: true } } },
+      })
+    : [];
+  const orderMap = new Map(orders.map((o) => [o.id, o]));
+
+  return {
+    total,
+    page: Number(page),
+    pageSize: Number(pageSize),
+    items: items.map((i) => ({
+      ...i,
+      supplierName: i.relatedId ? orderMap.get(i.relatedId)?.supplier?.name ?? null : null,
+      orderStatus: i.relatedId ? orderMap.get(i.relatedId)?.status ?? null : null,
+    })),
+  };
 }

@@ -487,6 +487,7 @@ model PurchaseOrderItem {
   status       String        @default("pending") // pending, partial_received, received, cancelled
   remark       String?
   suggestionId Int?
+  sourceOrderNo String? // 需求来源订单号
 
   @@index([orderId])
   @@index([materialId])

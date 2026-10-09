@@ -55,11 +55,13 @@ const routes = [
       // 采购
       { path: 'purchase/order', name: 'PurchaseOrder', component: () => import('../views/purchase/order/index.vue'), meta: { title: '采购订单' } },
       { path: 'purchase/arrival', name: 'PurchaseArrival', component: () => import('../views/purchase/arrival/index.vue'), meta: { title: '到货跟踪' } },
+      { path: 'purchase/maintain', name: 'PurchaseMaintain', component: () => import('../views/purchase/maintain/index.vue'), meta: { title: '采购单维护' } },
       { path: 'purchase/print', name: 'PurchasePrint', component: () => import('../views/purchase/print/index.vue'), meta: { title: '打印采购订单' } },
       // 库存
       { path: 'inventory/query', name: 'InventoryQuery', component: () => import('../views/inventory/query/index.vue'), meta: { title: '库存查询' } },
       { path: 'inventory/record', name: 'InventoryRecord', component: () => import('../views/inventory/record/index.vue'), meta: { title: '库存事务记录' } },
       { path: 'inventory/receive', name: 'InventoryReceive', component: () => import('../views/inventory/receive/index.vue'), meta: { title: '采购收货' } },
+      { path: 'inventory/receipt-record', name: 'InventoryReceiptRecord', component: () => import('../views/inventory/receiptRecord/index.vue'), meta: { title: '采购收货记录' } },
       { path: 'inventory/issue', name: 'InventoryIssue', component: () => import('../views/inventory/issue/index.vue'), meta: { title: '生产领料' } },
       { path: 'inventory/production-receive', name: 'InventoryProductionReceive', component: () => import('../views/inventory/productionReceive/index.vue'), meta: { title: '生产入库' } },
       { path: 'inventory/shipping', name: 'InventoryShipping', component: () => import('../views/inventory/shipping/index.vue'), meta: { title: '销售发运' } },

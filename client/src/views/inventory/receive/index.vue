@@ -23,21 +23,28 @@ function todayStr() {
 }
 
 // 平铺明细行：每行 = 一个采购明细
+const NON_RECEIVABLE = ['cancelled', 'closed', 'draft']
+const itemStatusLabel = (s: string) =>
+  ({ pending: '待收货', partial_received: '部分收货', received: '已收货', cancelled: '已取消', closed: '已关闭', draft: '草稿' } as Record<string, string>)[s] || s
+
 const rows = computed(() => {
   const out: any[] = []
   for (const o of list.value) {
     for (const it of (o.items || [])) {
+      const remaining = it.quantity - (it.receivedQty ?? 0)
       out.push({
         orderId: o.id,
         orderNo: o.orderNo,
         supplierName: o.supplier?.name || '未指定',
         status: o.status,
+        itemStatus: it.status,
+        receivable: !NON_RECEIVABLE.includes(it.status) && remaining > 0,
         materialCode: it.material?.code,
         materialName: it.material?.name,
         specification: it.material?.specification,
         quantity: it.quantity,
         receivedQty: it.receivedQty ?? 0,
-        remaining: it.quantity - (it.receivedQty ?? 0),
+        remaining,
         unitPrice: it.unitPrice,
       })
     }
@@ -67,16 +74,19 @@ function openReceiveByOrder(orderId: number) {
 
 function openReceive(row: any) {
   currentOrder.value = row
-  receiveItems.value = (row.items || []).map((it: any) => ({
-    itemId: it.id,
-    materialCode: it.material?.code,
-    materialName: it.material?.name,
-    quantity: it.quantity,
-    receivedQty: it.receivedQty ?? 0,
-    remaining: it.quantity - (it.receivedQty ?? 0),
-    receiveQty: it.quantity - (it.receivedQty ?? 0),
-    batchNo: '',
-  }))
+  receiveItems.value = (row.items || [])
+    .filter((it: any) => !NON_RECEIVABLE.includes(it.status))
+    .map((it: any) => ({
+      itemId: it.id,
+      status: it.status,
+      materialCode: it.material?.code,
+      materialName: it.material?.name,
+      quantity: it.quantity,
+      receivedQty: it.receivedQty ?? 0,
+      remaining: it.quantity - (it.receivedQty ?? 0),
+      receiveQty: it.quantity - (it.receivedQty ?? 0),
+      batchNo: '',
+    }))
   receiveForm.effectiveDate = todayStr()
   const locs = new Set<string>((row.items || []).map((it: any) => it.material?.location).filter(Boolean))
   receiveForm.location = locs.size === 1 ? [...locs][0] : ''
@@ -143,9 +153,14 @@ onMounted(loadData)
             <el-tag :type="row.status === 'partial_received' ? 'warning' : 'primary'" size="small">{{ statusLabel(row.status) }}</el-tag>
           </template>
         </el-table-column>
+        <el-table-column label="明细状态" width="100">
+          <template #default="{ row }">
+            <el-tag :type="row.receivable ? 'success' : 'info'" size="small">{{ itemStatusLabel(row.itemStatus) }}</el-tag>
+          </template>
+        </el-table-column>
         <el-table-column label="操作" width="100" fixed="right">
           <template #default="{ row }">
-            <el-button size="small" type="success" link @click="openReceiveByOrder(row.orderId)">收货</el-button>
+            <el-button size="small" type="success" link :disabled="!row.receivable" @click="openReceiveByOrder(row.orderId)">收货</el-button>
           </template>
         </el-table-column>
       </el-table>

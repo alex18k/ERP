@@ -25,7 +25,7 @@ export async function listStocks(where: any) {
   if (materialCode || materialName) {
     filters.material = {
       ...(materialCode && { code: { contains: materialCode } }),
-      ...(materialName && { name: { contains: materialName } }),
+      ...(materialName && { OR: [{ name: { contains: materialName } }, { specification: { contains: materialName } }] }),
     };
   }
   if (warehouseId) filters.warehouseId = Number(warehouseId);
@@ -71,7 +71,7 @@ export async function listStocks(where: any) {
 }
 
 export async function listStockRecords(where: any) {
-  const { materialId, materialKeyword, warehouseId, type, startDate, endDate, documentNo, page = 1, pageSize = 20 } = where;
+  const { materialId, materialKeyword, warehouseId, type, transactionTypeId, startDate, endDate, documentNo, page = 1, pageSize = 20 } = where;
 
   const filters: any = {};
   const mid = Number(materialId);
@@ -83,6 +83,7 @@ export async function listStockRecords(where: any) {
   }
   if (warehouseId) filters.warehouseId = Number(warehouseId);
   if (type) filters.type = type;
+  if (transactionTypeId) filters.transactionTypeId = Number(transactionTypeId);
   if (documentNo) filters.documentNo = { contains: documentNo };
   if (startDate || endDate) {
     filters.createdAt = {

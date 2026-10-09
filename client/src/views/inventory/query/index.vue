@@ -47,7 +47,7 @@ onMounted(async () => {
     <div class="page-card">
       <div class="search-bar">
         <el-input v-model="query.materialCode" placeholder="物料编码" clearable style="width: 150px" />
-        <el-input v-model="query.materialName" placeholder="物料名称" clearable style="width: 150px" />
+        <el-input v-model="query.materialName" placeholder="物料名称/型号规格" clearable style="width: 170px" />
         <el-select v-model="query.warehouseId" placeholder="仓库" clearable style="width: 160px">
           <el-option v-for="w in warehouses" :key="w.id" :label="w.name" :value="w.id" />
         </el-select>

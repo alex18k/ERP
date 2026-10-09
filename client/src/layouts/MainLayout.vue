@@ -74,6 +74,7 @@ const menuItems: MenuNode[] = [
     children: [
       { path: '/purchase/order', title: '采购订单', icon: 'List' },
       { path: '/purchase/arrival', title: '到货跟踪', icon: 'Van' },
+      { path: '/purchase/maintain', title: '采购单维护', icon: 'Edit' },
       { path: '/base/supplier', title: '供应商管理', icon: 'Van' },
     ],
   },
@@ -84,6 +85,7 @@ const menuItems: MenuNode[] = [
       { path: '/inventory/query', title: '库存查询', icon: 'Search' },
       { path: '/inventory/record', title: '事务记录', icon: 'Clock' },
       { path: '/inventory/receive', title: '采购收货', icon: 'Download' },
+      { path: '/inventory/receipt-record', title: '采购收货记录', icon: 'Tickets' },
       { path: '/inventory/issue', title: '生产领料', icon: 'Upload' },
       { path: '/inventory/production-receive', title: '生产入库', icon: 'Download' },
       { path: '/inventory/shipping', title: '销售发运', icon: 'Van' },

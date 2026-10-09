@@ -157,6 +157,7 @@ export const purchaseApi = {
   cancel: (id: number) => request.put(`/purchase/${id}/cancel`),
   receive: (id: number, data?: any) => request.put(`/purchase/${id}/receive`, data),
   arrival: () => request.get('/purchase/arrival'),
+  receipts: (params: PageParams) => request.get('/purchase/receipts', { params }),
   exportCsv: () => downloadCsv('/purchase/export', '采购订单'),
 }
 
