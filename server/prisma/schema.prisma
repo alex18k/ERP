@@ -484,7 +484,7 @@ model PurchaseOrderItem {
   taxRate      Float         @default(0) // 税率(%)
   location     String? // 库位
   expectedDate DateTime?
-  status       String        @default("pending") // pending, partial_received, received, cancelled
+  status       String        @default("") // 空白(可收货/参与MRP), closed, cancelled
   remark       String?
   suggestionId Int?
   sourceOrderNo String? // 需求来源订单号

@@ -23,9 +23,17 @@ function todayStr() {
 }
 
 // 平铺明细行：每行 = 一个采购明细
-const NON_RECEIVABLE = ['cancelled', 'closed', 'draft']
-const itemStatusLabel = (s: string) =>
-  ({ pending: '待收货', partial_received: '部分收货', received: '已收货', cancelled: '已取消', closed: '已关闭', draft: '草稿' } as Record<string, string>)[s] || s
+const NON_RECEIVABLE = ['cancelled', 'closed']
+
+// 明细状态：空白状态计入收货/MRP，进度由 receivedQty 推断
+function itemState(it: any) {
+  if (it.status === 'cancelled') return { key: 'cancelled', label: '已取消', type: 'info' }
+  if (it.status === 'closed') return { key: 'closed', label: '已关闭', type: 'info' }
+  const remaining = it.quantity - (it.receivedQty ?? 0)
+  if (remaining <= 0) return { key: 'received', label: '已收货', type: 'success' }
+  if ((it.receivedQty ?? 0) > 0) return { key: 'partial_received', label: '部分收货', type: 'warning' }
+  return { key: 'pending', label: '待收货', type: 'success' }
+}
 
 const rows = computed(() => {
   const out: any[] = []
@@ -37,7 +45,7 @@ const rows = computed(() => {
         orderNo: o.orderNo,
         supplierName: o.supplier?.name || '未指定',
         status: o.status,
-        itemStatus: it.status,
+        itemState: itemState(it),
         receivable: !NON_RECEIVABLE.includes(it.status) && remaining > 0,
         materialCode: it.material?.code,
         materialName: it.material?.name,
@@ -78,7 +86,7 @@ function openReceiveByOrder(orderId: number) {
 function openReceive(row: any) {
   currentOrder.value = row
   receiveItems.value = (row.items || [])
-    .filter((it: any) => !NON_RECEIVABLE.includes(it.status))
+    .filter((it: any) => !NON_RECEIVABLE.includes(it.status) && (it.quantity - (it.receivedQty ?? 0)) > 0)
     .map((it: any) => ({
       itemId: it.id,
       status: it.status,
@@ -158,7 +166,7 @@ onMounted(loadData)
         </el-table-column>
         <el-table-column label="明细状态" width="100">
           <template #default="{ row }">
-            <el-tag :type="row.receivable ? 'success' : 'info'" size="small">{{ itemStatusLabel(row.itemStatus) }}</el-tag>
+            <el-tag :type="row.itemState.type" size="small">{{ row.itemState.label }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column label="操作" width="100" fixed="right">

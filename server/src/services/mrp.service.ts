@@ -268,7 +268,7 @@ export async function runMrp(params: MrpParams = {}, userId?: number, existingRu
   const inTransitRows = await prisma.purchaseOrderItem.findMany({
     where: {
       materialId: { in: [...materialIds] },
-      status: { in: ["pending", "partial_received"] },
+      status: "",
       order: { status: "confirmed" },
     },
     include: { order: true },
@@ -920,7 +920,7 @@ export async function generatePurchaseOrders(
             taxRate: tax?.taxRate ?? 0,
             location: s.material.location || null,
             expectedDate: s.needDate,
-            status: "pending",
+            status: "",
             suggestionId: s.id,
           },
         });
@@ -950,9 +950,9 @@ export async function createSafetyStockSuggestions() {
   const stockMap = new Map<number, number>();
   for (const s of stocks) stockMap.set(s.materialId, (stockMap.get(s.materialId) ?? 0) + s.quantity);
 
-  // 在途：仅已确认采购单未收数量
+  // 在途：仅已确认采购单中明细状态空白（未收完）的数量
   const inTransitRows = await prisma.purchaseOrderItem.findMany({
-    where: { status: { in: ["pending", "partial_received"] }, order: { status: "confirmed" } },
+    where: { status: "", order: { status: "confirmed" } },
   });
   const inTransitMap = new Map<number, number>();
   for (const r of inTransitRows) {

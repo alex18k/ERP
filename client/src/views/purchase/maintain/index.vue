@@ -21,10 +21,9 @@ const isEditLoad = ref(false)
 const selectedOrderId = ref<number | null>(null)
 
 const itemStatusOptions = [
-  { label: '待收货', value: 'pending' },
-  { label: '部分收货', value: 'partial_received' },
-  { label: '已收货', value: 'received' },
-  { label: '已取消', value: 'cancelled' },
+  { label: '空白', value: '' },
+  { label: '关闭', value: 'closed' },
+  { label: '取消', value: 'cancelled' },
 ]
 
 const statusOptions = [
@@ -91,7 +90,7 @@ function applyLocationToItems() { for (const it of form.items) it.location = hea
 function applyExpectedDateToItems() { for (const it of form.items) if (!it.expectedDate) it.expectedDate = form.expectedDate || '' }
 
 function addItem() {
-  form.items.push({ id: null, receivedQty: 0, materialId: null, quantity: 1, unit: '', unitPrice: 0, unitPriceText: '', taxIncluded: !!form.taxIncluded, taxRate: form.taxRate ?? 0, location: headerLocation.value || 'A01', expectedDate: form.expectedDate || '', remark: '', status: 'pending', sourceOrderNo: '' })
+  form.items.push({ id: null, receivedQty: 0, materialId: null, quantity: 1, unit: '', unitPrice: 0, unitPriceText: '', taxIncluded: !!form.taxIncluded, taxRate: form.taxRate ?? 0, location: headerLocation.value || 'A01', expectedDate: form.expectedDate || '', remark: '', status: '', sourceOrderNo: '' })
 }
 const selectedRows = ref<any[]>([])
 const itemsTableRef = ref()
@@ -172,7 +171,7 @@ async function loadOrder(id: number) {
     location: i.location || i.material?.location || '',
     expectedDate: i.expectedDate?.slice(0, 10) || '',
     remark: i.remark || '',
-    status: i.status || 'pending',
+    status: i.status || '',
     sourceOrderNo: i.sourceOrderNo || '',
   })) || []
   registerMaterials((row.items || []).map((i: any) => i.material).filter(Boolean))

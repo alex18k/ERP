@@ -46,8 +46,8 @@ onMounted(loadData)
         </el-table-column>
         <el-table-column label="状态" width="110">
           <template #default="{ row }">
-            <el-tag :type="row.status === 'partial_received' ? 'warning' : 'info'" size="small">
-              {{ row.status === 'partial_received' ? '部分收货' : '待收货' }}
+            <el-tag :type="(row.receivedQty ?? 0) > 0 ? 'warning' : 'info'" size="small">
+              {{ (row.receivedQty ?? 0) > 0 ? '部分收货' : '待收货' }}
             </el-tag>
           </template>
         </el-table-column>

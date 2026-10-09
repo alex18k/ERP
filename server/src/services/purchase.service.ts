@@ -77,14 +77,15 @@ export async function listPurchaseOrders(where: any) {
     };
   }
 
-  // 收货列表：仅已确认的采购单、且有待收货/部分收货明细的才列出，明细状态驱动收货进度
+  // 收货列表：仅已确认的采购单、且明细为【空白状态且未收完】的行才列出（明细status空白才参与MRP/收货）
   if (receivable) {
     filters.status = "confirmed";
     const prev = filters.items as any;
     filters.items = {
       some: {
         ...(prev?.some || {}),
-        status: { in: ["pending", "partial_received"] },
+        status: "",
+        receivedQty: { lt: prisma.purchaseOrderItem.fields.quantity },
       },
     };
   }
@@ -159,7 +160,7 @@ export async function createPurchaseOrder(data: PurchaseOrderInput, userId: numb
           taxRate: item.taxRate ?? 0,
           location: item.location || null,
           expectedDate: item.expectedDate ? new Date(item.expectedDate) : null,
-          status: item.status || "pending",
+          status: item.status ?? "",
           remark: item.remark || null,
           sourceOrderNo: item.sourceOrderNo || null,
         },
@@ -209,7 +210,7 @@ export async function updatePurchaseOrder(id: number, data: PurchaseOrderInput) 
           taxRate: item.taxRate ?? 0,
           location: item.location || null,
           expectedDate: item.expectedDate ? new Date(item.expectedDate) : null,
-          status: item.status || "pending",
+          status: item.status ?? "",
           remark: item.remark || null,
           sourceOrderNo: item.sourceOrderNo || null,
         },
@@ -282,10 +283,10 @@ export async function receivePurchaseOrder(
   });
   if (!po) throw new Error("采购单不存在");
 
-  // 仅已确认的采购单可收货；收货进度由明细状态驱动
+  // 仅已确认的采购单可收货；明细状态只有空白（可收）/关闭/取消，收货进度由 receivedQty 体现
   if (po.status !== "confirmed") throw new Error("仅已确认的采购单可收货");
 
-  const NON_RECEIVABLE = ["cancelled", "closed", "draft"];
+  const NON_RECEIVABLE = ["cancelled", "closed"];
   const hasReceivable = po.items.some((it) => !NON_RECEIVABLE.includes(it.status) && it.receivedQty < it.quantity);
   if (!hasReceivable) throw new Error("采购单没有可收货的明细");
 
@@ -331,10 +332,7 @@ export async function receivePurchaseOrder(
 
       await tx.purchaseOrderItem.update({
         where: { id: item.id },
-        data: {
-          receivedQty: newReceived,
-          status: newReceived >= item.quantity ? "received" : "partial_received",
-        },
+        data: { receivedQty: newReceived },
       });
 
       // 采购件成本：按最近一次采购单价回写物料成本
@@ -398,7 +396,8 @@ export async function receivePurchaseOrder(
 export async function getArrivalTracking() {
   const items = await prisma.purchaseOrderItem.findMany({
     where: {
-      status: { in: ["pending", "partial_received"] },
+      status: "",
+      receivedQty: { lt: prisma.purchaseOrderItem.fields.quantity },
       order: { status: "confirmed" },
     },
     include: {
