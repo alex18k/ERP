@@ -36,6 +36,7 @@ const menuItems: MenuNode[] = [
     icon: 'Document',
     children: [
       { path: '/order/sales', title: '销售订单', icon: 'Tickets' },
+      { path: '/order/maintain', title: '销售订单维护', icon: 'Edit' },
       { path: '/order/tracking', title: '订单跟踪', icon: 'Position' },
       { path: '/order/production', title: '订单转生产', icon: 'Files' },
       { path: '/base/customer', title: '客户管理', icon: 'User' },

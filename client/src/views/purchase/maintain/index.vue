@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { ref, reactive, computed, onMounted, onBeforeUnmount } from 'vue'
+import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { purchaseApi, supplierApi, materialApi } from '../../../api'
 import { BASE_LOCATIONS } from '../../../utils/location'
@@ -21,7 +21,7 @@ const isEditLoad = ref(false)
 const selectedOrderId = ref<number | null>(null)
 
 const itemStatusOptions = [
-  { label: '空白', value: '' },
+  { label: '空白', value: 'blank' },
   { label: '关闭', value: 'closed' },
   { label: '取消', value: 'cancelled' },
 ]
@@ -90,7 +90,7 @@ function applyLocationToItems() { for (const it of form.items) it.location = hea
 function applyExpectedDateToItems() { for (const it of form.items) if (!it.expectedDate) it.expectedDate = form.expectedDate || '' }
 
 function addItem() {
-  form.items.push({ id: null, receivedQty: 0, materialId: null, quantity: 1, unit: '', unitPrice: 0, unitPriceText: '', taxIncluded: !!form.taxIncluded, taxRate: form.taxRate ?? 0, location: headerLocation.value || 'A01', expectedDate: form.expectedDate || '', remark: '', status: '', sourceOrderNo: '' })
+  form.items.push({ id: null, receivedQty: 0, materialId: null, quantity: 1, unit: '', unitPrice: 0, unitPriceText: '', taxIncluded: !!form.taxIncluded, taxRate: form.taxRate ?? 0, location: headerLocation.value || 'A01', expectedDate: form.expectedDate || '', remark: '', status: 'blank', sourceOrderNo: '' })
 }
 const selectedRows = ref<any[]>([])
 const itemsTableRef = ref()
@@ -149,6 +149,7 @@ function resetForm() {
   headerLocation.value = 'A01'
   isEditLoad.value = false
   selectedOrderId.value = null
+  snapshot.value = JSON.stringify(buildPayload())
 }
 
 async function loadOrder(id: number) {
@@ -171,7 +172,7 @@ async function loadOrder(id: number) {
     location: i.location || i.material?.location || '',
     expectedDate: i.expectedDate?.slice(0, 10) || '',
     remark: i.remark || '',
-    status: i.status || '',
+    status: i.status || 'blank',
     sourceOrderNo: i.sourceOrderNo || '',
   })) || []
   registerMaterials((row.items || []).map((i: any) => i.material).filter(Boolean))
@@ -179,13 +180,11 @@ async function loadOrder(id: number) {
   headerLocation.value = locs.size === 1 ? [...locs][0] : ''
   isEditLoad.value = true
   buildItemOptions()
+  snapshot.value = JSON.stringify(buildPayload())
 }
 
-async function handleSave() {
-  try { await (formRef.value as any).validate() } catch { return }
-  if (form.items.length === 0) { ElMessage.warning('请至少添加一个采购明细'); return }
-  for (const it of form.items) { if (!it.materialId) { ElMessage.warning('请选择物料'); return } }
-  const payload = {
+function buildPayload() {
+  return {
     supplierId: form.supplierId,
     settleMethod: form.settleMethod || undefined,
     orderDate: form.orderDate || undefined,
@@ -206,16 +205,25 @@ async function handleSave() {
       location: i.location,
       expectedDate: i.expectedDate,
       remark: i.remark,
-      status: i.status,
+      status: i.status === 'blank' ? '' : i.status,
       sourceOrderNo: i.sourceOrderNo,
     })),
   }
+}
+
+const snapshot = ref('')
+const isDirty = computed(() => snapshot.value !== '' && JSON.stringify(buildPayload()) !== snapshot.value)
+
+async function handleSave() {
+  try { await (formRef.value as any).validate() } catch { return false }
+  if (form.items.length === 0) { ElMessage.warning('请至少添加一个采购明细'); return false }
+  for (const it of form.items) { if (!it.materialId) { ElMessage.warning('请选择物料'); return false } }
   try {
     if (isEditLoad.value) {
-      await purchaseApi.update(form.id, payload)
+      await purchaseApi.update(form.id, buildPayload())
       ElMessage.success('采购单更新成功')
     } else {
-      const res: any = await purchaseApi.create(payload)
+      const res: any = await purchaseApi.create(buildPayload())
       ElMessage.success('采购单创建成功')
       form.id = res.data?.id ?? null
       form.orderNo = res.data?.orderNo || ''
@@ -224,12 +232,64 @@ async function handleSave() {
       selectedOrderId.value = form.id
     }
     loadOrderOptions()
-  } catch { /* error shown */ }
+    snapshot.value = JSON.stringify(buildPayload())
+    return true
+  } catch {
+    return false
+  }
 }
 
 function handlePrint() {
+  skipLeave.value = true
   router.push(`/purchase/print?id=${form.id}`)
 }
+
+const leaveDialogVisible = ref(false)
+const pendingLeave = ref<null | (() => void)>(null)
+const skipLeave = ref(false)
+
+onBeforeRouteLeave((_to, _from, next) => {
+  if (skipLeave.value) { skipLeave.value = false; next(); return }
+  if (!isDirty.value) { next(); return }
+  pendingLeave.value = () => next()
+  leaveDialogVisible.value = true
+})
+
+function handleBeforeUnload(e: BeforeUnloadEvent) {
+  if (isDirty.value) {
+    e.preventDefault()
+    e.returnValue = ''
+  }
+}
+
+function onNewClick() {
+  if (!isDirty.value) { resetForm(); return }
+  pendingLeave.value = () => resetForm()
+  leaveDialogVisible.value = true
+}
+
+async function saveAndLeave() {
+  const ok = await handleSave()
+  if (!ok) return
+  const go = pendingLeave.value
+  pendingLeave.value = null
+  leaveDialogVisible.value = false
+  go?.()
+}
+
+function discardAndLeave() {
+  const go = pendingLeave.value
+  pendingLeave.value = null
+  leaveDialogVisible.value = false
+  go?.()
+}
+
+function cancelLeave() {
+  pendingLeave.value = null
+  leaveDialogVisible.value = false
+}
+
+onBeforeUnmount(() => window.removeEventListener('beforeunload', handleBeforeUnload))
 
 async function handleStatusChange(status: string) {
   if (status === form.status) return
@@ -244,6 +304,7 @@ async function handleStatusChange(status: string) {
 const formRef = ref()
 
 onMounted(async () => {
+  window.addEventListener('beforeunload', handleBeforeUnload)
   const [sRes, mRes] = await Promise.all([
     supplierApi.list({ pageSize: 200 }),
     materialApi.options({ category: 'purchase', limit: 200 }),
@@ -262,6 +323,36 @@ function onOrderSelect(id: number | null) {
   if (id) loadOrder(id)
   else resetForm()
 }
+
+async function copyOrderNo() {
+  const no = form.orderNo
+  if (!no) return
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(no)
+      ElMessage.success('采购单号已复制')
+      return
+    }
+  } catch { /* fall through */ }
+  // 非安全上下文（HTTP/局域网访问）Clipboard API 不可用，改用 execCommand 兜底
+  try {
+    const ta = document.createElement('textarea')
+    ta.value = no
+    ta.style.position = 'fixed'
+    ta.style.top = '-1000px'
+    ta.style.opacity = '0'
+    document.body.appendChild(ta)
+    ta.focus()
+    ta.select()
+    ta.setSelectionRange(0, no.length)
+    const ok = document.execCommand('copy')
+    document.body.removeChild(ta)
+    if (ok) ElMessage.success('采购单号已复制')
+    else ElMessage.warning('复制失败，请手动选择复制')
+  } catch {
+    ElMessage.warning('复制失败，请手动选择复制')
+  }
+}
 </script>
 
 <template>
@@ -271,15 +362,16 @@ function onOrderSelect(id: number | null) {
         <span style="font-weight: 600">{{ isEditLoad ? '编辑采购单' : '新增采购单' }}</span>
 
         <el-button style="margin-left: auto" @click="router.push('/purchase/order')">返回采购订单</el-button>
-        <el-button @click="resetForm()">新增</el-button>
+        <el-button @click="onNewClick">新增</el-button>
         <el-button v-if="isEditLoad" type="primary" plain @click="handlePrint">打印</el-button>
         <el-button type="primary" @click="handleSave">保存</el-button>
       </div>
 
       <el-form ref="formRef" :model="form" :rules="rules" label-width="100px">
-        <el-row :gutter="16">
-          <el-col :span="12">
-            <el-form-item label="采购单号">
+        <div class="erp-group">
+          <el-row :gutter="16">
+            <el-col :span="12">
+              <el-form-item label="采购单号">
               <div style="display: flex; align-items: center; gap: 8px">
                 <el-select-v2 v-model="selectedOrderId" filterable clearable placeholder="选择采购单号编辑，留空为新增" style="width: 280px" :options="orderFilterOptions" :filter-method="filterOrderOptions" @change="(v: any) => onOrderSelect(v)">
                   <template #default="{ item }">
@@ -287,6 +379,9 @@ function onOrderSelect(id: number | null) {
                     <span style="color: var(--el-text-color-secondary); margin-left: 8px">{{ item.supplier }}</span>
                   </template>
                 </el-select-v2>
+                <el-tooltip v-if="form.orderNo" content="复制采购单号">
+                  <el-button size="small" text type="primary" @click="copyOrderNo"><el-icon><CopyDocument /></el-icon></el-button>
+                </el-tooltip>
                 <el-select v-if="form.status" :model-value="form.status" size="small" style="width: 110px" @change="(v: string) => handleStatusChange(v)">
                   <el-option v-for="o in statusOptions" :key="o.value" :label="o.label" :value="o.value" />
                 </el-select>
@@ -349,6 +444,7 @@ function onOrderSelect(id: number | null) {
             </el-form-item>
           </el-col>
         </el-row>
+        </div>
 
         <div style="width: 100%">
             <el-button size="small" type="primary" plain @click="addItem"><el-icon><Plus /></el-icon>添加明细</el-button>
@@ -414,7 +510,7 @@ function onOrderSelect(id: number | null) {
               <el-table-column label="状态" width="120">
                 <template #default="{ row }">
                   <el-select v-model="row.status" size="small" style="width: 100%">
-                    <el-option v-for="o in itemStatusOptions" :key="o.value" :label="o.label" :value="o.value" />
+                    <el-option v-for="o in itemStatusOptions" :key="o.value" :label="row.status === 'blank' && o.value === 'blank' ? '' : o.label" :value="o.value" />
                   </el-select>
                 </template>
               </el-table-column>
@@ -428,5 +524,28 @@ function onOrderSelect(id: number | null) {
         </el-form-item>
       </el-form>
     </div>
+
+    <el-dialog v-model="leaveDialogVisible" title="未保存的修改" width="420px" :close-on-click-modal="false" :append-to-body="true">
+      <div style="line-height: 1.8">当前采购单有未保存的修改，是否保存后离开？</div>
+      <template #footer>
+        <el-button @click="cancelLeave">取消</el-button>
+        <el-button @click="discardAndLeave">不保存</el-button>
+        <el-button type="primary" @click="saveAndLeave">保存</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
+
+<style scoped>
+.erp-group {
+  border: 1px solid var(--el-border-color);
+  border-radius: 6px;
+  padding: 14px 16px 4px;
+  margin-bottom: 16px;
+}
+.erp-group-title {
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+  margin-bottom: 12px;
+}
+</style>
