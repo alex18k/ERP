@@ -483,7 +483,7 @@ const flatRows = computed(() =>
         </div>
         <el-form-item label-width="0">
           <div style="width: 100%">
-            <el-table :data="form.items" size="small" style="width: 100%">
+            <el-table :data="form.items" class="items-editor" size="small" style="width: 100%">
               <el-table-column label="产品" min-width="220">
                 <template #default="{ row }">
                   <el-select v-model="row.materialId" filterable remote :remote-method="searchProducts" :loading="loadingProducts" placeholder="搜索产品（编码/名称）" style="width: 100%" @change="(v: number) => onProductChange(row, v)">
@@ -561,5 +561,22 @@ const flatRows = computed(() =>
   font-weight: 600;
   color: var(--el-text-color-primary);
   margin-bottom: 12px;
+}
+
+/* 明细行控件无边框：平时像纯文本，悬停/聚焦显示细线 */
+.items-editor :deep(.el-input__wrapper),
+.items-editor :deep(.el-select__wrapper) {
+  box-shadow: none;
+  background: transparent;
+  border-radius: 4px;
+}
+.items-editor :deep(.el-input__wrapper:hover),
+.items-editor :deep(.el-select__wrapper:hover) {
+  box-shadow: 0 0 0 1px var(--erp-hairline) inset;
+}
+.items-editor :deep(.el-input__wrapper.is-focus),
+.items-editor :deep(.el-select__wrapper.is-focused) {
+  box-shadow: 0 0 0 1px var(--erp-copper) inset;
+  background: var(--el-fill-color-blank);
 }
 </style>

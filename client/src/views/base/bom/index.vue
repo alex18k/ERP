@@ -375,7 +375,7 @@ onMounted(() => {
             <el-button size="small" type="primary" plain @click="addItem">
               <el-icon><Plus /></el-icon>添加子零件
             </el-button>
-            <el-table :data="form.items" size="small" style="margin-top: 8px; width: 100%">
+            <el-table :data="form.items" class="items-editor" size="small" style="margin-top: 8px; width: 100%">
               <el-table-column label="序号" width="55" type="index" />
               <el-table-column label="物料号" min-width="160">
                 <template #default="{ row }">
@@ -435,3 +435,22 @@ onMounted(() => {
     </el-dialog>
   </div>
 </template>
+
+<style>
+/* BOM 明细行控件无边框：平时像纯文本，悬停/聚焦显示细线 */
+.items-editor .el-input__wrapper,
+.items-editor .el-select__wrapper {
+  box-shadow: none;
+  background: transparent;
+  border-radius: 4px;
+}
+.items-editor .el-input__wrapper:hover,
+.items-editor .el-select__wrapper:hover {
+  box-shadow: 0 0 0 1px var(--erp-hairline) inset;
+}
+.items-editor .el-input__wrapper.is-focus,
+.items-editor .el-select__wrapper.is-focused {
+  box-shadow: 0 0 0 1px var(--erp-copper) inset;
+  background: var(--el-fill-color-blank);
+}
+</style>

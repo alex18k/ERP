@@ -13,10 +13,19 @@ const materials = ref<any[]>([])
 // 下拉框可选项：仅保留最近一次搜索结果 + 当前行已选物料（el-select remote 模式不做本地过滤）
 const materialOptions = ref<any[]>([])
 // el-select-v2 虚拟滚动选项（所有明细行共用，避免每行渲染全量 option）
-const materialSelectOptions = computed(() =>
+// 编码列与型号规格列共用同一选中值，仅展示格式不同
+const materialCodeOptions = computed(() =>
   materialOptions.value.map((m: any) => ({
     value: m.id,
-    label: `${m.code} - ${m.name}${m.specification ? ' / ' + m.specification : ''}`,
+    label: m.code,
+    name: m.name,
+    specification: m.specification || '',
+  })),
+)
+const materialNameOptions = computed(() =>
+  materialOptions.value.map((m: any) => ({
+    value: m.id,
+    label: `${m.name}${m.specification ? ' / ' + m.specification : ''}`,
   })),
 )
 const materialLoading = ref(false)
@@ -484,11 +493,22 @@ async function copyOrderNo() {
         <div style="width: 100%">
             <el-button size="small" type="primary" plain @click="addItem"><el-icon><Plus /></el-icon>添加明细</el-button>
             <el-button size="small" type="primary" plain style="margin-left: 8px" :disabled="selectedRows.length === 0" @click="removeSelected">删除选中</el-button>
-            <el-table ref="itemsTableRef" :data="form.items" size="small" style="margin-top: 8px; width: 100%" @selection-change="(v: any[]) => selectedRows = v">
+            <el-table ref="itemsTableRef" class="items-editor" :data="form.items" size="small" style="margin-top: 8px; width: 100%" @selection-change="(v: any[]) => selectedRows = v">
               <el-table-column type="selection" width="45" />
-              <el-table-column label="物料" min-width="200">
+              <el-table-column label="物料编码" min-width="115">
                 <template #default="{ row }">
-                  <el-select-v2 v-model="row.materialId" :options="materialSelectOptions" filterable remote reserve-keyword :remote-method="searchMaterials" :loading="materialLoading" placeholder="输入编码/名称搜索物料" style="width: 100%" @change="(v: number) => onMaterialChange(row, v)" />
+                  <el-select-v2 v-model="row.materialId" :options="materialCodeOptions" filterable remote reserve-keyword :remote-method="searchMaterials" :loading="materialLoading" placeholder="输入编码搜索" popper-class="mat-code-popper" style="width: 100%" @change="(v: number) => onMaterialChange(row, v)">
+                    <template #default="{ item }">
+                      <span>{{ item.label }}</span>
+                      <span style="margin-left: 10px; color: var(--el-text-color-secondary)">{{ item.name }}</span>
+                      <span v-if="item.specification" style="margin-left: 10px; color: var(--el-text-color-secondary)">{{ item.specification }}</span>
+                    </template>
+                  </el-select-v2>
+                </template>
+              </el-table-column>
+              <el-table-column label="名称/型号规格" min-width="180">
+                <template #default="{ row }">
+                  <el-select-v2 v-model="row.materialId" :options="materialNameOptions" filterable remote reserve-keyword :remote-method="searchMaterials" :loading="materialLoading" placeholder="输入名称/规格搜索" popper-class="mat-code-popper" style="width: 100%" @change="(v: number) => onMaterialChange(row, v)" />
                 </template>
               </el-table-column>
               <el-table-column label="单位" width="90">
@@ -540,7 +560,7 @@ async function copyOrderNo() {
                   <el-input v-model="row.sourceOrderNo" size="small" placeholder="需求来源订单" />
                 </template>
               </el-table-column>
-              <el-table-column label="状态" width="120">
+              <el-table-column label="状态" width="85">
                 <template #default="{ row }">
                   <el-select v-model="row.status" size="small" style="width: 100%">
                     <el-option v-for="o in itemStatusOptions" :key="o.value" :label="row.status === 'blank' && o.value === 'blank' ? '' : o.label" :value="o.value" />
@@ -580,5 +600,36 @@ async function copyOrderNo() {
   font-weight: 600;
   color: var(--el-text-color-primary);
   margin-bottom: 12px;
+}
+
+/* 明细行控件无边框：平时像纯文本，悬停/聚焦显示细线 */
+.items-editor :deep(.el-input__wrapper),
+.items-editor :deep(.el-select__wrapper) {
+  box-shadow: none;
+  background: transparent;
+  border-radius: 4px;
+}
+.items-editor :deep(.el-input__wrapper:hover),
+.items-editor :deep(.el-select__wrapper:hover) {
+  box-shadow: 0 0 0 1px var(--erp-hairline) inset;
+}
+.items-editor :deep(.el-input__wrapper.is-focus),
+.items-editor :deep(.el-select__wrapper.is-focused) {
+  box-shadow: 0 0 0 1px var(--erp-copper) inset;
+  background: var(--el-fill-color-blank);
+}
+</style>
+
+<style>
+/* 物料下拉浮层固定加宽（浮层 teleport 到 body，需非 scoped；浮层内宽度为内联样式，须 !important 覆盖） */
+.mat-code-popper .el-select-dropdown,
+.mat-code-popper .el-select-dropdown .el-vl__wrapper,
+.mat-code-popper .el-vl__window,
+.mat-code-popper .el-select-dropdown__item {
+  width: 100% !important;
+}
+.mat-code-popper .el-select-dropdown {
+  min-width: 480px !important;
+  width: 480px !important;
 }
 </style>
