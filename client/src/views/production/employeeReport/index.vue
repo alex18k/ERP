@@ -35,7 +35,14 @@ function nowDateTime() {
 
 function registerOrderOptions(items: any[]) {
   for (const o of items) if (o?.id) orderOptionMap.set(o.id, o)
-  orderOptions.value = [...orderOptionMap.values()]
+  // 下拉仅显示本次结果 + 当前已选订单（el-select remote 模式不做本地过滤）
+  const selected = form.orderNo ? [...orderOptionMap.values()].find((o) => o.orderNo === form.orderNo) : null
+  const seen = new Set<number>()
+  orderOptions.value = [...items, ...(selected ? [selected] : [])].filter((o: any) => {
+    if (!o?.id || seen.has(o.id)) return false
+    seen.add(o.id)
+    return true
+  })
 }
 
 async function loadOrderOptions(keyword: string = '') {

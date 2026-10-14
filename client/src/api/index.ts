@@ -154,6 +154,7 @@ export const purchaseApi = {
   update: (id: number, data: any) => request.put(`/purchase/${id}`, data),
   confirm: (id: number) => request.put(`/purchase/${id}/confirm`),
   updateStatus: (id: number, status: string) => request.put(`/purchase/${id}/status`, { status }),
+  remove: (id: number) => request.delete(`/purchase/${id}`),
   receive: (id: number, data?: any) => request.put(`/purchase/${id}/receive`, data),
   arrival: () => request.get('/purchase/arrival'),
   receipts: (params: PageParams) => request.get('/purchase/receipts', { params }),

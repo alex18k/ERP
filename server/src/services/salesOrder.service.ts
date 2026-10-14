@@ -1,6 +1,7 @@
 import prisma from "../config/prisma";
 import { Prisma } from "@prisma/client";
 import { localDateCompact } from "../utils/date";
+import { retryOnDuplicate, lockOrderNo, ORDER_NO_LOCK } from "../utils/retry";
 import { applyBatchOut } from "./stock.service";
 
 export interface SalesOrderCreateInput {
@@ -28,12 +29,20 @@ export interface SalesOrderCreateInput {
   }[];
 }
 
+// 单号 = 前缀 + 当日最大序号+1（配合 lockOrderNo 串行化，避免 count+1 并发撞号）
 export async function generateOrderNo(): Promise<string> {
   const dateStr = localDateCompact();
-  const count = await prisma.salesOrder.count({
-    where: { orderNo: { startsWith: `SO${dateStr}` } },
+  const prefix = `SO${dateStr}`;
+  const existing = await prisma.salesOrder.findMany({
+    where: { orderNo: { startsWith: prefix } },
+    select: { orderNo: true },
   });
-  return `SO${dateStr}${String(count + 1).padStart(4, "0")}`;
+  let max = 0;
+  for (const e of existing) {
+    const n = parseInt(e.orderNo.slice(prefix.length), 10);
+    if (!isNaN(n) && n > max) max = n;
+  }
+  return `${prefix}${String(max + 1).padStart(4, "0")}`;
 }
 
 // 可发运订单：未发完且非草稿/取消的订单
@@ -145,55 +154,59 @@ export async function createOrder(data: SalesOrderCreateInput, userId: number) {
     if (!exists) throw new Error(`物料ID ${item.materialId} 不存在`);
   }
 
-  const orderNo = await generateOrderNo();
   const totalAmount = data.items.reduce((sum, item) => sum + (item.quantity * (item.unitPrice ?? 0)), 0);
 
-  return prisma.$transaction(async (tx) => {
-    const order = await tx.salesOrder.create({
-      data: {
-        orderNo,
-        customerId: data.customerId,
-        customerName: data.customerName,
-        customerCode: data.customerCode,
-        contactPerson: data.contactPerson,
-        contactPhone: data.contactPhone,
-        orderDate: data.orderDate ? new Date(data.orderDate) : null,
-        channel: data.channel,
-        seller1: data.seller1,
-        seller2: data.seller2,
-        paymentMethod: data.paymentMethod,
-        deliveryDate: data.deliveryDate ? new Date(data.deliveryDate) : null,
-        remark: data.remark,
-        totalAmount,
-        status: "confirmed",
-        createdBy: userId,
-      },
-    });
-
-    for (const item of data.items) {
-      const amount = item.quantity * (item.unitPrice ?? 0);
-      await tx.salesOrderItem.create({
+  // 单号在事务内生成；并发撞 @unique 时整体重试并换单号
+  return retryOnDuplicate(() =>
+    prisma.$transaction(async (tx) => {
+      await lockOrderNo(tx, ORDER_NO_LOCK.SO);
+      const orderNo = await generateOrderNo();
+      const order = await tx.salesOrder.create({
         data: {
-          orderId: order.id,
-          materialId: item.materialId,
-          quantity: item.quantity,
-          unit: item.unit || (await tx.material.findUnique({ where: { id: item.materialId }, select: { unit: true } }))?.unit || null,
-          unitPrice: item.unitPrice ?? 0,
-          taxIncluded: Boolean(item.taxIncluded),
-          taxRate: Number(item.taxRate ?? 0),
-          amount,
-          deliveryDate: item.deliveryDate ? new Date(item.deliveryDate) : null,
-          remark: item.remark,
-          status: "pending",
+          orderNo,
+          customerId: data.customerId,
+          customerName: data.customerName,
+          customerCode: data.customerCode,
+          contactPerson: data.contactPerson,
+          contactPhone: data.contactPhone,
+          orderDate: data.orderDate ? new Date(data.orderDate) : null,
+          channel: data.channel,
+          seller1: data.seller1,
+          seller2: data.seller2,
+          paymentMethod: data.paymentMethod,
+          deliveryDate: data.deliveryDate ? new Date(data.deliveryDate) : null,
+          remark: data.remark,
+          totalAmount,
+          status: "confirmed",
+          createdBy: userId,
         },
       });
-    }
 
-    return tx.salesOrder.findUnique({
-      where: { id: order.id },
-      include: { items: { include: { material: true } } },
-    });
-  });
+      for (const item of data.items) {
+        const amount = item.quantity * (item.unitPrice ?? 0);
+        await tx.salesOrderItem.create({
+          data: {
+            orderId: order.id,
+            materialId: item.materialId,
+            quantity: item.quantity,
+            unit: item.unit || (await tx.material.findUnique({ where: { id: item.materialId }, select: { unit: true } }))?.unit || null,
+            unitPrice: item.unitPrice ?? 0,
+            taxIncluded: Boolean(item.taxIncluded),
+            taxRate: Number(item.taxRate ?? 0),
+            amount,
+            deliveryDate: item.deliveryDate ? new Date(item.deliveryDate) : null,
+            remark: item.remark,
+            status: "pending",
+          },
+        });
+      }
+
+      return tx.salesOrder.findUnique({
+        where: { id: order.id },
+        include: { items: { include: { material: true } } },
+      });
+    })
+  );
 }
 
 export async function updateOrder(id: number, data: Partial<SalesOrderCreateInput>) {
@@ -365,10 +378,13 @@ export async function shipOrder(id: number, userId: number) {
         const stock = await tx.stock.findFirst({ where: { materialId: item.materialId, quantity: { gt: 0 } }, orderBy: { quantity: "desc" } });
         if (stock && stock.quantity > 0) {
           const deduct = Math.min(item.quantity, stock.quantity);
-          await tx.stock.update({
-            where: { id: stock.id },
+          const stockUpd = await tx.stock.updateMany({
+            where: { id: stock.id, quantity: { gte: deduct } },
             data: { quantity: { decrement: deduct }, lastOutDate: new Date() },
           });
+          if (stockUpd.count === 0) {
+            throw new Error(`物料 ${item.material?.code ?? item.materialId} 库存不足`);
+          }
           // 批号管理物料：自动出库按批号先进先出分配，逐批记录流水
           if (item.material.batchManaged) {
             const batches = await tx.materialBatch.findMany({
@@ -379,7 +395,13 @@ export async function shipOrder(id: number, userId: number) {
             for (const b of batches) {
               if (remaining <= 0) break;
               const use = Math.min(remaining, b.quantity);
-              await tx.materialBatch.update({ where: { id: b.id }, data: { quantity: b.quantity - use } });
+              const batchUpd = await tx.materialBatch.updateMany({
+                where: { id: b.id, quantity: { gte: use } },
+                data: { quantity: { decrement: use } },
+              });
+              if (batchUpd.count === 0) {
+                throw new Error(`批号 ${b.batchNo} 库存不足`);
+              }
               await tx.stockRecord.create({
                 data: {
                   materialId: item.materialId,
@@ -464,10 +486,14 @@ export async function shipOrderItems(
       if (!stock || stock.quantity < line.quantity) {
         throw new Error(`${item.material?.code ?? item.materialId} 库存不足（当前 ${stock?.quantity ?? 0}）`);
       }
-      await tx.stock.update({
-        where: { id: stock.id },
+      const stockUpd = await tx.stock.updateMany({
+        where: { id: stock.id, quantity: { gte: line.quantity } },
         data: { quantity: { decrement: line.quantity }, lastOutDate: new Date() },
       });
+      if (stockUpd.count === 0) {
+        const fresh = await tx.stock.findUnique({ where: { id: stock.id } });
+        throw new Error(`${item.material?.code ?? item.materialId} 库存不足（当前 ${fresh?.quantity ?? 0}）`);
+      }
       const resolvedBatchNo = await applyBatchOut(tx, item.material, line.warehouseId, line.batchNo, line.quantity);
       await tx.stockRecord.create({
         data: {
@@ -487,12 +513,23 @@ export async function shipOrderItems(
         },
       });
 
-      const newDelivered = (item.deliveredQty ?? 0) + line.quantity;
-      const newStatus = newDelivered >= item.quantity - 1e-6 ? "shipped" : item.status;
-      await tx.salesOrderItem.update({
-        where: { id: item.id },
-        data: { deliveredQty: newDelivered, status: newStatus },
+      // 原子累加已发量（写入时校验不超订单数量），并发下防止超发
+      const deliveredUpd = await tx.salesOrderItem.updateMany({
+        where: { id: item.id, deliveredQty: { lte: item.quantity - line.quantity + 1e-6 } },
+        data: { deliveredQty: { increment: line.quantity } },
       });
+      if (deliveredUpd.count === 0) {
+        throw new Error(`${item.material?.code ?? item.materialId} 发运数量超过未发数量`);
+      }
+      const freshItem = await tx.salesOrderItem.findUnique({ where: { id: item.id } });
+      const newDelivered = freshItem?.deliveredQty ?? (item.deliveredQty ?? 0) + line.quantity;
+      const newStatus = newDelivered >= item.quantity - 1e-6 ? "shipped" : item.status;
+      if (freshItem?.status !== newStatus) {
+        await tx.salesOrderItem.update({
+          where: { id: item.id },
+          data: { status: newStatus },
+        });
+      }
       shippedItems.push({ itemId: item.id, deliveredQty: newDelivered });
     }
 

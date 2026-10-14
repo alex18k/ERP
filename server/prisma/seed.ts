@@ -47,6 +47,7 @@ async function main() {
     { code: "purchase:view", name: "查看采购", module: "purchase", action: "view" },
     { code: "purchase:create", name: "创建采购单", module: "purchase", action: "create" },
     { code: "purchase:approve", name: "审批采购单", module: "purchase", action: "approve" },
+    { code: "purchase:delete", name: "删除采购单", module: "purchase", action: "delete" },
     { code: "stock:view", name: "查看库存", module: "stock", action: "view" },
     { code: "stock:edit", name: "库存操作", module: "stock", action: "edit" },
     { code: "dashboard:view", name: "查看看板", module: "dashboard", action: "view" },
@@ -170,7 +171,7 @@ async function main() {
     }
   }
 
-  const purchaseCodes = ["material:view", "purchase:view", "purchase:create", "purchase:approve", "mrp:view", "dashboard:view"];
+  const purchaseCodes = ["material:view", "purchase:view", "purchase:create", "purchase:approve", "purchase:delete", "mrp:view", "dashboard:view"];
   for (const code of purchaseCodes) {
     const pid = permMap.get(code);
     if (pid) {

@@ -232,10 +232,10 @@ async function handleLogout() {
   height: 100vh;
 }
 
-/* ---------- 侧边栏：冷调浅蓝 ---------- */
+/* ---------- 侧边栏：浅银灰渐变（QH 风格） ---------- */
 .aside {
-  background: #EDF2F8;
-  border-right: 1px solid var(--erp-hairline);
+  background: linear-gradient(180deg, #eef0f3 0%, #e3e6ea 100%);
+  border-right: 1px solid #cfd3d9;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
@@ -248,24 +248,24 @@ async function handleLogout() {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 10px 14px;
-  color: #23324a;
+  padding: 16px 16px;
+  color: #2b3238;
   font-weight: 700;
-  font-size: 14px;
-  letter-spacing: 0.02em;
-  border-bottom: 1px solid var(--erp-hairline);
+  font-size: 15px;
+  letter-spacing: 0.04em;
+  border-bottom: 1px solid #d3d7dc;
   flex-shrink: 0;
 }
 
 .logo-mark {
-  width: 30px;
-  height: 30px;
+  width: 32px;
+  height: 32px;
   flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--erp-blue);
-  border-radius: 3px;
+  background: var(--erp-copper);
+  border-radius: 8px;
   color: #fff;
 }
 
@@ -273,8 +273,8 @@ async function handleLogout() {
 
 .logo-tick {
   margin-left: auto;
-  color: #3b7fd0;
-  opacity: 0.9;
+  color: var(--erp-copper);
+  opacity: 0.85;
 }
 
 .side-menu {
@@ -283,62 +283,64 @@ async function handleLogout() {
   background: transparent;
   padding: 8px 0;
   --el-menu-bg-color: transparent;
-  --el-menu-text-color: #4b5b70;
-  --el-menu-hover-bg-color: rgba(255, 255, 255, 0.85);
-  --el-menu-active-color: #1F5F99;
-  --el-menu-item-height: 34px;
-  --el-menu-sub-item-height: 32px;
+  --el-menu-text-color: #4a525a;
+  --el-menu-hover-bg-color: rgba(255, 255, 255, 0.75);
+  --el-menu-active-color: var(--erp-copper-active);
+  --el-menu-item-height: 40px;
+  --el-menu-sub-item-height: 38px;
 }
 
 .side-menu :deep(.el-menu-item),
 .side-menu :deep(.el-sub-menu__title) {
-  height: 34px;
-  line-height: 34px;
+  height: 40px;
+  line-height: 40px;
   margin: 1px 8px;
-  border-radius: 3px;
-  color: #4b5b70;
-  font-size: 13px;
+  border-radius: 8px;
+  color: #4a525a;
+  font-size: 13.5px;
   transition: background-color 0.15s ease, color 0.15s ease;
 }
 
 .side-menu :deep(.el-menu-item .el-icon),
 .side-menu :deep(.el-sub-menu__title .el-icon) {
-  color: #7d8da3;
+  color: #8a9199;
 }
 
 .side-menu :deep(.el-menu-item:hover),
 .side-menu :deep(.el-sub-menu__title:hover) {
-  background: rgba(255, 255, 255, 0.9);
-  color: #1c2a3d;
+  background: rgba(255, 255, 255, 0.8);
+  color: #1d2622;
 }
 
 .side-menu :deep(.el-menu-item:hover .el-icon),
 .side-menu :deep(.el-sub-menu__title:hover .el-icon) {
-  color: #1c2a3d;
+  color: #1d2622;
 }
 
 .side-menu :deep(.el-menu-item.is-active) {
-  color: #1F5F99;
+  background: linear-gradient(90deg, rgba(162, 87, 42, 0.14), rgba(162, 87, 42, 0.05));
+  color: var(--erp-copper-active);
   font-weight: 600;
-  box-shadow: inset 3px 0 0 0 var(--erp-blue);
+  box-shadow: inset 3px 0 0 0 var(--erp-copper);
 }
 
 .side-menu :deep(.el-menu-item.is-active .el-icon) {
-  color: var(--erp-blue);
+  color: var(--erp-copper);
 }
 
 /* 子菜单内联层 */
 .side-menu :deep(.el-sub-menu .el-menu) { background: transparent; }
 .side-menu :deep(.el-sub-menu .el-menu-item) {
-  background: rgba(31, 58, 90, 0.05);
+  background: rgba(0, 0, 0, 0.035);
   margin: 1px 8px;
   padding-left: 34px !important;
   transition: background-color 0.15s ease, color 0.15s ease;
 }
 
 .side-menu :deep(.el-sub-menu .el-menu-item.is-active) {
-  color: #1F5F99;
-  box-shadow: inset 3px 0 0 0 var(--erp-blue);
+  background: linear-gradient(90deg, rgba(162, 87, 42, 0.12), rgba(162, 87, 42, 0.04));
+  color: var(--erp-copper-active);
+  box-shadow: inset 3px 0 0 0 var(--erp-copper);
 }
 
 .aside-foot {
@@ -350,7 +352,7 @@ async function handleLogout() {
   font-size: 12px;
   color: #8a9199;
   letter-spacing: 0.08em;
-  border-top: 1px solid #d0dbe8;
+  border-top: 1px solid #d3d7dc;
 }
 
 .foot-lamp {
@@ -391,7 +393,7 @@ async function handleLogout() {
 }
 
 .header :deep(.el-breadcrumb__inner a:hover) {
-  color: var(--erp-blue);
+  color: var(--erp-copper);
 }
 
 .header :deep(.el-breadcrumb__last .el-breadcrumb__inner) {

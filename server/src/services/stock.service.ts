@@ -123,14 +123,12 @@ export async function applyBatchIn(
   // 未启用批号管理且未提供批号：不记批号明细
   if (!material.batchManaged && !batchNo?.trim()) return null;
   const resolved = batchNo?.trim() ? batchNo.trim() : await generateBatchNo(tx, material);
-  const existing = await tx.materialBatch.findUnique({
+  // upsert + 原子累加：并发下走数据库 ON CONFLICT，避免“读-改-写”丢失更新
+  await tx.materialBatch.upsert({
     where: { materialId_warehouseId_batchNo: { materialId: material.id, warehouseId, batchNo: resolved } },
+    create: { materialId: material.id, warehouseId, batchNo: resolved, quantity },
+    update: { quantity: { increment: quantity } },
   });
-  if (existing) {
-    await tx.materialBatch.update({ where: { id: existing.id }, data: { quantity: existing.quantity + quantity } });
-  } else {
-    await tx.materialBatch.create({ data: { materialId: material.id, warehouseId, batchNo: resolved, quantity } });
-  }
   return resolved;
 }
 
@@ -152,7 +150,15 @@ export async function applyBatchOut(
   if (!existing || existing.quantity + 1e-6 < quantity) {
     throw new Error(`物料 ${material.code} 批号 ${resolved} 库存不足（当前 ${existing?.quantity ?? 0}）`);
   }
-  await tx.materialBatch.update({ where: { id: existing.id }, data: { quantity: existing.quantity - quantity } });
+  // 条件递减：WHERE 在写入时原子校验，防止并发下扣成负数
+  const updated = await tx.materialBatch.updateMany({
+    where: { id: existing.id, quantity: { gte: quantity } },
+    data: { quantity: { decrement: quantity } },
+  });
+  if (updated.count === 0) {
+    const fresh = await tx.materialBatch.findUnique({ where: { id: existing.id } });
+    throw new Error(`物料 ${material.code} 批号 ${resolved} 库存不足（当前 ${fresh?.quantity ?? 0}）`);
+  }
   return resolved;
 }
 
@@ -206,25 +212,17 @@ export async function stockIn(data: { materialId: number; quantity: number; ware
   const docNo = data.documentNo || (await generateStockDocNo());
 
   return prisma.$transaction(async (tx) => {
-    const stock = await tx.stock.findFirst({
-      where: { materialId: data.materialId, warehouseId: data.warehouseId },
+    // upsert + 原子累加：并发建行走 ON CONFLICT，读-改-写不会丢失更新
+    await tx.stock.upsert({
+      where: { materialId_warehouseId: { materialId: data.materialId, warehouseId: data.warehouseId } },
+      create: {
+        materialId: data.materialId,
+        warehouseId: data.warehouseId,
+        quantity: data.quantity,
+        lastInDate: new Date(),
+      },
+      update: { quantity: { increment: data.quantity }, lastInDate: new Date() },
     });
-
-    if (stock) {
-      await tx.stock.update({
-        where: { id: stock.id },
-        data: { quantity: stock.quantity + data.quantity, lastInDate: new Date() },
-      });
-    } else {
-      await tx.stock.create({
-        data: {
-          materialId: data.materialId,
-          warehouseId: data.warehouseId,
-          quantity: data.quantity,
-          lastInDate: new Date(),
-        },
-      });
-    }
 
     const resolvedBatchNo = await applyBatchIn(tx, material, data.warehouseId, data.batchNo, data.quantity);
 
@@ -266,10 +264,15 @@ export async function stockOut(data: { materialId: number; quantity: number; war
   const docNo = data.documentNo || (await generateStockDocNo());
 
   return prisma.$transaction(async (tx) => {
-    await tx.stock.update({
-      where: { id: stock.id },
-      data: { quantity: stock.quantity - data.quantity, lastOutDate: new Date() },
+    // 条件递减：写入时原子校验库存充足，防止并发下扣成负数
+    const updated = await tx.stock.updateMany({
+      where: { id: stock.id, quantity: { gte: data.quantity } },
+      data: { quantity: { decrement: data.quantity }, lastOutDate: new Date() },
     });
+    if (updated.count === 0) {
+      const fresh = await tx.stock.findUnique({ where: { id: stock.id } });
+      throw new Error(`库存不足，当前库存 ${fresh?.quantity ?? 0}`);
+    }
 
     const resolvedBatchNo = await applyBatchOut(tx, material, data.warehouseId, data.batchNo, data.quantity);
 
@@ -291,7 +294,8 @@ export async function stockOut(data: { materialId: number; quantity: number; war
       },
     });
 
-    return { success: true, remainingQty: stock.quantity - data.quantity, batchNo: resolvedBatchNo };
+    const after = await tx.stock.findUnique({ where: { id: stock.id } });
+    return { success: true, remainingQty: after?.quantity ?? 0, batchNo: resolvedBatchNo };
   });
 }
 

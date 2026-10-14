@@ -1,44 +1,34 @@
 #!/usr/bin/env bash
-# ERP SQLite 自动冷备脚本
-# 通过 VACUUM INTO 生成一致性快照（比 cp dev.db 安全：WAL 模式会遗留未合并数据），
-# 再 gzip 压缩，按 BACKUP_KEEP 保留最近 N 份。
+# ERP PostgreSQL 自动备份脚本
+# 用 pg_dump 生成一致性逻辑备份，gzip 压缩，按 BACKUP_KEEP 保留最近 N 份。
+# 连接串取自 server/.env 的 DATABASE_URL（可用环境变量 DATABASE_URL 覆盖）。
+# 恢复：zcat erp-XXX.sql.gz | psql "$DATABASE_URL"
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SERVER_DIR="$(dirname "$SCRIPT_DIR")"
-DB_FILE="$SERVER_DIR/prisma/dev.db"
 BACKUP_DIR="${BACKUP_DIR:-$SERVER_DIR/backups}"
 KEEP="${BACKUP_KEEP:-14}"
 STAMP="$(date +%Y%m%d-%H%M%S)"
-BASENAME="erp-${STAMP}.db"
 
-if [[ ! -f "$DB_FILE" ]]; then
-  echo "[$(date '+%F %T')] ERROR: $DB_FILE 不存在，跳过备份" >&2
+if [[ -z "${DATABASE_URL:-}" && -f "$SERVER_DIR/.env" ]]; then
+  DATABASE_URL="$(grep -E '^DATABASE_URL=' "$SERVER_DIR/.env" | head -1 | cut -d= -f2- | sed -e 's/^"//' -e 's/"$//')"
+fi
+if [[ -z "${DATABASE_URL:-}" ]]; then
+  echo "[$(date '+%F %T')] ERROR: 未找到 DATABASE_URL" >&2
   exit 1
 fi
 
 mkdir -p "$BACKUP_DIR"
-RAW="$BACKUP_DIR/$BASENAME"
-GZ="$RAW.gz"
+GZ="$BACKUP_DIR/erp-${STAMP}.sql.gz"
 
-# VACUUM INTO 需要 Node 端通过 Prisma 执行（SQLite 无 CLI 时的唯一一致性导出路径）
-cd "$SERVER_DIR"
-DATABASE_URL="file:./dev.db" node --input-type=module -e "
-import { PrismaClient } from '@prisma/client';
-const p = new PrismaClient();
-try {
-  await p.\$queryRawUnsafe('VACUUM INTO \"$RAW\"');
-} finally {
-  await p.\$disconnect();
-}
-" > /dev/null 2>&1 || {
-  echo "[$(date '+%F %T')] ERROR: VACUUM INTO 失败" >&2
+if ! pg_dump --dbname="$DATABASE_URL" --no-owner --no-privileges 2>/dev/null | gzip -c > "$GZ"; then
+  rm -f "$GZ"
+  echo "[$(date '+%F %T')] ERROR: pg_dump 失败" >&2
   exit 1
-}
-
-gzip -f "$RAW"
+fi
 
 # 清理旧备份，保留最近 KEEP 份
-ls -1t "$BACKUP_DIR"/erp-*.db.gz 2>/dev/null | tail -n +$((KEEP + 1)) | xargs -r rm -f
+ls -1t "$BACKUP_DIR"/erp-*.sql.gz 2>/dev/null | tail -n +$((KEEP + 1)) | xargs -r rm -f
 
 echo "[$(date '+%F %T')] 备份完成: $GZ ($(du -h "$GZ" | cut -f1))，保留 $KEEP 份"

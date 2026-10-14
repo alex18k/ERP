@@ -89,11 +89,11 @@ const shortcuts = [
   padding: 18px 20px;
   margin-bottom: 18px;
   background:
-    linear-gradient(90deg, rgba(59, 138, 224, 0.10), transparent 60%),
+    linear-gradient(90deg, rgba(162, 87, 42, 0.10), transparent 60%),
     var(--erp-surface);
   border: 1px solid var(--erp-hairline);
-  border-radius: 10px;
-  border-left: 3px solid var(--erp-blue);
+  border-radius: 12px;
+  border-left: 3px solid var(--erp-copper);
 }
 
 .strip-main {
@@ -108,7 +108,7 @@ const shortcuts = [
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(180deg, #4a94e0, #2f77cc);
+  background: linear-gradient(180deg, #b8683a, #a2572a);
   border-radius: 8px;
   color: #fff;
 }
@@ -146,9 +146,9 @@ const shortcuts = [
 }
 
 .shortcut:hover {
-  border-color: var(--erp-blue);
+  border-color: var(--erp-copper);
   transform: translateY(-2px);
-  box-shadow: 0 8px 20px -8px rgba(18, 34, 58, 0.12);
+  box-shadow: 0 8px 20px -8px rgba(22, 35, 30, 0.12);
 }
 
 .shortcut:active {
@@ -164,7 +164,7 @@ const shortcuts = [
   transform: translateX(-50%);
   width: 0;
   height: 2px;
-  background: var(--erp-blue);
+  background: var(--erp-copper);
   transition: width 0.18s ease;
 }
 
@@ -173,7 +173,7 @@ const shortcuts = [
 }
 
 .s-icon {
-  color: var(--erp-blue);
+  color: var(--erp-copper);
 }
 
 .shortcut .s-title {

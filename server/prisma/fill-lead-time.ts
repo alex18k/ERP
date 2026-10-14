@@ -73,7 +73,8 @@ async function main() {
         const data: { leadTime: number; manufactureLeadTime?: number } = { leadTime: randIn(range) };
         if (m.category === "manufacture") data.manufactureLeadTime = randIn(MANUFACTURE_RANGE);
         return prisma.material.update({ where: { id: m.id }, data });
-      })
+      }),
+      { timeout: 60000, maxWait: 10000 }
     );
     updated += chunk.length;
     console.log(`已更新 ${updated}/${materials.length}`);

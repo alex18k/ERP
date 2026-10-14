@@ -1,15 +1,24 @@
 import prisma from "../config/prisma";
 import { Prisma } from "@prisma/client";
 import { localDateCompact } from "../utils/date";
+import { retryOnDuplicate, lockOrderNo, ORDER_NO_LOCK } from "../utils/retry";
 import { generateStockDocNo, applyBatchIn, applyBatchOut } from "./stock.service";
 
 // ===== 生产订单 =====
+// 单号 = 前缀 + 当日最大序号+1（配合 lockOrderNo 串行化，避免 count+1 并发撞号）
 export async function generateProductionOrderNo(): Promise<string> {
   const dateStr = localDateCompact();
-  const count = await prisma.productionOrder.count({
-    where: { orderNo: { startsWith: `MO${dateStr}` } },
+  const prefix = `MO${dateStr}`;
+  const existing = await prisma.productionOrder.findMany({
+    where: { orderNo: { startsWith: prefix } },
+    select: { orderNo: true },
   });
-  return `MO${dateStr}${String(count + 1).padStart(4, "0")}`;
+  let max = 0;
+  for (const e of existing) {
+    const n = parseInt(e.orderNo.slice(prefix.length), 10);
+    if (!isNaN(n) && n > max) max = n;
+  }
+  return `${prefix}${String(max + 1).padStart(4, "0")}`;
 }
 
 export interface ProductionOrderInput {
@@ -111,24 +120,30 @@ export async function createProductionOrders(inputs: ProductionOrderInput[], use
       continue;
     }
 
-    const orderNo = await generateProductionOrderNo();
-    const order = await prisma.productionOrder.create({
-      data: {
-        orderNo,
-        salesOrderId,
-        salesOrderNo,
-        materialId: input.materialId,
-        processRouteId,
-        quantity: input.quantity,
-        planStartDate: input.planStartDate ? new Date(input.planStartDate) : null,
-        planEndDate: input.planEndDate ? new Date(input.planEndDate) : null,
-        planner: input.planner ?? null,
-        releaseDate: input.releaseDate ? new Date(input.releaseDate) : new Date(),
-        remark: input.remark,
-        createdBy: userId,
-        status: "planned",
-      },
-    });
+    // 单号在事务内生成并加串行锁；并发撞 @unique 时重试并换单号
+    const order = await retryOnDuplicate(() =>
+      prisma.$transaction(async (tx) => {
+        await lockOrderNo(tx, ORDER_NO_LOCK.MO);
+        const orderNo = await generateProductionOrderNo();
+        return tx.productionOrder.create({
+          data: {
+            orderNo,
+            salesOrderId,
+            salesOrderNo,
+            materialId: input.materialId,
+            processRouteId,
+            quantity: input.quantity,
+            planStartDate: input.planStartDate ? new Date(input.planStartDate) : null,
+            planEndDate: input.planEndDate ? new Date(input.planEndDate) : null,
+            planner: input.planner ?? null,
+            releaseDate: input.releaseDate ? new Date(input.releaseDate) : new Date(),
+            remark: input.remark,
+            createdBy: userId,
+            status: "planned",
+          },
+        });
+      })
+    );
     created.push(order);
   }
   return { created, skipped };
@@ -767,16 +782,40 @@ export async function issueBatchMaterials(
         skipped.push({ ...base, reason: `超过未发数量（${remain}）` });
         continue;
       }
+
+      // 1) 库存预检（只读，未通过则跳过该行，无副作用）
       const stock = await tx.stock.findFirst({ where: { materialId: row.materialId, warehouseId } });
       if (!stock || stock.quantity < qty) {
         skipped.push({ ...base, reason: `库存不足（当前 ${stock?.quantity ?? 0}）` });
         continue;
       }
 
-      await tx.stock.update({
-        where: { id: stock.id },
-        data: { quantity: stock.quantity - qty, lastOutDate: new Date() },
+      // 2) 原子累加已发量（写入时校验不超需求量），防止并发超发；并发冲突时中止整个事务（回滚保证一致性）
+      const issuedUpd = await tx.productionBatchMaterial.updateMany({
+        where: { id: row.id, issuedQty: { lte: row.requiredQty - qty + 1e-6 } },
+        data: { issuedQty: { increment: qty } },
       });
+      if (issuedUpd.count === 0) {
+        throw new Error(`物料 ${row.material.code} 未发数量已变化，请刷新后重试`);
+      }
+      const freshRow = await tx.productionBatchMaterial.findUnique({ where: { id: row.id } });
+      const newIssued = freshRow?.issuedQty ?? row.issuedQty + qty;
+      await tx.productionBatchMaterial.update({
+        where: { id: row.id },
+        data: { status: newIssued >= (freshRow?.requiredQty ?? row.requiredQty) - 1e-6 ? "issued" : "partial" },
+      });
+      row.issuedQty = newIssued;
+
+      // 3) 原子扣减库存（写入时再次校验充足），防止预检与写入之间被并发扣减
+      const stockUpd = await tx.stock.updateMany({
+        where: { id: stock.id, quantity: { gte: qty } },
+        data: { quantity: { decrement: qty }, lastOutDate: new Date() },
+      });
+      if (stockUpd.count === 0) {
+        const freshStock = await tx.stock.findUnique({ where: { id: stock.id } });
+        throw new Error(`物料 ${row.material.code} 库存不足（当前 ${freshStock?.quantity ?? 0}）`);
+      }
+
       const resolvedBatchNo = await applyBatchOut(tx, row.material, warehouseId, it.batchNo, qty);
       await tx.stockRecord.create({
         data: {
@@ -796,15 +835,6 @@ export async function issueBatchMaterials(
           remark: `生产发料 批次${batch.batchNo}`,
         },
       });
-      const newIssued = row.issuedQty + qty;
-      await tx.productionBatchMaterial.update({
-        where: { id: row.id },
-        data: {
-          issuedQty: newIssued,
-          status: newIssued >= row.requiredQty - 1e-6 ? "issued" : "partial",
-        },
-      });
-      row.issuedQty = newIssued;
       issued.push(base);
     }
   });
@@ -1076,17 +1106,24 @@ export async function receiveBatchProduct(
   const docNo = await generateStockDocNo();
 
   return prisma.$transaction(async (tx) => {
-    const stock = await tx.stock.findFirst({ where: { materialId: material.id, warehouseId } });
-    if (stock) {
-      await tx.stock.update({
-        where: { id: stock.id },
-        data: { quantity: stock.quantity + quantity, lastInDate: new Date() },
-      });
-    } else {
-      await tx.stock.create({
-        data: { materialId: material.id, warehouseId, quantity, lastInDate: new Date() },
-      });
+    // 1) 原子累加入库量（写入时校验不超批次数量），防止并发超收
+    const recvUpd = await tx.productionBatch.updateMany({
+      where: { id: batch.id, status: { not: "cancelled" }, receivedQty: { lte: batch.quantity - quantity + 1e-6 } },
+      data: { receivedQty: { increment: quantity } },
+    });
+    if (recvUpd.count === 0) {
+      const fresh = await tx.productionBatch.findUnique({ where: { id: batch.id }, select: { quantity: true, receivedQty: true } });
+      throw new Error(`入库数量超过剩余可入库数量（${(fresh?.quantity ?? 0) - (fresh?.receivedQty ?? 0)}）`);
     }
+    const after = await tx.productionBatch.findUnique({ where: { id: batch.id }, select: { receivedQty: true } });
+    const newReceived = after?.receivedQty ?? batch.receivedQty + quantity;
+
+    // 2) 库存 upsert + 原子累加
+    await tx.stock.upsert({
+      where: { materialId_warehouseId: { materialId: material.id, warehouseId } },
+      create: { materialId: material.id, warehouseId, quantity, lastInDate: new Date() },
+      update: { quantity: { increment: quantity }, lastInDate: new Date() },
+    });
     const resolvedBatchNo = await applyBatchIn(tx, material, warehouseId, batchNo, quantity);
     await tx.stockRecord.create({
       data: {
@@ -1104,8 +1141,6 @@ export async function receiveBatchProduct(
         remark: `生产入库 ${material.name}`,
       },
     });
-    const newReceived = batch.receivedQty + quantity;
-    await tx.productionBatch.update({ where: { id: batch.id }, data: { receivedQty: newReceived } });
     return { success: true, documentNo: docNo, receivedQty: newReceived };
   });
 }

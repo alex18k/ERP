@@ -87,9 +87,9 @@ async function handleLogin() {
   align-items: center;
   justify-content: center;
   background:
-    radial-gradient(900px 520px at 15% -10%, rgba(59, 138, 224, 0.18), transparent 60%),
-    radial-gradient(800px 480px at 95% 115%, rgba(45, 140, 220, 0.12), transparent 55%),
-    linear-gradient(160deg, #eff5fc 0%, #e2ecf6 100%);
+    radial-gradient(900px 520px at 15% -10%, rgba(162, 87, 42, 0.12), transparent 60%),
+    radial-gradient(800px 480px at 95% 115%, rgba(47, 109, 138, 0.08), transparent 55%),
+    linear-gradient(160deg, #f3f5f1 0%, #e4e9e2 100%);
   overflow: hidden;
 }
 
@@ -100,7 +100,7 @@ async function handleLogin() {
   background: var(--erp-surface);
   border: 1px solid var(--erp-hairline);
   border-radius: 14px;
-  box-shadow: 0 6px 24px rgba(16, 30, 52, 0.08), 0 24px 72px rgba(16, 30, 52, 0.12);
+  box-shadow: 0 6px 24px rgba(22, 35, 30, 0.08), 0 24px 72px rgba(22, 35, 30, 0.12);
   overflow: hidden;
 }
 
@@ -113,7 +113,7 @@ async function handleLogin() {
   letter-spacing: 0.12em;
   color: var(--erp-steel);
   border-bottom: 1px solid var(--erp-hairline);
-  background: #f4f8fd;
+  background: #f7f8f5;
 }
 
 .status-lamp {
@@ -147,7 +147,7 @@ async function handleLogin() {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(180deg, #4a94e0, #2f77cc);
+  background: linear-gradient(180deg, #b8683a, #a2572a);
   border-radius: 12px;
   color: #fff;
 }
@@ -170,7 +170,7 @@ async function handleLogin() {
   width: 44px;
   height: 2px;
   margin: 20px auto 0;
-  background: var(--erp-blue);
+  background: var(--erp-copper);
   border-radius: 1px;
   opacity: 0.85;
 }

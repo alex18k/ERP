@@ -14,11 +14,8 @@ npm-debug.log*
 .env.local
 .env.*.local
 
-# sqlite database (regenerate via: prisma migrate dev + prisma db seed)
-server/prisma/dev.db
-server/prisma/dev.db-journal
-server/prisma/dev.db-wal
-server/prisma/dev.db-shm
+# legacy sqlite database (migrated to PostgreSQL; kept only as historical reference)
+server/prisma/dev.db*
 
 # backup archives
 backups/

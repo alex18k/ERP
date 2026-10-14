@@ -67,7 +67,14 @@ function todayStr() {
 
 function registerManualMaterials(items: any[]) {
   for (const m of items) if (m?.id) manualMaterialMap.set(m.id, m)
-  manualMaterials.value = [...manualMaterialMap.values()]
+  // 下拉仅显示本次结果 + 当前已选物料（el-select remote 模式不做本地过滤）
+  const selected = manualForm.materialId ? manualMaterialMap.get(manualForm.materialId) : null
+  const seen = new Set<number>()
+  manualMaterials.value = [...items, ...(selected ? [selected] : [])].filter((m: any) => {
+    if (!m?.id || seen.has(m.id)) return false
+    seen.add(m.id)
+    return true
+  })
 }
 
 async function searchManualMaterials(keyword: string) {

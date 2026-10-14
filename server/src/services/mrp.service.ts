@@ -1,6 +1,10 @@
 import prisma from "../config/prisma";
 import { Prisma } from "@prisma/client";
 import { localDateCompact } from "../utils/date";
+import { retryOnDuplicate, lockOrderNo, ORDER_NO_LOCK } from "../utils/retry";
+
+// MRP 单实例锁键（PostgreSQL advisory lock，任意私有常量）
+const MRP_LOCK_KEY = 95271024;
 
 export interface MrpParams {
   orderIds?: number[];        // 指定订单，不传则全部未完成订单
@@ -555,7 +559,7 @@ export async function runMrp(params: MrpParams = {}, userId?: number, existingRu
       ids.push(row.id);
     }
     return ids;
-  });
+  }, { timeout: 60000 });
 
   // 回写运行结果（含采购建议ID，便于按建议维度合并状态）
   const resultPayload = {
@@ -585,24 +589,31 @@ export async function runMrp(params: MrpParams = {}, userId?: number, existingRu
 
 // ===== 后台执行MRP：立即返回running记录，运算在后台完成并回写 =====
 export async function startMrp(params: MrpParams = {}, userId?: number): Promise<{ runId: number; runNo: string; status: string }> {
-  // 已存在运算中的记录时拒绝并发（避免同时作废/改写采购建议）
-  const running = await prisma.mrpRun.findFirst({ where: { status: "running" } });
-  if (running) {
-    throw new Error(`已有MRP运算进行中（${running.runNo}），请等待完成后再执行`);
-  }
-
-  const runNo = `MRP${localDateCompact()}${Date.now().toString().slice(-4)}`;
-  const run = await prisma.mrpRun.create({
-    data: {
-      runNo,
-      orderCount: 0,
-      materialCount: 0,
-      shortageCount: 0,
-      status: "running",
-      createdBy: userId,
-      result: "{}",
+  // PG advisory 事务锁：锁内“检查 running → 创建 running”，同一时刻仅允许一个 MRP
+  // （原先依赖 SQLite 单写者串行的 findFirst→create 在 PostgreSQL 多连接下存在竞态）
+  const { run, runNo } = await prisma.$transaction(
+    async (tx) => {
+      await tx.$executeRawUnsafe(`SELECT pg_advisory_xact_lock(${MRP_LOCK_KEY})`);
+      const running = await tx.mrpRun.findFirst({ where: { status: "running" } });
+      if (running) {
+        throw new Error(`已有MRP运算进行中（${running.runNo}），请等待完成后再执行`);
+      }
+      const no = `MRP${localDateCompact()}${Date.now().toString().slice(-4)}`;
+      const created = await tx.mrpRun.create({
+        data: {
+          runNo: no,
+          orderCount: 0,
+          materialCount: 0,
+          shortageCount: 0,
+          status: "running",
+          createdBy: userId,
+          result: "{}",
+        },
+      });
+      return { run: created, runNo: no };
     },
-  });
+    { timeout: 15000 }
+  );
 
   // 后台异步执行，不阻塞HTTP响应。校验性错误（无订单等）直接置为 failed
   runMrp(params, userId, run.id)
@@ -877,61 +888,71 @@ export async function generatePurchaseOrders(
 
   const createdOrders = [];
   for (const { supplierId, items } of byGroup.values()) {
-    const dateStr = localDateCompact();
-    const prefix = `PO${dateStr}`;
-    const existing = await prisma.purchaseOrder.findMany({
-      where: { orderNo: { startsWith: prefix } },
-      select: { orderNo: true },
-    });
-    let maxSeq = 0;
-    for (const e of existing) {
-      const n = parseInt(e.orderNo.slice(prefix.length), 10);
-      if (!isNaN(n) && n > maxSeq) maxSeq = n;
-    }
-    const orderNo = `${prefix}${String(maxSeq + 1).padStart(4, "0")}`;
-
-    const totalAmount = items.reduce((sum, s) => sum + s.suggestedQty * (s.unitPrice ?? 0), 0);
+    // 单价：建议自带的有效单价优先（0/空视为未设，回退物料主文件成本）
+    const priceOf = (s: (typeof items)[number]) => s.unitPrice || s.material.cost || 0;
+    const totalAmount = items.reduce((sum, s) => sum + s.suggestedQty * priceOf(s), 0);
     const tax = supplierId != null ? supplierTax.get(supplierId) : undefined;
 
-    const order = await prisma.$transaction(async (tx) => {
-      const po = await tx.purchaseOrder.create({
-        data: {
-          orderNo,
-          supplierId,
-          totalAmount,
-          orderDate: new Date(),
-          status: "draft",
-          taxIncluded: tax?.taxIncluded ?? false,
-          taxRate: tax?.taxRate ?? 0,
-          createdBy: userId,
+    // 单号在事务内生成；并发撞 @unique 时整体重试并换单号
+    const order = await retryOnDuplicate(() =>
+      prisma.$transaction(
+        async (tx) => {
+          await lockOrderNo(tx, ORDER_NO_LOCK.PO);
+          const dateStr = localDateCompact();
+          const prefix = `PO${dateStr}`;
+          const existing = await tx.purchaseOrder.findMany({
+            where: { orderNo: { startsWith: prefix } },
+            select: { orderNo: true },
+          });
+          let maxSeq = 0;
+          for (const e of existing) {
+            const n = parseInt(e.orderNo.slice(prefix.length), 10);
+            if (!isNaN(n) && n > maxSeq) maxSeq = n;
+          }
+          const orderNo = `${prefix}${String(maxSeq + 1).padStart(4, "0")}`;
+
+          const po = await tx.purchaseOrder.create({
+            data: {
+              orderNo,
+              supplierId,
+              totalAmount,
+              orderDate: new Date(),
+              status: "draft",
+              taxIncluded: tax?.taxIncluded ?? false,
+              taxRate: tax?.taxRate ?? 0,
+              createdBy: userId,
+            },
+          });
+
+          for (const s of items) {
+            const unitPrice = priceOf(s);
+            await tx.purchaseOrderItem.create({
+              data: {
+                orderId: po.id,
+                materialId: s.materialId,
+                quantity: s.suggestedQty,
+                unit: s.material.unit || null,
+                unitPrice,
+                amount: s.suggestedQty * unitPrice,
+                taxIncluded: tax?.taxIncluded ?? false,
+                taxRate: tax?.taxRate ?? 0,
+                location: s.material.location || null,
+                expectedDate: s.needDate,
+                status: "",
+                suggestionId: s.id,
+              },
+            });
+            await tx.purchaseSuggestion.update({
+              where: { id: s.id },
+              data: { status: "converted", convertedOrderId: po.id },
+            });
+          }
+
+          return po;
         },
-      });
-
-      for (const s of items) {
-        await tx.purchaseOrderItem.create({
-          data: {
-            orderId: po.id,
-            materialId: s.materialId,
-            quantity: s.suggestedQty,
-            unit: s.material.unit || null,
-            unitPrice: s.unitPrice ?? 0,
-            amount: s.suggestedQty * (s.unitPrice ?? 0),
-            taxIncluded: tax?.taxIncluded ?? false,
-            taxRate: tax?.taxRate ?? 0,
-            location: s.material.location || null,
-            expectedDate: s.needDate,
-            status: "",
-            suggestionId: s.id,
-          },
-        });
-        await tx.purchaseSuggestion.update({
-          where: { id: s.id },
-          data: { status: "converted", convertedOrderId: po.id },
-        });
-      }
-
-      return po;
-    });
+        { timeout: 60000 }
+      )
+    );
 
     createdOrders.push(order);
   }

@@ -42,7 +42,14 @@ const currentBatch = computed(() => batchOptions.value.find((b: any) => b.id ===
 
 function registerOrderOptions(items: any[]) {
   for (const o of items) if (o?.id) orderOptionMap.set(o.id, o)
-  orderOptions.value = [...orderOptionMap.values()]
+  // 下拉仅显示本次结果 + 当前已选订单（el-select remote 模式不做本地过滤）
+  const selected = form.orderNo ? [...orderOptionMap.values()].find((o) => o.orderNo === form.orderNo) : null
+  const seen = new Set<number>()
+  orderOptions.value = [...items, ...(selected ? [selected] : [])].filter((o: any) => {
+    if (!o?.id || seen.has(o.id)) return false
+    seen.add(o.id)
+    return true
+  })
 }
 
 async function loadOrderOptions(keyword: string = '') {
@@ -289,8 +296,8 @@ onMounted(async () => {
 <style scoped>
 .m-page {
   min-height: 100vh;
-  background: #f0f4fa;
-  color: #1f2a3a;
+  background: #f7f8f5;
+  color: #1d2622;
   max-width: 560px;
   margin: 0 auto;
   padding-bottom: 84px;
@@ -302,9 +309,9 @@ onMounted(async () => {
   top: 0;
   z-index: 10;
   padding: 14px 16px 12px;
-  background: linear-gradient(180deg, #2f77cc, #3b8ae0);
+  background: linear-gradient(180deg, #8f4820, #a2572a);
   color: #fff;
-  box-shadow: 0 2px 10px rgba(20, 40, 80, 0.18);
+  box-shadow: 0 2px 10px rgba(22, 35, 30, 0.18);
 }
 .m-title { font-size: 18px; font-weight: 700; letter-spacing: 0.04em; }
 .m-sub { font-size: 12px; opacity: 0.85; margin-top: 2px; }
@@ -313,10 +320,10 @@ onMounted(async () => {
 
 .m-card {
   background: #fff;
-  border: 1px solid #dbe4f0;
+  border: 1px solid #dce0da;
   border-radius: 12px;
   padding: 14px;
-  box-shadow: 0 1px 3px rgba(20, 40, 80, 0.05);
+  box-shadow: 0 1px 3px rgba(22, 35, 30, 0.05);
 }
 
 .m-field { margin-bottom: 12px; }
@@ -324,38 +331,38 @@ onMounted(async () => {
 .m-field label {
   display: block;
   font-size: 13px;
-  color: #6b7a8d;
+  color: #6d7670;
   margin-bottom: 6px;
 }
 
 .m-grid { display: flex; flex-direction: column; gap: 0; }
 
 .m-order {
-  border-top: 1px dashed #dbe4f0;
+  border-top: 1px dashed #dce0da;
   padding-top: 10px;
   display: flex;
   flex-direction: column;
   gap: 6px;
 }
 .m-order-row { display: flex; justify-content: space-between; font-size: 13px; gap: 12px; }
-.m-order-row span { color: #8a97a8; flex-shrink: 0; }
+.m-order-row span { color: #8a9199; flex-shrink: 0; }
 .m-order-row b { font-weight: 600; text-align: right; word-break: break-all; }
 
-.m-section-title { font-size: 14px; font-weight: 700; margin-bottom: 10px; color: #2b3648; }
-.m-section-title span { font-size: 12px; color: #3b8ae0; font-weight: 500; }
+.m-section-title { font-size: 14px; font-weight: 700; margin-bottom: 10px; color: #1d2622; }
+.m-section-title span { font-size: 12px; color: #a2572a; font-weight: 500; }
 
 .m-report-list { display: flex; flex-direction: column; gap: 8px; }
 .m-report-item {
-  border: 1px solid #e6edf6;
+  border: 1px solid #e6e9e4;
   border-radius: 8px;
   padding: 8px 10px;
-  background: #f8fbff;
+  background: #fafbf9;
 }
 .m-report-main { display: flex; justify-content: space-between; font-size: 13px; }
-.m-report-qty { font-weight: 700; color: #2f77cc; }
-.m-report-meta { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12px; color: #8a97a8; margin-top: 4px; }
-.m-scrap { color: #e05656; }
-.m-empty { text-align: center; color: #9aa7b8; font-size: 13px; padding: 12px 0; }
+.m-report-qty { font-weight: 700; color: #a2572a; }
+.m-report-meta { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12px; color: #8a9199; margin-top: 4px; }
+.m-scrap { color: #b3402e; }
+.m-empty { text-align: center; color: #9aa39c; font-size: 13px; padding: 12px 0; }
 
 .m-footer {
   position: fixed;
@@ -368,7 +375,7 @@ onMounted(async () => {
   gap: 10px;
   padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
   background: #fff;
-  border-top: 1px solid #dbe4f0;
+  border-top: 1px solid #dce0da;
   box-sizing: border-box;
 }
 .m-clear { flex: 0 0 30%; }

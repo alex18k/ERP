@@ -16,7 +16,7 @@ cd client && npm run build          # vue-tsc -b && vite build (strict noUnusedL
 cd server && npm run build          # tsc
 ```
 
-- **No automated test suite.** Verify backend with `curl localhost:3000/api/...` + Bearer token. Login `POST /api/v1/auth/login {username,password}`; seed accounts `admin`/`sales01`/`user01`/`purch01`/`wh01`, all `admin123`.
+- **No automated test suite.** Verify backend with `curl localhost:3000/api/...` + Bearer token. Login `POST /api/v1/auth/login {username,password}`; seed accounts `admin`/`sales01`/`user01`/`purch01`/`wh01`/`plan01`, all `admin123`.
 - Node **22.12+** required (Vite 8).
 
 ## Gotchas (hard-won)
@@ -25,9 +25,10 @@ cd server && npm run build          # tsc
 - **Prisma pinned `5.22.0` — never upgrade** (v7+ contract CLI broke this project; `prisma.config.ts` removed).
 - **`npm start` / `node dist/index.js` is broken**: `tsc` emits ESM with extensionless imports → `ERR_UNSUPPORTED_DIR_IMPORT`. Server is `"type": "module"`; only `tsx` runs it.
 - **`MrpRun` has NO `createdAt`** (use `startedAt`/`completedAt`); `orderBy: { createdAt }` throws at typecheck AND runtime.
-- Migrations are **hand-written SQL** at `server/prisma/migrations/<ts>_name/migration.sql`. Apply with `npx prisma migrate deploy && npx prisma generate`. Do NOT use `prisma migrate dev` (drift risk with hand-written history).
-- **SQLite rejects `ALTER TABLE ... ADD CONSTRAINT`** (syntax error → migration fails and blocks all later ones). To add an FK column: just `ALTER TABLE x ADD COLUMN y INTEGER;` and declare the `@relation` in `schema.prisma` (Prisma enforces it at ORM level). If a migration fails mid-`deploy`, delete `dev.db` and re-run (test env) or `prisma migrate resolve`.
-- SQLite at `server/prisma/dev.db`; relative `DATABASE_URL="file:./dev.db"` resolves to the schema dir. Full reset: delete `dev.db` → `npx prisma migrate deploy` → `npx prisma db seed`.
+- Database is **PostgreSQL** (local apt service, db `erp`, user `erp`/`erp123456`, `DATABASE_URL` in `server/.env`). If the server fails with connection refused → `sudo service postgresql start`.
+- Migrations at `server/prisma/migrations/<ts>_name/migration.sql`; history starts from the PostgreSQL baseline `20261014000000_init` (generated from `schema.prisma`). The old **SQLite** migration history is archived at `server/prisma/migrations_legacy_sqlite/` (reference only, never applied). To change schema: edit `schema.prisma` → `npx prisma migrate dev --name <x>` → `npx prisma generate` → restart server (or hand-write SQL and `npx prisma migrate deploy`).
+- Full reset (test env): drop/recreate the `erp` database → `npx prisma migrate deploy` → `npx prisma db seed` → import scripts (see Master-data import below). If a migration fails mid-`deploy`, reset (test env) or `npx prisma migrate resolve`.
+- **Concurrency**: inventory counters use atomic `increment`/`decrement` with `gte` guards (never read-modify-write); order numbers retry on `P2002` (`server/src/utils/retry.ts`); MRP single-instance uses `pg_advisory_xact_lock` (`mrp.service.ts`). Keep new write paths on those patterns — PostgreSQL has multiple writers, unlike the old SQLite single-writer setup.
 - After any schema change you MUST `npx prisma generate` **and restart the running server**, or new fields are invisible at runtime.
 - The running server is often started as plain `tsx src/index.ts` (no watch) → it does not hot-reload; restart it. Restart pattern: `(setsid npx tsx src/index.ts > /tmp/log 2>&1 < /dev/null &)`. Do NOT `pkill -f "tsx src/index.ts"` in the same command line — it matches and kills the invoking shell; use `pkill -f "src/inde[x].ts"` in a separate command.
 

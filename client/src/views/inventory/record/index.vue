@@ -25,7 +25,14 @@ function todayStr() {
 
 function registerMaterials(items: any[]) {
   for (const m of items) if (m?.id) materialMap.set(m.id, m)
-  materials.value = [...materialMap.values()]
+  // 下拉仅显示本次结果 + 当前已选物料（el-select remote 模式不做本地过滤）
+  const selected = form.materialId ? materialMap.get(form.materialId) : null
+  const seen = new Set<number>()
+  materials.value = [...items, ...(selected ? [selected] : [])].filter((m: any) => {
+    if (!m?.id || seen.has(m.id)) return false
+    seen.add(m.id)
+    return true
+  })
 }
 
 async function searchMaterials(keyword: string) {

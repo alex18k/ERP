@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { purchaseApi, supplierApi, materialApi } from '../../../api'
 import { BASE_LOCATIONS } from '../../../utils/location'
 
@@ -10,6 +10,15 @@ const router = useRouter()
 
 const suppliers = ref<any[]>([])
 const materials = ref<any[]>([])
+// 下拉框可选项：仅保留最近一次搜索结果 + 当前行已选物料（el-select remote 模式不做本地过滤）
+const materialOptions = ref<any[]>([])
+// el-select-v2 虚拟滚动选项（所有明细行共用，避免每行渲染全量 option）
+const materialSelectOptions = computed(() =>
+  materialOptions.value.map((m: any) => ({
+    value: m.id,
+    label: `${m.code} - ${m.name}${m.specification ? ' / ' + m.specification : ''}`,
+  })),
+)
 const materialLoading = ref(false)
 const buyerOptions = ref<string[]>([])
 const unitOptions = ref<string[]>([])
@@ -53,6 +62,18 @@ function registerMaterials(items: any[]) {
   materials.value = [...materialMap.values()]
 }
 
+// 注册缓存并刷新下拉选项：选项 = 本次结果 + 明细行已选物料（去重）
+function syncMaterialOptions(list: any[]) {
+  registerMaterials(list)
+  const seen = new Set<number>()
+  const selected = form.items.map((it: any) => materialMap.get(it.materialId)).filter(Boolean)
+  materialOptions.value = [...list, ...selected].filter((m: any) => {
+    if (!m?.id || seen.has(m.id)) return false
+    seen.add(m.id)
+    return true
+  })
+}
+
 function buildItemOptions() {
   const units = new Set<string>(['张', '个', '套', '台', '件', '只', '米', '千克', '吨', '升', '箱', '包', '卷'])
   const locs = new Map<string, string>()
@@ -69,7 +90,7 @@ async function searchMaterials(keyword: string) {
   materialLoading.value = true
   try {
     const res: any = await materialApi.options({ category: 'purchase', keyword, limit: 50 })
-    registerMaterials(res.data || [])
+    syncMaterialOptions(res.data || [])
     buildItemOptions()
   } catch { /* ignore */ } finally { materialLoading.value = false }
 }
@@ -175,7 +196,7 @@ async function loadOrder(id: number) {
     status: i.status || 'blank',
     sourceOrderNo: i.sourceOrderNo || '',
   })) || []
-  registerMaterials((row.items || []).map((i: any) => i.material).filter(Boolean))
+  syncMaterialOptions([...materialOptions.value, ...(row.items || []).map((i: any) => i.material).filter(Boolean)])
   const locs = new Set<string>((row.items || []).map((i: any) => i.location).filter(Boolean))
   headerLocation.value = locs.size === 1 ? [...locs][0] : ''
   isEditLoad.value = true
@@ -301,6 +322,19 @@ async function handleStatusChange(status: string) {
   } catch { /* error shown */ }
 }
 
+async function handleDelete() {
+  if (!form.id) return
+  try {
+    await ElMessageBox.confirm(`确定删除采购单 ${form.orderNo}？仅草稿且无收货记录的采购单可删除。`, '删除采购单', { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' })
+  } catch { return }
+  try {
+    await purchaseApi.remove(form.id)
+    ElMessage.success('采购单已删除')
+    resetForm()
+    loadOrderOptions()
+  } catch { /* error shown */ }
+}
+
 const formRef = ref()
 
 onMounted(async () => {
@@ -310,7 +344,7 @@ onMounted(async () => {
     materialApi.options({ category: 'purchase', limit: 200 }),
   ])
   suppliers.value = sRes.data.items
-  registerMaterials(mRes.data || [])
+  syncMaterialOptions(mRes.data || [])
   buildItemOptions()
   loadBuyers()
   loadOrderOptions()
@@ -385,6 +419,7 @@ async function copyOrderNo() {
                 <el-select v-if="form.status" :model-value="form.status" size="small" style="width: 110px" @change="(v: string) => handleStatusChange(v)">
                   <el-option v-for="o in statusOptions" :key="o.value" :label="o.label" :value="o.value" />
                 </el-select>
+                <el-button v-if="form.id && form.status === 'draft'" size="small" type="danger" plain @click="handleDelete">删除</el-button>
               </div>
             </el-form-item>
           </el-col>
@@ -453,9 +488,7 @@ async function copyOrderNo() {
               <el-table-column type="selection" width="45" />
               <el-table-column label="物料" min-width="200">
                 <template #default="{ row }">
-                  <el-select v-model="row.materialId" filterable remote reserve-keyword :remote-method="searchMaterials" :loading="materialLoading" placeholder="输入编码/名称搜索物料" style="width: 100%" @change="(v: number) => onMaterialChange(row, v)">
-                    <el-option v-for="m in materials" :key="m.id" :label="`${m.code} - ${m.name}${m.specification ? ' / ' + m.specification : ''}`" :value="m.id" />
-                  </el-select>
+                  <el-select-v2 v-model="row.materialId" :options="materialSelectOptions" filterable remote reserve-keyword :remote-method="searchMaterials" :loading="materialLoading" placeholder="输入编码/名称搜索物料" style="width: 100%" @change="(v: number) => onMaterialChange(row, v)" />
                 </template>
               </el-table-column>
               <el-table-column label="单位" width="90">

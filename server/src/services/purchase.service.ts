@@ -1,6 +1,7 @@
 import prisma from "../config/prisma";
 import { Prisma } from "@prisma/client";
 import { localDateCompact } from "../utils/date";
+import { retryOnDuplicate, lockOrderNo, ORDER_NO_LOCK } from "../utils/retry";
 import { applyBatchIn } from "./stock.service";
 
 export async function generatePurchaseOrderNo(): Promise<string> {
@@ -125,50 +126,54 @@ export async function createPurchaseOrder(data: PurchaseOrderInput, userId: numb
   const supplier = data.supplierId ? await prisma.supplier.findUnique({ where: { id: data.supplierId } }) : null;
   if (data.supplierId && !supplier) throw new Error("供应商不存在");
 
-  const orderNo = await generatePurchaseOrderNo();
   const totalAmount = data.items.reduce((s, i) => s + i.quantity * (i.unitPrice ?? 0), 0);
   const settleMethod = data.settleMethod ?? supplier?.settleMethod ?? null;
 
-  return prisma.$transaction(async (tx) => {
-    const po = await tx.purchaseOrder.create({
-      data: {
-        orderNo,
-        supplierId: data.supplierId,
-        settleMethod,
-        totalAmount,
-        orderDate: data.orderDate ? new Date(data.orderDate) : new Date(),
-        expectedDate: data.expectedDate ? new Date(data.expectedDate) : null,
-        buyer: data.buyer || null,
-        taxIncluded: data.taxIncluded ?? false,
-        taxRate: data.taxRate ?? 0,
-        status: "confirmed",
-        remark: data.remark,
-        createdBy: userId,
-      },
-    });
-
-    for (const item of data.items) {
-      await tx.purchaseOrderItem.create({
+  // 单号在事务内生成；并发撞 @unique 时整体重试并换单号
+  return retryOnDuplicate(() =>
+    prisma.$transaction(async (tx) => {
+      await lockOrderNo(tx, ORDER_NO_LOCK.PO);
+      const orderNo = await generatePurchaseOrderNo();
+      const po = await tx.purchaseOrder.create({
         data: {
-          orderId: po.id,
-          materialId: item.materialId,
-          quantity: item.quantity,
-          unit: item.unit || null,
-          unitPrice: item.unitPrice ?? 0,
-          amount: item.quantity * (item.unitPrice ?? 0),
-          taxIncluded: item.taxIncluded ?? false,
-          taxRate: item.taxRate ?? 0,
-          location: item.location || null,
-          expectedDate: item.expectedDate ? new Date(item.expectedDate) : null,
-          status: item.status ?? "",
-          remark: item.remark || null,
-          sourceOrderNo: item.sourceOrderNo || null,
+          orderNo,
+          supplierId: data.supplierId,
+          settleMethod,
+          totalAmount,
+          orderDate: data.orderDate ? new Date(data.orderDate) : new Date(),
+          expectedDate: data.expectedDate ? new Date(data.expectedDate) : null,
+          buyer: data.buyer || null,
+          taxIncluded: data.taxIncluded ?? false,
+          taxRate: data.taxRate ?? 0,
+          status: "confirmed",
+          remark: data.remark,
+          createdBy: userId,
         },
       });
-    }
 
-    return tx.purchaseOrder.findUnique({ where: { id: po.id }, include: { items: true } });
-  });
+      for (const item of data.items) {
+        await tx.purchaseOrderItem.create({
+          data: {
+            orderId: po.id,
+            materialId: item.materialId,
+            quantity: item.quantity,
+            unit: item.unit || null,
+            unitPrice: item.unitPrice ?? 0,
+            amount: item.quantity * (item.unitPrice ?? 0),
+            taxIncluded: item.taxIncluded ?? false,
+            taxRate: item.taxRate ?? 0,
+            location: item.location || null,
+            expectedDate: item.expectedDate ? new Date(item.expectedDate) : null,
+            status: item.status ?? "",
+            remark: item.remark || null,
+            sourceOrderNo: item.sourceOrderNo || null,
+          },
+        });
+      }
+
+      return tx.purchaseOrder.findUnique({ where: { id: po.id }, include: { items: true } });
+    })
+  );
 }
 
 export async function updatePurchaseOrder(id: number, data: PurchaseOrderInput) {
@@ -193,6 +198,15 @@ export async function updatePurchaseOrder(id: number, data: PurchaseOrderInput) 
 
   const existingItems = await prisma.purchaseOrderItem.findMany({ where: { orderId: id } });
   const receivedById = new Map(existingItems.map((it) => [it.id, it.receivedQty]));
+
+  // 已收货明细的数量不能再改小，否则会出现 已收 > 订购 的矛盾数据
+  for (const item of data.items) {
+    if (!item.id) continue;
+    const alreadyReceived = receivedById.get(item.id) ?? 0;
+    if (item.quantity < alreadyReceived) {
+      throw new Error(`明细「${item.materialId ?? item.id}」已收货 ${alreadyReceived}，数量不能小于已收数量`);
+    }
+  }
 
   return prisma.$transaction(async (tx) => {
     await tx.purchaseOrderItem.deleteMany({ where: { orderId: id } });
@@ -268,7 +282,38 @@ export async function updatePurchaseOrderStatus(id: number, status: string) {
   if (!exists) throw new Error("采购单不存在");
   if (exists.status === status) return exists;
 
+  // 已收货订单不能退回草稿：收货已入账库存、RCT-PO 流水、MRP 在途口径会与库存脱节
+  if (status === "draft") {
+    const receivedItems = await prisma.purchaseOrderItem.findMany({
+      where: { orderId: id, receivedQty: { gt: 0 } },
+      select: { id: true },
+    });
+    if (receivedItems.length > 0) throw new Error("该采购单已收货，不能退回草稿");
+  }
+
   return prisma.purchaseOrder.update({ where: { id }, data: { status } });
+}
+
+// 仅允许删除草稿且无收货记录的采购单（连带删明细）；已确认/已收货保留追溯
+// 由采购建议转换来的明细，删除后把建议退回待处理，便于重新生成
+export async function deletePurchaseOrder(id: number) {
+  const po = await prisma.purchaseOrder.findUnique({
+    where: { id },
+    include: { items: { select: { receivedQty: true } } },
+  });
+  if (!po) throw new Error("采购单不存在");
+  if (po.status !== "draft") throw new Error("仅草稿状态的采购单可删除");
+  if (po.items.some((it) => (it.receivedQty ?? 0) > 0)) throw new Error("该采购单已有收货记录，不能删除");
+
+  await prisma.$transaction([
+    prisma.purchaseOrderItem.deleteMany({ where: { orderId: id } }),
+    prisma.purchaseSuggestion.updateMany({
+      where: { convertedOrderId: id },
+      data: { status: "pending", convertedOrderId: null },
+    }),
+    prisma.purchaseOrder.delete({ where: { id } }),
+  ]);
+  return { id };
 }
 
 export async function receivePurchaseOrder(
@@ -328,12 +373,17 @@ export async function receivePurchaseOrder(
       if (qty > remaining) {
         throw new Error(`收货数量不能超过未收数量（${remaining}）`);
       }
-      const newReceived = item.receivedQty + qty;
 
-      await tx.purchaseOrderItem.update({
-        where: { id: item.id },
-        data: { receivedQty: newReceived },
-      });
+      // 原子累加收货量：写入时校验 receivedQty + qty <= quantity，并发下不会超收
+      const updatedRows = await tx.$executeRaw`
+        UPDATE "PurchaseOrderItem"
+        SET "receivedQty" = "receivedQty" + ${qty}
+        WHERE "id" = ${item.id}
+          AND "receivedQty" + ${qty} <= "quantity"
+          AND COALESCE("status", '') NOT IN ('cancelled', 'closed')`;
+      if (updatedRows === 0) {
+        throw new Error(`收货数量不能超过未收数量（${item.quantity - item.receivedQty}）或明细状态已变更`);
+      }
 
       // 采购件成本：按最近一次采购单价回写物料成本
       if (item.unitPrice != null && item.unitPrice > 0) {
@@ -349,18 +399,20 @@ export async function receivePurchaseOrder(
       if (stock) {
         await tx.stock.update({
           where: { id: stock.id },
-          data: { quantity: stock.quantity + qty, lastInDate: new Date() },
+          data: { quantity: { increment: qty }, lastInDate: new Date() },
         });
         warehouseId = stock.warehouseId;
       } else {
         const wh = targetWarehouseId ?? (await tx.warehouse.findFirst({ where: { status: 1 } }))?.id ?? 1;
-        await tx.stock.create({
-          data: {
+        await tx.stock.upsert({
+          where: { materialId_warehouseId: { materialId: item.materialId, warehouseId: wh } },
+          create: {
             materialId: item.materialId,
             warehouseId: wh,
             quantity: qty,
             lastInDate: new Date(),
           },
+          update: { quantity: { increment: qty }, lastInDate: new Date() },
         });
         warehouseId = wh;
       }
