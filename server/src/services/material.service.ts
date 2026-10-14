@@ -38,9 +38,12 @@ export async function listMaterials(where: MaterialWhere) {
   const { code, name, keyword, category, materialType, status, page = 1, pageSize = 20 } = where;
 
   const filters: Prisma.MaterialWhereInput = {};
-  if (code) filters.code = { contains: code };
-  if (name) filters.name = { contains: name };
-  if (keyword) filters.OR = [{ code: { contains: keyword } }, { name: { contains: keyword } }, { specification: { contains: keyword } }];
+  if (code) filters.code = { contains: code, mode: "insensitive" };
+  if (name) filters.name = { contains: name, mode: "insensitive" };
+  if (keyword) {
+    const kw = { contains: keyword, mode: "insensitive" as const };
+    filters.OR = [{ code: kw }, { name: kw }, { specification: kw }];
+  }
   if (category) {
     const cats = String(category).split(",").map((c) => c.trim()).filter(Boolean);
     filters.category = cats.length === 1 ? cats[0] : { in: cats };
@@ -125,10 +128,12 @@ export async function listMaterialOptions(where: MaterialOptionWhere) {
     filters.category = cats.length === 1 ? cats[0] : { in: cats };
   }
   if (keyword) {
+    const kw = { contains: keyword, mode: "insensitive" as const };
     filters.OR = [
-      { code: { contains: keyword } },
-      { name: { contains: keyword } },
-      { materialType: { contains: keyword } },
+      { code: kw },
+      { name: kw },
+      { specification: kw },
+      { materialType: kw },
     ];
   }
   return prisma.material.findMany({

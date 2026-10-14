@@ -3,6 +3,7 @@ import { ref, reactive, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { purchaseApi, supplierApi, materialApi } from '../../../api'
+import MaterialPickerDialog from '../../../components/MaterialPickerDialog.vue'
 import { BASE_LOCATIONS } from '../../../utils/location'
 
 const route = useRoute()
@@ -10,24 +11,7 @@ const router = useRouter()
 
 const suppliers = ref<any[]>([])
 const materials = ref<any[]>([])
-// 下拉框可选项：仅保留最近一次搜索结果 + 当前行已选物料（el-select remote 模式不做本地过滤）
-const materialOptions = ref<any[]>([])
-// el-select-v2 虚拟滚动选项（所有明细行共用，避免每行渲染全量 option）
-// 编码列与型号规格列共用同一选中值，仅展示格式不同
-const materialCodeOptions = computed(() =>
-  materialOptions.value.map((m: any) => ({
-    value: m.id,
-    label: m.code,
-    name: m.name,
-    specification: m.specification || '',
-  })),
-)
-const materialNameOptions = computed(() =>
-  materialOptions.value.map((m: any) => ({
-    value: m.id,
-    label: `${m.name}${m.specification ? ' / ' + m.specification : ''}`,
-  })),
-)
+// 每行独立的物料下拉选项（el-select-v2 虚拟滚动），避免各行已选物料混入别人的搜索结果
 const materialLoading = ref(false)
 const buyerOptions = ref<string[]>([])
 const unitOptions = ref<string[]>([])
@@ -71,16 +55,9 @@ function registerMaterials(items: any[]) {
   materials.value = [...materialMap.values()]
 }
 
-// 注册缓存并刷新下拉选项：选项 = 本次结果 + 明细行已选物料（去重）
-function syncMaterialOptions(list: any[]) {
-  registerMaterials(list)
-  const seen = new Set<number>()
-  const selected = form.items.map((it: any) => materialMap.get(it.materialId)).filter(Boolean)
-  materialOptions.value = [...list, ...selected].filter((m: any) => {
-    if (!m?.id || seen.has(m.id)) return false
-    seen.add(m.id)
-    return true
-  })
+// 物料下拉选项结构：编码 + 名称 + 型号规格
+function toCodeOption(m: any) {
+  return { value: m.id, label: m.code, name: m.name, specification: m.specification || '' }
 }
 
 function buildItemOptions() {
@@ -95,12 +72,17 @@ function buildItemOptions() {
   locationOptions.value = [...locs.entries()].map(([code, name]) => ({ code, name }))
 }
 
-async function searchMaterials(keyword: string) {
+// 按关键字搜索物料（不限定类别，编码/名称/型号规格任一命中）；结果只写入当前行的选项
+async function searchMaterials(keyword: string, row: any) {
+  if (!row) return
+  if (!keyword?.trim()) { row.__options = []; return }
   materialLoading.value = true
   try {
-    const res: any = await materialApi.options({ category: 'purchase', keyword, limit: 50 })
-    syncMaterialOptions(res.data || [])
+    const res: any = await materialApi.options({ keyword: keyword.trim(), limit: 500 })
+    const list = res.data || []
+    registerMaterials(list)
     buildItemOptions()
+    row.__options = list.map(toCodeOption)
   } catch { /* ignore */ } finally { materialLoading.value = false }
 }
 
@@ -120,7 +102,7 @@ function applyLocationToItems() { for (const it of form.items) it.location = hea
 function applyExpectedDateToItems() { for (const it of form.items) if (!it.expectedDate) it.expectedDate = form.expectedDate || '' }
 
 function addItem() {
-  form.items.push({ id: null, receivedQty: 0, materialId: null, quantity: 1, unit: '', unitPrice: 0, unitPriceText: '', taxIncluded: !!form.taxIncluded, taxRate: form.taxRate ?? 0, location: headerLocation.value || 'A01', expectedDate: form.expectedDate || '', remark: '', status: 'blank', sourceOrderNo: '' })
+  form.items.push({ id: null, receivedQty: 0, materialId: null, quantity: 1, unit: '', unitPrice: 0, unitPriceText: '', taxIncluded: !!form.taxIncluded, taxRate: form.taxRate ?? 0, location: headerLocation.value || 'A01', expectedDate: form.expectedDate || '', remark: '', status: 'blank', sourceOrderNo: '', __options: [] })
 }
 const selectedRows = ref<any[]>([])
 const itemsTableRef = ref()
@@ -138,7 +120,41 @@ function onMaterialChange(row: any, materialId: number) {
   row.unitPrice = m.cost ?? 0
   row.unitPriceText = m.cost ? String(m.cost) : ''
 }
+// 名称/型号规格列只读展示：优先取缓存，其次行上加载时带出的 material
+function rowMaterialName(row: any): string {
+  const m = materialMap.get(row.materialId) || row.material || null
+  return m?.name || ''
+}
+function rowMaterialSpec(row: any): string {
+  const m = materialMap.get(row.materialId) || row.material || null
+  return m?.specification || ''
+}
 function onUnitPriceInput(row: any) { const n = Number(row.unitPriceText); row.unitPrice = Number.isNaN(n) ? 0 : n }
+
+// 打开编码下拉时按当前行值过滤：有值→按编码重新搜索；无值→清空选项，避免显示无关结果
+function onCodeSelectVisible(open: boolean, row: any) {
+  if (!open) return
+  const m = materialMap.get(row.materialId)
+  if (m?.code) searchMaterials(m.code, row)
+  else row.__options = []
+}
+
+// 通用物料选择弹窗（混合模式：快捷下拉 + 弹窗浏览）
+const pickerVisible = ref(false)
+const pickerRowIndex = ref(-1)
+function openPicker(row: any) {
+  pickerRowIndex.value = form.items.indexOf(row)
+  pickerVisible.value = true
+}
+function onPickMaterial(m: any) {
+  const row = form.items[pickerRowIndex.value]
+  if (!row || !m) return
+  registerMaterials([m])
+  row.__options = [toCodeOption(m), ...(row.__options || [])]
+  row.materialId = m.id
+  onMaterialChange(row, m.id)
+  pickerVisible.value = false
+}
 
 async function loadBuyers() {
   try {
@@ -204,8 +220,9 @@ async function loadOrder(id: number) {
     remark: i.remark || '',
     status: i.status || 'blank',
     sourceOrderNo: i.sourceOrderNo || '',
+    __options: i.material ? [toCodeOption(i.material)] : [],
   })) || []
-  syncMaterialOptions([...materialOptions.value, ...(row.items || []).map((i: any) => i.material).filter(Boolean)])
+  registerMaterials((row.items || []).map((i: any) => i.material).filter(Boolean))
   const locs = new Set<string>((row.items || []).map((i: any) => i.location).filter(Boolean))
   headerLocation.value = locs.size === 1 ? [...locs][0] : ''
   isEditLoad.value = true
@@ -350,10 +367,10 @@ onMounted(async () => {
   window.addEventListener('beforeunload', handleBeforeUnload)
   const [sRes, mRes] = await Promise.all([
     supplierApi.list({ pageSize: 200 }),
-    materialApi.options({ category: 'purchase', limit: 200 }),
+    materialApi.options({ limit: 200 }),
   ])
   suppliers.value = sRes.data.items
-  syncMaterialOptions(mRes.data || [])
+  registerMaterials(mRes.data || [])
   buildItemOptions()
   loadBuyers()
   loadOrderOptions()
@@ -493,22 +510,29 @@ async function copyOrderNo() {
         <div style="width: 100%">
             <el-button size="small" type="primary" plain @click="addItem"><el-icon><Plus /></el-icon>添加明细</el-button>
             <el-button size="small" type="primary" plain style="margin-left: 8px" :disabled="selectedRows.length === 0" @click="removeSelected">删除选中</el-button>
-            <el-table ref="itemsTableRef" class="items-editor" :data="form.items" size="small" style="margin-top: 8px; width: 100%" @selection-change="(v: any[]) => selectedRows = v">
+            <el-table ref="itemsTableRef" class="items-editor" :data="form.items" size="small" border style="margin-top: 8px; width: 100%" @selection-change="(v: any[]) => selectedRows = v">
               <el-table-column type="selection" width="45" />
-              <el-table-column label="物料编码" min-width="115">
+              <el-table-column label="物料编码" min-width="145">
                 <template #default="{ row }">
-                  <el-select-v2 v-model="row.materialId" :options="materialCodeOptions" filterable remote reserve-keyword :remote-method="searchMaterials" :loading="materialLoading" placeholder="输入编码搜索" popper-class="mat-code-popper" style="width: 100%" @change="(v: number) => onMaterialChange(row, v)">
-                    <template #default="{ item }">
-                      <span>{{ item.label }}</span>
-                      <span style="margin-left: 10px; color: var(--el-text-color-secondary)">{{ item.name }}</span>
-                      <span v-if="item.specification" style="margin-left: 10px; color: var(--el-text-color-secondary)">{{ item.specification }}</span>
-                    </template>
-                  </el-select-v2>
+                  <div style="display: flex; align-items: center; gap: 2px">
+                    <el-select-v2 v-model="row.materialId" :options="row.__options || []" filterable remote reserve-keyword :remote-method="(q: string) => searchMaterials(q, row)" :loading="materialLoading" placeholder="输入编码搜索" popper-class="mat-code-popper" style="width: 100%; min-width: 0" @visible-change="(open: boolean) => onCodeSelectVisible(open, row)" @change="(v: number) => onMaterialChange(row, v)">
+                      <template #default="{ item }">
+                        <span>{{ item.label }}</span>
+                        <span style="margin-left: 10px; color: var(--el-text-color-secondary)">{{ item.name }}</span>
+                        <span v-if="item.specification" style="margin-left: 10px; color: var(--el-text-color-secondary)">{{ item.specification }}</span>
+                      </template>
+                      <template #empty>
+                        <div style="padding: 8px 12px; color: var(--el-text-color-secondary); font-size: 12px">输入编码/名称关键字搜索</div>
+                      </template>
+                    </el-select-v2>
+                    <el-button text size="small" title="打开物料选择器" style="flex-shrink: 0; padding: 2px" @click="openPicker(row)"><el-icon><Search /></el-icon></el-button>
+                  </div>
                 </template>
               </el-table-column>
               <el-table-column label="名称/型号规格" min-width="180">
                 <template #default="{ row }">
-                  <el-select-v2 v-model="row.materialId" :options="materialNameOptions" filterable remote reserve-keyword :remote-method="searchMaterials" :loading="materialLoading" placeholder="输入名称/规格搜索" popper-class="mat-code-popper" style="width: 100%" @change="(v: number) => onMaterialChange(row, v)" />
+                  <span>{{ rowMaterialName(row) }}</span>
+                  <span v-if="rowMaterialSpec(row)" style="margin-left: 6px; color: var(--el-text-color-secondary)">{{ rowMaterialSpec(row) }}</span>
                 </template>
               </el-table-column>
               <el-table-column label="单位" width="90">
@@ -518,14 +542,14 @@ async function copyOrderNo() {
                   </el-select>
                 </template>
               </el-table-column>
-              <el-table-column label="数量" width="85">
+              <el-table-column label="数量" width="85" align="right">
                 <template #default="{ row }">
                   <el-input-number v-model="row.quantity" :min="1" :controls="false" style="width: 100%" />
                 </template>
               </el-table-column>
-              <el-table-column label="单价" width="90">
+              <el-table-column label="单价" width="90" align="right">
                 <template #default="{ row }">
-                  <el-input v-model="row.unitPriceText" size="small" style="width: 100%" @input="onUnitPriceInput(row)" />
+                  <el-input v-model="row.unitPriceText" class="num-input" size="small" style="width: 100%" @input="onUnitPriceInput(row)" />
                 </template>
               </el-table-column>
               <el-table-column label="金额" width="85" align="right">
@@ -578,6 +602,8 @@ async function copyOrderNo() {
       </el-form>
     </div>
 
+    <MaterialPickerDialog v-model="pickerVisible" @select="onPickMaterial" />
+
     <el-dialog v-model="leaveDialogVisible" title="未保存的修改" width="420px" :close-on-click-modal="false" :append-to-body="true">
       <div style="line-height: 1.8">当前采购单有未保存的修改，是否保存后离开？</div>
       <template #footer>
@@ -602,21 +628,59 @@ async function copyOrderNo() {
   margin-bottom: 12px;
 }
 
-/* 明细行控件无边框：平时像纯文本，悬停/聚焦显示细线 */
+/* 明细表 Excel 网格风格：细线表格 + 紧凑单元格 + 全幅无边框输入，聚焦铜色选中感 */
+.items-editor {
+  --el-table-border-color: var(--erp-hairline);
+  --el-table-header-bg-color: var(--el-fill-color-light);
+  --el-table-row-hover-bg-color: var(--el-color-primary-light-9);
+  border: 1px solid var(--erp-hairline);
+}
+.items-editor :deep(.el-table__inner-wrapper::before),
+.items-editor :deep(.el-table__inner-wrapper::after),
+.items-editor :deep(.el-table__header th.el-table__cell),
+.items-editor :deep(.el-table__body td.el-table__cell) {
+  border-color: var(--erp-hairline);
+}
+.items-editor :deep(.el-table__cell) {
+  padding: 0;
+}
+.items-editor :deep(.el-table .cell) {
+  padding: 3px 4px;
+  line-height: 24px;
+}
+.items-editor :deep(.el-table th.el-table__cell) {
+  height: 28px;
+}
+.items-editor :deep(.el-table td.el-table__cell) {
+  height: 30px;
+}
+/* 单元格内控件：占满、无内边距、无圆角 */
 .items-editor :deep(.el-input__wrapper),
 .items-editor :deep(.el-select__wrapper) {
   box-shadow: none;
   background: transparent;
-  border-radius: 4px;
+  border-radius: 0;
+  padding: 0 2px;
+  min-height: 24px;
 }
 .items-editor :deep(.el-input__wrapper:hover),
 .items-editor :deep(.el-select__wrapper:hover) {
-  box-shadow: 0 0 0 1px var(--erp-hairline) inset;
+  box-shadow: none;
 }
 .items-editor :deep(.el-input__wrapper.is-focus),
 .items-editor :deep(.el-select__wrapper.is-focused) {
   box-shadow: 0 0 0 1px var(--erp-copper) inset;
   background: var(--el-fill-color-blank);
+}
+.items-editor :deep(.el-input-number .el-input__inner) {
+  text-align: right;
+}
+.items-editor :deep(.el-input-number__decrease),
+.items-editor :deep(.el-input-number__increase) {
+  display: none;
+}
+.items-editor :deep(.num-input .el-input__inner) {
+  text-align: right;
 }
 </style>
 
