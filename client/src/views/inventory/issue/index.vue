@@ -90,7 +90,9 @@ async function onBatchChange() {
     batchMaterialId: m.id,
     materialCode: m.material?.code,
     materialName: m.material?.name,
+    material: m.material,
     unit: m.unit || m.material?.unit,
+    issueUnit: m.unit || m.material?.unit,
     requiredQty: m.requiredQty,
     issuedQty: m.issuedQty ?? 0,
     location: m.material?.location || '',
@@ -102,13 +104,23 @@ async function onBatchChange() {
   recalc()
 }
 
+// 单据行可选计量单位（基本单位 + 转换单位）
+function rowUnitOptions(row: any): string[] {
+  const set = new Set<string>()
+  if (row.unit) set.add(row.unit)
+  if (row.material?.units) for (const u of row.material.units) set.add(u)
+  return [...set]
+}
+
 function recalc() {
   const qty = Number(form.issueQty) || 0
   const batchQty = Number(currentBatch.value?.quantity) || 0
   for (const line of detail.value) {
     const remain = line.requiredQty - line.issuedQty
     const perUnit = batchQty > 0 ? line.requiredQty / batchQty : 0
-    line.issueQty = Math.min(remain, Math.round(perUnit * qty * 100) / 100)
+    const baseSuggest = Math.min(remain, Math.round(perUnit * qty * 100) / 100)
+    const rate = line.material?.unitRates?.[line.issueUnit] || 1
+    line.issueQty = rate > 0 ? Math.round((baseSuggest / rate) * 100) / 100 : baseSuggest
   }
 }
 
@@ -119,7 +131,7 @@ async function submit() {
   }
   const items = detail.value
     .filter((l) => Number(l.issueQty) > 0)
-    .map((l) => ({ batchMaterialId: l.batchMaterialId, quantity: l.issueQty, location: l.location || undefined, batchNo: l.batchNo || undefined }))
+    .map((l) => ({ batchMaterialId: l.batchMaterialId, quantity: l.issueQty, unit: l.issueUnit || undefined, location: l.location || undefined, batchNo: l.batchNo || undefined }))
   if (items.length === 0) {
     ElMessage.warning('请填写发放数量')
     return
@@ -234,7 +246,13 @@ onMounted(async () => {
             <div>{{ row.materialCode }} - {{ row.materialName }}</div>
           </template>
         </el-table-column>
-        <el-table-column prop="unit" label="单位" width="70" />
+        <el-table-column label="单位" width="100">
+          <template #default="{ row }">
+            <el-select v-model="row.issueUnit" size="small" filterable allow-create default-first-option placeholder="单位" style="width: 100%">
+              <el-option v-for="u in rowUnitOptions(row)" :key="u" :label="u" :value="u" />
+            </el-select>
+          </template>
+        </el-table-column>
         <el-table-column label="库位" width="130">
           <template #default="{ row }">
             <el-select v-model="row.location" size="small" filterable allow-create default-first-option clearable placeholder="库位" style="width: 100%">

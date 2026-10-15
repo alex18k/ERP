@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { stockApi, warehouseApi, materialApi, stockTransactionTypeApi } from '../../../api'
 
@@ -15,7 +15,24 @@ const materials = ref<any[]>([])
 const materialLoading = ref(false)
 const materialMap = new Map<number, any>()
 const transactionTypes = ref<any[]>([])
-const form = reactive<any>({ materialId: null, warehouseId: null, batchNo: '', quantity: 1, transactionTypeId: null, effectiveDate: todayStr(), documentNo: '', lineNo: null, remark: '' })
+const form = reactive<any>({ materialId: null, warehouseId: null, batchNo: '', quantity: 1, unit: '', transactionTypeId: null, effectiveDate: todayStr(), documentNo: '', lineNo: null, remark: '' })
+
+// 选定物料的可用计量单位（基本单位 + 转换单位）
+const selectedMaterial = computed(() => (form.materialId ? materialMap.get(form.materialId) : null))
+const unitOptions = computed<string[]>(() => {
+  const m = selectedMaterial.value
+  const set = new Set<string>(['个', '件', '套', '台', '只', '箱', '包'])
+  if (m?.units) for (const u of m.units) set.add(u)
+  if (form.unit) set.add(form.unit)
+  return [...set]
+})
+const baseHint = computed(() => {
+  const m = selectedMaterial.value
+  if (!m?.unit || !form.unit || form.unit === m.unit) return ''
+  const rate = m.unitRates?.[form.unit] ?? 0
+  if (!rate) return ''
+  return `= ${Number(((Number(form.quantity) || 0) * rate).toFixed(6))} ${m.unit}`
+})
 
 function todayStr() {
   const d = new Date()
@@ -57,7 +74,7 @@ async function loadOptions() {
 }
 
 function openDialog() {
-  Object.assign(form, { materialId: null, warehouseId: null, batchNo: '', quantity: 1, transactionTypeId: null, effectiveDate: todayStr(), documentNo: '', lineNo: null, remark: '' })
+  Object.assign(form, { materialId: null, warehouseId: null, batchNo: '', quantity: 1, unit: '', transactionTypeId: null, effectiveDate: todayStr(), documentNo: '', lineNo: null, remark: '' })
   dialogVisible.value = true
 }
 
@@ -73,6 +90,7 @@ async function handleSubmit() {
     warehouseId: form.warehouseId,
     batchNo: form.batchNo || undefined,
     quantity: form.quantity,
+    unit: form.unit || undefined,
     transactionTypeId: form.transactionTypeId,
     effectiveDate: form.effectiveDate,
     documentNo: form.documentNo || undefined,
@@ -216,6 +234,12 @@ onMounted(async () => {
         </el-form-item>
         <el-form-item label="数量" required>
           <el-input-number v-model="form.quantity" :min="1" style="width: 100%" />
+          <div v-if="baseHint" class="unit-hint">{{ baseHint }}</div>
+        </el-form-item>
+        <el-form-item label="计量单位">
+          <el-select v-model="form.unit" filterable allow-create default-first-option clearable placeholder="默认基本单位" style="width: 100%">
+            <el-option v-for="u in unitOptions" :key="u" :label="u" :value="u" />
+          </el-select>
         </el-form-item>
         <el-form-item label="生效日期">
           <el-input v-model="form.effectiveDate" type="date" style="width: 100%" />
@@ -237,3 +261,11 @@ onMounted(async () => {
     </el-dialog>
   </div>
 </template>
+
+<style scoped>
+.unit-hint {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  margin-top: 2px;
+}
+</style>

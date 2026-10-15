@@ -1,6 +1,7 @@
 import prisma from "../config/prisma";
 import { Prisma } from "@prisma/client";
 import { localDateCompact } from "../utils/date";
+import { resolveUnitRate, toBaseQty } from "../utils/unit";
 
 // 生成库存事务单号：ST+日期+序号
 export async function generateStockDocNo(): Promise<string> {
@@ -200,7 +201,7 @@ export async function listBatches(where: any) {
   return { total, page: Number(page), pageSize: Number(pageSize), items };
 }
 
-export async function stockIn(data: { materialId: number; quantity: number; warehouseId: number; batchNo?: string; relatedType?: string; relatedId?: number; transactionTypeId?: number; effectiveDate?: string; documentNo?: string; lineNo?: number; remark?: string }, userId: number) {
+export async function stockIn(data: { materialId: number; quantity: number; unit?: string; warehouseId: number; batchNo?: string; relatedType?: string; relatedId?: number; transactionTypeId?: number; effectiveDate?: string; documentNo?: string; lineNo?: number; remark?: string }, userId: number) {
   if (data.quantity <= 0) throw new Error("入库数量必须大于0");
 
   const material = await prisma.material.findUnique({ where: { id: data.materialId } });
@@ -208,6 +209,10 @@ export async function stockIn(data: { materialId: number; quantity: number; ware
 
   const warehouse = await prisma.warehouse.findUnique({ where: { id: data.warehouseId } });
   if (!warehouse) throw new Error("仓库不存在");
+
+  // 计量单位换算：录入数量按换算率折算为基本单位后入库
+  const { rate } = await resolveUnitRate(data.materialId, data.unit);
+  const baseQty = toBaseQty(data.quantity, rate);
 
   const docNo = data.documentNo || (await generateStockDocNo());
 
@@ -218,20 +223,20 @@ export async function stockIn(data: { materialId: number; quantity: number; ware
       create: {
         materialId: data.materialId,
         warehouseId: data.warehouseId,
-        quantity: data.quantity,
+        quantity: baseQty,
         lastInDate: new Date(),
       },
-      update: { quantity: { increment: data.quantity }, lastInDate: new Date() },
+      update: { quantity: { increment: baseQty }, lastInDate: new Date() },
     });
 
-    const resolvedBatchNo = await applyBatchIn(tx, material, data.warehouseId, data.batchNo, data.quantity);
+    const resolvedBatchNo = await applyBatchIn(tx, material, data.warehouseId, data.batchNo, baseQty);
 
     await tx.stockRecord.create({
       data: {
         materialId: data.materialId,
         warehouseId: data.warehouseId,
         type: "in",
-        quantity: data.quantity,
+        quantity: baseQty,
         batchNo: resolvedBatchNo,
         relatedType: data.relatedType,
         relatedId: data.relatedId,
@@ -244,20 +249,25 @@ export async function stockIn(data: { materialId: number; quantity: number; ware
       },
     });
 
-    return { success: true, batchNo: resolvedBatchNo };
+    return { success: true, batchNo: resolvedBatchNo, baseQty };
   });
 }
 
-export async function stockOut(data: { materialId: number; quantity: number; warehouseId: number; batchNo?: string; relatedType?: string; relatedId?: number; transactionTypeId?: number; effectiveDate?: string; documentNo?: string; lineNo?: number; remark?: string }, userId: number) {
+export async function stockOut(data: { materialId: number; quantity: number; unit?: string; warehouseId: number; batchNo?: string; relatedType?: string; relatedId?: number; transactionTypeId?: number; effectiveDate?: string; documentNo?: string; lineNo?: number; remark?: string }, userId: number) {
   if (data.quantity <= 0) throw new Error("出库数量必须大于0");
 
   const material = await prisma.material.findUnique({ where: { id: data.materialId } });
   if (!material) throw new Error("物料不存在");
 
+  // 计量单位换算：录入数量按换算率折算为基本单位后出库
+  const { rate } = await resolveUnitRate(data.materialId, data.unit);
+  const baseQty = toBaseQty(data.quantity, rate);
+  if (baseQty <= 0) throw new Error("出库数量必须大于0");
+
   const stock = await prisma.stock.findFirst({
     where: { materialId: data.materialId, warehouseId: data.warehouseId },
   });
-  if (!stock || stock.quantity < data.quantity) {
+  if (!stock || stock.quantity < baseQty) {
     throw new Error(`库存不足，当前库存 ${stock?.quantity ?? 0}`);
   }
 
@@ -266,22 +276,22 @@ export async function stockOut(data: { materialId: number; quantity: number; war
   return prisma.$transaction(async (tx) => {
     // 条件递减：写入时原子校验库存充足，防止并发下扣成负数
     const updated = await tx.stock.updateMany({
-      where: { id: stock.id, quantity: { gte: data.quantity } },
-      data: { quantity: { decrement: data.quantity }, lastOutDate: new Date() },
+      where: { id: stock.id, quantity: { gte: baseQty } },
+      data: { quantity: { decrement: baseQty }, lastOutDate: new Date() },
     });
     if (updated.count === 0) {
       const fresh = await tx.stock.findUnique({ where: { id: stock.id } });
       throw new Error(`库存不足，当前库存 ${fresh?.quantity ?? 0}`);
     }
 
-    const resolvedBatchNo = await applyBatchOut(tx, material, data.warehouseId, data.batchNo, data.quantity);
+    const resolvedBatchNo = await applyBatchOut(tx, material, data.warehouseId, data.batchNo, baseQty);
 
     await tx.stockRecord.create({
       data: {
         materialId: data.materialId,
         warehouseId: data.warehouseId,
         type: "out",
-        quantity: data.quantity,
+        quantity: baseQty,
         batchNo: resolvedBatchNo,
         relatedType: data.relatedType,
         relatedId: data.relatedId,
@@ -295,7 +305,7 @@ export async function stockOut(data: { materialId: number; quantity: number; war
     });
 
     const after = await tx.stock.findUnique({ where: { id: stock.id } });
-    return { success: true, remainingQty: after?.quantity ?? 0, batchNo: resolvedBatchNo };
+    return { success: true, remainingQty: after?.quantity ?? 0, batchNo: resolvedBatchNo, baseQty };
   });
 }
 

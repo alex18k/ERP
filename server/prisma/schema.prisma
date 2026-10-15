@@ -133,8 +133,35 @@ model Material {
   mrpShortages        MrpShortage[]
   purchaseSuggestions PurchaseSuggestion[]
   batchMaterials      ProductionBatchMaterial[]
+  unitConversions     MaterialUnitConversion[]
 
   @@index([category, status])
+}
+
+// 计量单位换算：物料的转换单位与基本单位（Material.unit）之间的换算关系
+model MaterialUnitConversion {
+  id             Int      @id @default(autoincrement())
+  materialId     Int
+  material       Material @relation(fields: [materialId], references: [id])
+  unit           String // 转换单位（如 箱/包/吨）
+  conversionRate Float // 换算率：1 转换单位 = conversionRate 基本单位
+  remark         String?
+  status         Int      @default(1)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([materialId, unit])
+  @@index([materialId])
+}
+
+// 物料类别：物料主文件 materialType（物料类别）的可选值主数据
+model MaterialCategory {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  status    Int      @default(1)
+  remark    String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model Bom {
@@ -313,6 +340,8 @@ model SalesOrderItem {
   material     Material   @relation(fields: [materialId], references: [id])
   quantity     Float
   unit         String? // 计量单位（带出物料单位，可修改）
+  conversionRate Float?    @default(1) // 单位换算率快照：1 计量单位 = conversionRate 基本单位
+  baseQty        Float?    @default(0) // 换算后的基本单位数量
   unitPrice    Float?     @default(0)
   taxIncluded  Boolean    @default(false) // 是否含税（勾选时单价视为含税单价）
   taxRate      Float      @default(0) // 税率(%)
@@ -478,6 +507,8 @@ model PurchaseOrderItem {
   quantity     Float
   receivedQty  Float         @default(0)
   unit         String? // 计量单位（带出物料单位，可修改）
+  conversionRate Float       @default(1) // 单位换算率快照：1 计量单位 = conversionRate 基本单位
+  baseQty        Float       @default(0) // 换算后的基本单位数量
   unitPrice    Float?        @default(0)
   amount       Float?        @default(0)
   taxIncluded  Boolean       @default(false) // 是否含税

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
+import { ElMessage } from 'element-plus'
 import { purchaseApi, supplierApi } from '../../../api'
 
 const loading = ref(false)
@@ -78,6 +79,20 @@ function editOrder(orderId: number) {
   router.push(`/purchase/maintain?id=${orderId}`)
 }
 
+// 工具栏的编辑/打印作用于当前选中行（highlight-current-row 单选）
+const currentRow = ref<any | null>(null)
+function onCurrentChange(row: any | null) {
+  currentRow.value = row
+}
+function handleToolbarEdit() {
+  if (!currentRow.value) { ElMessage.warning('请先在表格中选择一行'); return }
+  editOrder(currentRow.value.orderId)
+}
+function handleToolbarPrint() {
+  if (!currentRow.value) { ElMessage.warning('请先在表格中选择一行'); return }
+  router.push(`/purchase/print?id=${currentRow.value.orderId}`)
+}
+
 function fmtPrice(v: any) {
   const n = Number(v)
   return n ? String(n) : ''
@@ -106,14 +121,12 @@ onMounted(async () => {
         <el-input v-model="query.materialKeyword" placeholder="物料编码/名称/规格" clearable style="width: 200px" />
         <el-button type="primary" @click="query.page = 1, loadData()"><el-icon><Search /></el-icon>查询</el-button>
         <el-button @click="Object.assign(query, { orderNo: '', supplierId: '', status: '', materialKeyword: '', page: 1 }), loadData()">重置</el-button>
-        <el-button style="margin-left: auto" type="success" plain class="btn-add" @click="router.push('/purchase/maintain')"><el-icon><Plus /></el-icon>新增采购单</el-button>
+        <el-button style="margin-left: auto" @click="handleToolbarEdit" :disabled="!currentRow"><el-icon><Edit /></el-icon>编辑</el-button>
+        <el-button @click="handleToolbarPrint" :disabled="!currentRow"><el-icon><Printer /></el-icon>打印</el-button>
+        <el-button type="success" plain class="btn-add" @click="router.push('/purchase/maintain')"><el-icon><Plus /></el-icon>新增采购单</el-button>
       </div>
 
-      <div class="table-toolbar">
-        <el-button @click="purchaseApi.exportCsv()"><el-icon><Download /></el-icon>导出</el-button>
-      </div>
-
-      <el-table :data="rows" v-loading="loading" stripe max-height="calc(100vh - 260px)">
+      <el-table :data="rows" v-loading="loading" stripe max-height="calc(100vh - 260px)" highlight-current-row @current-change="onCurrentChange">
         <el-table-column prop="orderNo" label="采购单号" width="150" />
         <el-table-column prop="supplierName" label="供应商" min-width="140" />
         <el-table-column prop="buyer" label="采购员" width="100" />
@@ -142,15 +155,10 @@ onMounted(async () => {
             <el-tag :type="statusType(row.status)" size="small">{{ statusLabel(row.status) }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="110" fixed="right">
-          <template #default="{ row }">
-            <el-button size="small" type="primary" link @click="editOrder(row.orderId)">编辑</el-button>
-            <el-button size="small" type="primary" link @click="router.push(`/purchase/print?id=${row.orderId}`)">打印</el-button>
-          </template>
-        </el-table-column>
       </el-table>
 
-      <div class="pagination-wrap">
+      <div class="pagination-wrap" style="justify-content: space-between">
+        <el-button @click="purchaseApi.exportCsv()"><el-icon><Download /></el-icon>导出</el-button>
         <el-pagination v-model:current-page="query.page" v-model:page-size="query.pageSize" :total="total" :page-sizes="[10, 20, 50]" layout="total, sizes, prev, pager, next" @change="loadData" />
       </div>
     </div>

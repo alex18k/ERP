@@ -105,13 +105,25 @@ export async function getMaterial(id: number) {
 }
 
 export async function listMaterialTypes(): Promise<string[]> {
-  const rows = await prisma.material.findMany({
-    where: { materialType: { not: null } },
-    distinct: ["materialType"],
-    select: { materialType: true },
-    orderBy: { materialType: "asc" },
-  });
-  return rows.map((r) => r.materialType).filter((t): t is string => !!t && t.trim().length > 0);
+  // 物料类别 = 类别主数据（基础数据→物料类别维护） ∪ 物料主文件中已使用的历史值
+  const [rows, cats] = await Promise.all([
+    prisma.material.findMany({
+      where: { materialType: { not: null } },
+      distinct: ["materialType"],
+      select: { materialType: true },
+    }),
+    prisma.materialCategory.findMany({ where: { status: 1 }, select: { name: true } }),
+  ]);
+  const set = new Set<string>();
+  for (const r of rows) {
+    const t = r.materialType?.trim();
+    if (t) set.add(t);
+  }
+  for (const c of cats) {
+    const t = c.name.trim();
+    if (t) set.add(t);
+  }
+  return [...set].sort((a, b) => a.localeCompare(b, "zh"));
 }
 
 export interface MaterialOptionWhere {
@@ -136,12 +148,33 @@ export async function listMaterialOptions(where: MaterialOptionWhere) {
       { materialType: kw },
     ];
   }
-  return prisma.material.findMany({
+  const materials = await prisma.material.findMany({
     where: filters,
     select: { id: true, code: true, name: true, specification: true, unit: true, location: true, cost: true, category: true, processRouteId: true },
     orderBy: { code: "asc" },
     take: Math.min(Number(limit) || 50, 500),
   });
+
+  // 附带每个物料的可用计量单位（基本单位 + 已维护的转换单位），供单据行单位下拉使用
+  const convs = materials.length
+    ? await prisma.materialUnitConversion.findMany({
+        where: { materialId: { in: materials.map((m) => m.id) }, status: 1 },
+        orderBy: { id: "asc" },
+      })
+    : [];
+  const unitMap = new Map<number, string[]>();
+  const rateMap = new Map<number, Record<string, number>>();
+  for (const c of convs) {
+    if (!unitMap.has(c.materialId)) unitMap.set(c.materialId, []);
+    unitMap.get(c.materialId)!.push(c.unit);
+    if (!rateMap.has(c.materialId)) rateMap.set(c.materialId, {});
+    rateMap.get(c.materialId)![c.unit] = c.conversionRate;
+  }
+  return materials.map((m) => ({
+    ...m,
+    units: [m.unit, ...(unitMap.get(m.id) ?? [])],
+    unitRates: { [m.unit]: 1, ...(rateMap.get(m.id) ?? {}) },
+  }));
 }
 
 export async function createMaterial(data: MaterialCreateInput) {

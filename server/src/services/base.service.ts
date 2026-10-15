@@ -217,3 +217,130 @@ export const stockTransactionTypeService = {
     return true;
   },
 };
+
+// ===== 计量单位换算 =====
+const materialRef = { select: { id: true, code: true, name: true, unit: true } };
+
+export const unitConversionService = {
+  list: async (where: any) => {
+    const { page = 1, pageSize = 20, keyword, materialId } = where;
+    const filters: Record<string, any> = {};
+    if (materialId) filters.materialId = Number(materialId);
+    if (keyword) {
+      filters.OR = [
+        { unit: { contains: keyword } },
+        { material: { code: { contains: keyword } } },
+        { material: { name: { contains: keyword } } },
+      ];
+    }
+    const [total, items] = await Promise.all([
+      prisma.materialUnitConversion.count({ where: filters }),
+      prisma.materialUnitConversion.findMany({
+        where: filters,
+        include: { material: materialRef },
+        orderBy: { id: "desc" },
+        skip: (Number(page) - 1) * Number(pageSize),
+        take: Number(pageSize),
+      }),
+    ]);
+    return { total, page: Number(page), pageSize: Number(pageSize), items };
+  },
+  get: (id: number) =>
+    prisma.materialUnitConversion.findUnique({ where: { id }, include: { material: materialRef } }),
+  create: async (data: any) => {
+    const materialId = Number(data.materialId);
+    if (!materialId) throw new Error("请选择物料");
+    const material = await prisma.material.findUnique({ where: { id: materialId } });
+    if (!material) throw new Error("物料不存在");
+    const unit = String(data.unit ?? "").trim();
+    if (!unit) throw new Error("请输入转换单位");
+    if (unit === material.unit) throw new Error("转换单位不能与基本单位相同");
+    const conversionRate = Number(data.conversionRate);
+    if (!(conversionRate > 0)) throw new Error("换算率必须大于 0");
+    const dup = await prisma.materialUnitConversion.findFirst({ where: { materialId, unit } });
+    if (dup) throw new Error("该物料已存在相同的转换单位");
+    return prisma.materialUnitConversion.create({
+      data: { materialId, unit, conversionRate, remark: data.remark ?? null, status: data.status ?? 1 },
+    });
+  },
+  update: async (id: number, data: any) => {
+    const exists = await prisma.materialUnitConversion.findUnique({ where: { id } });
+    if (!exists) throw new Error("换算关系不存在");
+    const materialId = data.materialId ? Number(data.materialId) : exists.materialId;
+    const material = await prisma.material.findUnique({ where: { id: materialId } });
+    if (!material) throw new Error("物料不存在");
+    const unit = data.unit !== undefined ? String(data.unit).trim() : exists.unit;
+    if (!unit) throw new Error("请输入转换单位");
+    if (unit === material.unit) throw new Error("转换单位不能与基本单位相同");
+    const conversionRate = data.conversionRate !== undefined ? Number(data.conversionRate) : exists.conversionRate;
+    if (!(conversionRate > 0)) throw new Error("换算率必须大于 0");
+    const dup = await prisma.materialUnitConversion.findFirst({ where: { materialId, unit, NOT: { id } } });
+    if (dup) throw new Error("该物料已存在相同的转换单位");
+    return prisma.materialUnitConversion.update({
+      where: { id },
+      data: { materialId, unit, conversionRate, remark: data.remark !== undefined ? data.remark : exists.remark, status: data.status ?? exists.status },
+    });
+  },
+  remove: async (id: number) => {
+    const exists = await prisma.materialUnitConversion.findUnique({ where: { id } });
+    if (!exists) throw new Error("换算关系不存在");
+    await prisma.materialUnitConversion.delete({ where: { id } });
+    return true;
+  },
+};
+
+// ===== 物料类别 =====
+export const materialCategoryService = {
+  list: async (where: any) => {
+    const { page = 1, pageSize = 20, keyword, status } = where;
+    const filters: Record<string, any> = {};
+    if (keyword) filters.name = { contains: keyword };
+    if (status !== undefined && status !== "" && status !== null) filters.status = Number(status);
+    const [total, items] = await Promise.all([
+      prisma.materialCategory.count({ where: filters }),
+      prisma.materialCategory.findMany({
+        where: filters,
+        orderBy: { name: "asc" },
+        skip: (Number(page) - 1) * Number(pageSize),
+        take: Number(pageSize),
+      }),
+    ]);
+    return { total, page: Number(page), pageSize: Number(pageSize), items };
+  },
+  get: (id: number) => prisma.materialCategory.findUnique({ where: { id } }),
+  create: async (data: any) => {
+    const name = String(data.name ?? "").trim();
+    if (!name) throw new Error("请输入物料类别名称");
+    const dup = await prisma.materialCategory.findUnique({ where: { name } });
+    if (dup) throw new Error("该物料类别已存在");
+    return prisma.materialCategory.create({
+      data: { name, status: data.status ?? 1, remark: data.remark ?? null },
+    });
+  },
+  update: async (id: number, data: any) => {
+    const exists = await prisma.materialCategory.findUnique({ where: { id } });
+    if (!exists) throw new Error("物料类别不存在");
+    const name = data.name !== undefined ? String(data.name).trim() : exists.name;
+    if (!name) throw new Error("请输入物料类别名称");
+    const dup = await prisma.materialCategory.findFirst({ where: { name, NOT: { id } } });
+    if (dup) throw new Error("该物料类别已存在");
+    const status = data.status !== undefined ? data.status : exists.status;
+    const remark = data.remark !== undefined ? data.remark : exists.remark;
+    return prisma.$transaction(async (tx) => {
+      const updated = await tx.materialCategory.update({ where: { id }, data: { name, status, remark } });
+      // 重命名时同步物料主文件中引用该类别名称的记录，避免类别名与物料数据不一致
+      if (name !== exists.name) {
+        await tx.material.updateMany({ where: { materialType: exists.name }, data: { materialType: name } });
+      }
+      return updated;
+    });
+  },
+  remove: async (id: number) => {
+    const exists = await prisma.materialCategory.findUnique({ where: { id } });
+    if (!exists) throw new Error("物料类别不存在");
+    const used = await prisma.material.count({ where: { materialType: exists.name } });
+    if (used > 0) throw new Error(`该类别已被 ${used} 个物料使用，无法删除`);
+    await prisma.materialCategory.delete({ where: { id } });
+    return true;
+  },
+};

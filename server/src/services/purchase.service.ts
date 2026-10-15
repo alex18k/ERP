@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { localDateCompact } from "../utils/date";
 import { retryOnDuplicate, lockOrderNo, ORDER_NO_LOCK } from "../utils/retry";
 import { applyBatchIn } from "./stock.service";
+import { resolveUnitRateMap, toBaseQty } from "../utils/unit";
 
 export async function generatePurchaseOrderNo(): Promise<string> {
   const dateStr = localDateCompact();
@@ -130,6 +131,9 @@ export async function createPurchaseOrder(data: PurchaseOrderInput, userId: numb
   const totalAmount = data.items.reduce((s, i) => s + i.quantity * (i.unitPrice ?? 0), 0);
   const settleMethod = data.settleMethod ?? supplier?.settleMethod ?? null;
 
+  // 计量单位换算率（按明细行的计量单位解析，折算为基本单位数量入库/统计）
+  const rateMap = await resolveUnitRateMap(data.items.map((i) => ({ materialId: i.materialId, unit: i.unit })));
+
   // 单号在事务内生成；并发撞 @unique 时整体重试并换单号
   return retryOnDuplicate(() =>
     prisma.$transaction(async (tx) => {
@@ -153,6 +157,7 @@ export async function createPurchaseOrder(data: PurchaseOrderInput, userId: numb
       });
 
       for (const [idx, item] of data.items.entries()) {
+        const rate = rateMap.get(item.materialId)?.rate ?? 1;
         await tx.purchaseOrderItem.create({
           data: {
             orderId: po.id,
@@ -160,6 +165,8 @@ export async function createPurchaseOrder(data: PurchaseOrderInput, userId: numb
             line: item.line && item.line > 0 ? item.line : idx + 1,
             quantity: item.quantity,
             unit: item.unit || null,
+            conversionRate: rate,
+            baseQty: toBaseQty(item.quantity, rate),
             unitPrice: item.unitPrice ?? 0,
             amount: item.quantity * (item.unitPrice ?? 0),
             taxIncluded: item.taxIncluded ?? false,
@@ -201,6 +208,9 @@ export async function updatePurchaseOrder(id: number, data: PurchaseOrderInput) 
   const existingItems = await prisma.purchaseOrderItem.findMany({ where: { orderId: id } });
   const receivedById = new Map(existingItems.map((it) => [it.id, it.receivedQty]));
 
+  // 计量单位换算率（按明细行的计量单位解析）
+  const rateMap = await resolveUnitRateMap(data.items.map((i) => ({ materialId: i.materialId, unit: i.unit })));
+
   // 已收货明细的数量不能再改小，否则会出现 已收 > 订购 的矛盾数据
   for (const item of data.items) {
     if (!item.id) continue;
@@ -213,6 +223,7 @@ export async function updatePurchaseOrder(id: number, data: PurchaseOrderInput) 
   return prisma.$transaction(async (tx) => {
     await tx.purchaseOrderItem.deleteMany({ where: { orderId: id } });
     for (const [idx, item] of data.items.entries()) {
+      const rate = rateMap.get(item.materialId)?.rate ?? 1;
       await tx.purchaseOrderItem.create({
         data: {
           orderId: id,
@@ -221,6 +232,8 @@ export async function updatePurchaseOrder(id: number, data: PurchaseOrderInput) 
           quantity: item.quantity,
           receivedQty: item.id ? (receivedById.get(item.id) ?? 0) : 0,
           unit: item.unit || null,
+          conversionRate: rate,
+          baseQty: toBaseQty(item.quantity, rate),
           unitPrice: item.unitPrice ?? 0,
           amount: item.quantity * (item.unitPrice ?? 0),
           taxIncluded: item.taxIncluded ?? false,
@@ -377,6 +390,9 @@ export async function receivePurchaseOrder(
         throw new Error(`收货数量不能超过未收数量（${remaining}）`);
       }
 
+      // 换算为基本单位入库（换算率取下单时快照）
+      const baseQty = toBaseQty(qty, item.conversionRate || 1);
+
       // 原子累加收货量：写入时校验 receivedQty + qty <= quantity，并发下不会超收
       const updatedRows = await tx.$executeRaw`
         UPDATE "PurchaseOrderItem"
@@ -402,7 +418,7 @@ export async function receivePurchaseOrder(
       if (stock) {
         await tx.stock.update({
           where: { id: stock.id },
-          data: { quantity: { increment: qty }, lastInDate: new Date() },
+          data: { quantity: { increment: baseQty }, lastInDate: new Date() },
         });
         warehouseId = stock.warehouseId;
       } else {
@@ -412,15 +428,15 @@ export async function receivePurchaseOrder(
           create: {
             materialId: item.materialId,
             warehouseId: wh,
-            quantity: qty,
+            quantity: baseQty,
             lastInDate: new Date(),
           },
-          update: { quantity: { increment: qty }, lastInDate: new Date() },
+          update: { quantity: { increment: baseQty }, lastInDate: new Date() },
         });
         warehouseId = wh;
       }
 
-      const resolvedBatchNo = await applyBatchIn(tx, item.material, warehouseId, receiptsByItem.get(item.id)?.batchNo, qty);
+      const resolvedBatchNo = await applyBatchIn(tx, item.material, warehouseId, receiptsByItem.get(item.id)?.batchNo, baseQty);
 
       // 库存流水
       await tx.stockRecord.create({
@@ -428,7 +444,7 @@ export async function receivePurchaseOrder(
           materialId: item.materialId,
           warehouseId,
           type: "in",
-          quantity: qty,
+          quantity: baseQty,
           batchNo: resolvedBatchNo,
           relatedType: "PurchaseOrder",
           relatedId: po.id,

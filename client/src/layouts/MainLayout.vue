@@ -29,6 +29,8 @@ const menuItems: MenuNode[] = [
       { path: '/base/bom', title: 'BOM管理', icon: 'List' },
       { path: '/base/bom-cost', title: 'BOM成本', icon: 'List' },
       { path: '/base/process-route', title: '工艺路线', icon: 'SetUp' },
+      { path: '/base/unit-conversion', title: '计量单位维护', icon: 'ScaleToOriginal' },
+      { path: '/base/material-category', title: '物料类别维护', icon: 'CollectionTag' },
     ],
   },
   {
@@ -232,28 +234,28 @@ async function handleLogout() {
   height: 100vh;
 }
 
-/* ---------- 侧边栏：浅银灰渐变（QH 风格） ---------- */
+/* ---------- 侧边栏：深海军蓝（HD 风格） ---------- */
 .aside {
-  background: linear-gradient(180deg, #eef0f3 0%, #e3e6ea 100%);
-  border-right: 1px solid #cfd3d9;
+  background: var(--erp-navy);
+  border-right: none;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
 }
 
 .aside::-webkit-scrollbar { width: 4px; }
-.aside::-webkit-scrollbar-thumb { background: rgba(0, 0, 0, 0.15); }
+.aside::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.12); }
 
 .logo {
   display: flex;
   align-items: center;
   gap: 10px;
   padding: 16px 16px;
-  color: #2b3238;
+  color: #FFFFFF;
   font-weight: 700;
   font-size: 15px;
   letter-spacing: 0.04em;
-  border-bottom: 1px solid #d3d7dc;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   flex-shrink: 0;
 }
 
@@ -264,7 +266,7 @@ async function handleLogout() {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--erp-copper);
+  background: var(--erp-primary);
   border-radius: 8px;
   color: #fff;
 }
@@ -273,7 +275,7 @@ async function handleLogout() {
 
 .logo-tick {
   margin-left: auto;
-  color: var(--erp-copper);
+  color: var(--erp-navy-active);
   opacity: 0.85;
 }
 
@@ -283,9 +285,9 @@ async function handleLogout() {
   background: transparent;
   padding: 8px 0;
   --el-menu-bg-color: transparent;
-  --el-menu-text-color: #4a525a;
-  --el-menu-hover-bg-color: rgba(255, 255, 255, 0.75);
-  --el-menu-active-color: var(--erp-copper-active);
+  --el-menu-text-color: #B9C6D6;
+  --el-menu-hover-bg-color: #16324D;
+  --el-menu-active-color: #4DA3FF;
   --el-menu-item-height: 40px;
   --el-menu-sub-item-height: 38px;
 }
@@ -295,52 +297,55 @@ async function handleLogout() {
   height: 40px;
   line-height: 40px;
   margin: 1px 8px;
-  border-radius: 8px;
-  color: #4a525a;
+  border-radius: 6px;
+  color: #B9C6D6;
   font-size: 13.5px;
   transition: background-color 0.15s ease, color 0.15s ease;
 }
 
 .side-menu :deep(.el-menu-item .el-icon),
 .side-menu :deep(.el-sub-menu__title .el-icon) {
-  color: #8a9199;
+  color: #8A9BAB;
 }
 
 .side-menu :deep(.el-menu-item:hover),
 .side-menu :deep(.el-sub-menu__title:hover) {
-  background: rgba(255, 255, 255, 0.8);
-  color: #1d2622;
+  background: #16324D;
+  color: #FFFFFF;
 }
 
 .side-menu :deep(.el-menu-item:hover .el-icon),
 .side-menu :deep(.el-sub-menu__title:hover .el-icon) {
-  color: #1d2622;
+  color: #FFFFFF;
 }
 
 .side-menu :deep(.el-menu-item.is-active) {
-  background: linear-gradient(90deg, rgba(162, 87, 42, 0.14), rgba(162, 87, 42, 0.05));
-  color: var(--erp-copper-active);
+  background: rgba(22, 93, 255, 0.22);
+  color: #4DA3FF;
   font-weight: 600;
-  box-shadow: inset 3px 0 0 0 var(--erp-copper);
 }
 
 .side-menu :deep(.el-menu-item.is-active .el-icon) {
-  color: var(--erp-copper);
+  color: #4DA3FF;
 }
 
 /* 子菜单内联层 */
-.side-menu :deep(.el-sub-menu .el-menu) { background: transparent; }
+.side-menu :deep(.el-sub-menu .el-menu) { background: #0B1B2B; }
 .side-menu :deep(.el-sub-menu .el-menu-item) {
-  background: rgba(0, 0, 0, 0.035);
+  background: transparent;
   margin: 1px 8px;
   padding-left: 34px !important;
   transition: background-color 0.15s ease, color 0.15s ease;
 }
 
+.side-menu :deep(.el-sub-menu .el-menu-item:hover) {
+  background: #16324D;
+  color: #FFFFFF;
+}
+
 .side-menu :deep(.el-sub-menu .el-menu-item.is-active) {
-  background: linear-gradient(90deg, rgba(162, 87, 42, 0.12), rgba(162, 87, 42, 0.04));
-  color: var(--erp-copper-active);
-  box-shadow: inset 3px 0 0 0 var(--erp-copper);
+  background: rgba(22, 93, 255, 0.22);
+  color: #4DA3FF;
 }
 
 .aside-foot {
@@ -350,9 +355,9 @@ async function handleLogout() {
   gap: 8px;
   padding: 12px 16px;
   font-size: 12px;
-  color: #8a9199;
+  color: #7A93B0;
   letter-spacing: 0.08em;
-  border-top: 1px solid #d3d7dc;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .foot-lamp {

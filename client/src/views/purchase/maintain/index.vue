@@ -136,6 +136,25 @@ function rowMaterialName(row: any): string {
   const m = materialMap.get(row.materialId) || row.material || null
   return m?.name || ''
 }
+// 单据行可选计量单位：物料基本单位 + 已维护的转换单位（含当前行单位）
+function rowUnitOptions(row: any): string[] {
+  const m = materialMap.get(row.materialId) || row.material || null
+  const set = new Set<string>(unitOptions.value)
+  if (m?.units) for (const u of m.units) set.add(u)
+  if (row.unit) set.add(row.unit)
+  return [...set]
+}
+// 换算提示：录入单位≠基本单位时，显示折算后的基本单位数量
+function rowBaseHint(row: any): string {
+  const m = materialMap.get(row.materialId) || row.material || null
+  if (!m?.unit) return ''
+  const u = row.unit || m.unit
+  if (u === m.unit) return ''
+  const rate = m.unitRates?.[u] ?? 0
+  if (!rate) return ''
+  const base = (Number(row.quantity) || 0) * rate
+  return `= ${Number(base.toFixed(6))} ${m.unit}`
+}
 function rowMaterialSpec(row: any): string {
   const m = materialMap.get(row.materialId) || row.material || null
   return m?.specification || ''
@@ -446,15 +465,15 @@ async function copyOrderNo() {
           <div class="kd-grid">
             <div class="kd-field">
               <el-form-item label="采购单号">
-                <div class="kd-inline">
-                  <el-select-v2 v-model="selectedOrderId" filterable clearable placeholder="选择采购单号编辑，留空为新增" class="kd-flex" :options="orderFilterOptions" :filter-method="filterOrderOptions" @change="(v: any) => onOrderSelect(v)">
+                <div class="kd-inline kd-order-no">
+                  <el-select-v2 v-model="selectedOrderId" filterable clearable placeholder="选择采购单号，留空为新增" class="kd-flex" :options="orderFilterOptions" :filter-method="filterOrderOptions" @change="(v: any) => onOrderSelect(v)">
                     <template #default="{ item }">
                       <span>{{ item.label }}</span>
                       <span style="color: var(--el-text-color-secondary); margin-left: 8px">{{ item.supplier }}</span>
                     </template>
                   </el-select-v2>
                   <el-tooltip v-if="form.orderNo" content="复制采购单号">
-                    <el-button size="small" text type="primary" @click="copyOrderNo"><el-icon><CopyDocument /></el-icon></el-button>
+                    <el-button size="small" text type="primary" class="kd-copy-btn" @click="copyOrderNo"><el-icon><CopyDocument /></el-icon></el-button>
                   </el-tooltip>
                 </div>
               </el-form-item>
@@ -564,13 +583,14 @@ async function copyOrderNo() {
               <el-table-column label="单位" width="90">
                 <template #default="{ row }">
                   <el-select v-model="row.unit" filterable allow-create default-first-option placeholder="单位" style="width: 100%">
-                    <el-option v-for="u in unitOptions" :key="u" :label="u" :value="u" />
+                    <el-option v-for="u in rowUnitOptions(row)" :key="u" :label="u" :value="u" />
                   </el-select>
                 </template>
               </el-table-column>
               <el-table-column label="数量" width="85" align="right">
                 <template #default="{ row }">
                   <el-input-number v-model="row.quantity" :min="1" :controls="false" style="width: 100%" />
+                  <div v-if="rowBaseHint(row)" class="unit-hint">{{ rowBaseHint(row) }}</div>
                 </template>
               </el-table-column>
               <el-table-column label="单价" width="90" align="right">
@@ -639,11 +659,19 @@ async function copyOrderNo() {
 </template>
 
 <style scoped>
+.unit-hint {
+  font-size: 11px;
+  line-height: 1.2;
+  color: var(--el-text-color-secondary);
+  margin-top: 2px;
+}
 .erp-group {
-  border: 1px solid var(--el-border-color);
+  border: 1px solid #D5DAE2;
+  border-left: 3px solid var(--erp-primary);
   border-radius: 6px;
   padding: 8px 12px 2px;
   margin-bottom: 12px;
+  background: #FAFBFC;
 }
 .erp-group-title {
   font-weight: 600;
@@ -682,6 +710,21 @@ async function copyOrderNo() {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+/* 采购单号：下拉占满整格（与供应商同宽），复制按钮浮在右侧不占宽度 */
+.kd-order-no {
+  position: relative;
+  width: 100%;
+}
+.kd-order-no :deep(.el-select__wrapper) {
+  padding-right: 26px;
+}
+.kd-order-no .kd-copy-btn {
+  position: absolute;
+  right: 22px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 1;
 }
 .kd-flex {
   width: 100%;

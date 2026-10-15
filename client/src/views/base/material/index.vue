@@ -11,6 +11,14 @@ const query = reactive({ page: 1, pageSize: 20, code: '', name: '', materialType
 
 const categoryOptions = MATERIAL_CATEGORIES
 
+function fmtDateTime(v?: string | Date | null) {
+  if (!v) return ''
+  const d = new Date(v)
+  if (Number.isNaN(d.getTime())) return String(v)
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
+}
+
 async function loadData() {
   loading.value = true
   try {
@@ -233,6 +241,7 @@ onMounted(() => {
             <span v-if="row.processRoute">{{ row.processRoute.code }} - {{ row.processRoute.name }}</span>
           </template>
         </el-table-column>
+        <el-table-column prop="createdAt" label="创建日期" width="150" :formatter="(row: any) => fmtDateTime(row.createdAt)" />
         <el-table-column label="操作" width="110" fixed="right">
           <template #default="{ row }">
             <el-button size="small" type="primary" link @click="openDialog(row)">编辑</el-button>
@@ -285,7 +294,7 @@ onMounted(() => {
         <el-row :gutter="16">
           <el-col :span="12">
             <el-form-item label="物料类别">
-              <el-select v-model="form.materialType" filterable allow-create default-first-option clearable placeholder="选择或输入类别" :fit-input-width="false" style="width: 100%">
+              <el-select v-model="form.materialType" filterable clearable placeholder="选择物料类别（在基础数据→物料类别维护中新增）" :fit-input-width="false" style="width: 100%">
                 <el-option v-for="t in typeOptions" :key="t" :label="t" :value="t" />
               </el-select>
             </el-form-item>

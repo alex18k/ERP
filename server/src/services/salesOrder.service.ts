@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { localDateCompact } from "../utils/date";
 import { retryOnDuplicate, lockOrderNo, ORDER_NO_LOCK } from "../utils/retry";
 import { applyBatchOut } from "./stock.service";
+import { resolveUnitRateMap, toBaseQty } from "../utils/unit";
 
 export interface SalesOrderCreateInput {
   customerId?: number;
@@ -156,6 +157,9 @@ export async function createOrder(data: SalesOrderCreateInput, userId: number) {
 
   const totalAmount = data.items.reduce((sum, item) => sum + (item.quantity * (item.unitPrice ?? 0)), 0);
 
+  // 计量单位换算率（按明细行的计量单位解析，换算为基本单位用于库存/MRP）
+  const rateMap = await resolveUnitRateMap(data.items.map((i) => ({ materialId: i.materialId, unit: i.unit })));
+
   // 单号在事务内生成；并发撞 @unique 时整体重试并换单号
   return retryOnDuplicate(() =>
     prisma.$transaction(async (tx) => {
@@ -184,12 +188,16 @@ export async function createOrder(data: SalesOrderCreateInput, userId: number) {
 
       for (const item of data.items) {
         const amount = item.quantity * (item.unitPrice ?? 0);
+        const info = rateMap.get(item.materialId);
+        const rate = info?.rate ?? 1;
         await tx.salesOrderItem.create({
           data: {
             orderId: order.id,
             materialId: item.materialId,
             quantity: item.quantity,
-            unit: item.unit || (await tx.material.findUnique({ where: { id: item.materialId }, select: { unit: true } }))?.unit || null,
+            unit: item.unit || info?.baseUnit || null,
+            conversionRate: rate,
+            baseQty: toBaseQty(item.quantity, rate),
             unitPrice: item.unitPrice ?? 0,
             taxIncluded: Boolean(item.taxIncluded),
             taxRate: Number(item.taxRate ?? 0),
@@ -216,6 +224,10 @@ export async function updateOrder(id: number, data: Partial<SalesOrderCreateInpu
     throw new Error("已发货或已取消的订单不能修改");
   }
   assertDeliveryNotBeforeOrder(data.orderDate ?? exists.orderDate, data.deliveryDate ?? exists.deliveryDate);
+
+  const rateMap = data.items
+    ? await resolveUnitRateMap(data.items.map((i) => ({ materialId: i.materialId, unit: i.unit })))
+    : null;
 
   return prisma.$transaction(async (tx) => {
     const totalAmount = data.items
@@ -246,12 +258,16 @@ export async function updateOrder(id: number, data: Partial<SalesOrderCreateInpu
       await tx.salesOrderItem.deleteMany({ where: { orderId: id } });
       for (const item of data.items) {
         const amount = item.quantity * (item.unitPrice ?? 0);
+        const info = rateMap?.get(item.materialId);
+        const rate = info?.rate ?? 1;
         await tx.salesOrderItem.create({
           data: {
             orderId: id,
             materialId: item.materialId,
             quantity: item.quantity,
-            unit: item.unit || (await tx.material.findUnique({ where: { id: item.materialId }, select: { unit: true } }))?.unit || null,
+            unit: item.unit || info?.baseUnit || null,
+            conversionRate: rate,
+            baseQty: toBaseQty(item.quantity, rate),
             unitPrice: item.unitPrice ?? 0,
             taxIncluded: Boolean(item.taxIncluded),
             taxRate: Number(item.taxRate ?? 0),
@@ -375,9 +391,10 @@ export async function shipOrder(id: number, userId: number) {
 
       // 制造类成品发货自动出库（有库存则扣减）
       if (item.material.category === "manufacture") {
+        const shipBase = item.baseQty && item.baseQty > 0 ? item.baseQty : item.quantity;
         const stock = await tx.stock.findFirst({ where: { materialId: item.materialId, quantity: { gt: 0 } }, orderBy: { quantity: "desc" } });
         if (stock && stock.quantity > 0) {
-          const deduct = Math.min(item.quantity, stock.quantity);
+          const deduct = Math.min(shipBase, stock.quantity);
           const stockUpd = await tx.stock.updateMany({
             where: { id: stock.id, quantity: { gte: deduct } },
             data: { quantity: { decrement: deduct }, lastOutDate: new Date() },
@@ -479,28 +496,31 @@ export async function shipOrderItems(
     for (const [idx, line] of data.items.entries()) {
       const item = itemMap.get(line.itemId)!;
 
+      // 换算为基本单位出库（换算率取订单明细快照）
+      const baseQty = toBaseQty(line.quantity, item.conversionRate || 1);
+
       // 扣减库存
       const stock = await tx.stock.findFirst({
         where: { materialId: item.materialId, warehouseId: line.warehouseId },
       });
-      if (!stock || stock.quantity < line.quantity) {
+      if (!stock || stock.quantity < baseQty) {
         throw new Error(`${item.material?.code ?? item.materialId} 库存不足（当前 ${stock?.quantity ?? 0}）`);
       }
       const stockUpd = await tx.stock.updateMany({
-        where: { id: stock.id, quantity: { gte: line.quantity } },
-        data: { quantity: { decrement: line.quantity }, lastOutDate: new Date() },
+        where: { id: stock.id, quantity: { gte: baseQty } },
+        data: { quantity: { decrement: baseQty }, lastOutDate: new Date() },
       });
       if (stockUpd.count === 0) {
         const fresh = await tx.stock.findUnique({ where: { id: stock.id } });
         throw new Error(`${item.material?.code ?? item.materialId} 库存不足（当前 ${fresh?.quantity ?? 0}）`);
       }
-      const resolvedBatchNo = await applyBatchOut(tx, item.material, line.warehouseId, line.batchNo, line.quantity);
+      const resolvedBatchNo = await applyBatchOut(tx, item.material, line.warehouseId, line.batchNo, baseQty);
       await tx.stockRecord.create({
         data: {
           materialId: item.materialId,
           warehouseId: line.warehouseId,
           type: "out",
-          quantity: line.quantity,
+          quantity: baseQty,
           batchNo: resolvedBatchNo,
           relatedType: "sales-order",
           relatedId: id,
