@@ -488,6 +488,7 @@ model PurchaseOrderItem {
   remark       String?
   suggestionId Int?
   sourceOrderNo String? // 需求来源订单号
+  line         Int           @default(0) // 行号（单内明细序号，从 1 开始）
 
   @@index([orderId])
   @@index([materialId])

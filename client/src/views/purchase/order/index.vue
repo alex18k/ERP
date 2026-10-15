@@ -58,6 +58,7 @@ const rows = computed(() => {
         buyer: o.buyer,
         status: o.status,
         orderDate: o.orderDate,
+        line: it.line || 0,
         materialCode: m?.code,
         materialName: m?.name,
         specification: m?.specification,
@@ -120,6 +121,7 @@ onMounted(async () => {
           <template #default="{ row }">{{ row.orderDate?.slice(0, 10) || '-' }}</template>
         </el-table-column>
         <el-table-column prop="settleMethod" label="结算方式" width="100" />
+        <el-table-column prop="line" label="行号" width="60" align="center" />
         <el-table-column prop="materialCode" label="物料编码" width="110" />
         <el-table-column prop="materialName" label="物料名称" min-width="150" />
         <el-table-column prop="specification" label="型号规格" min-width="140" />

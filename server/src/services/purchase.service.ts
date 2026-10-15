@@ -42,6 +42,7 @@ export interface PurchaseOrderInput {
     remark?: string;
     status?: string;
     sourceOrderNo?: string;
+    line?: number;
   }[];
 }
 
@@ -151,11 +152,12 @@ export async function createPurchaseOrder(data: PurchaseOrderInput, userId: numb
         },
       });
 
-      for (const item of data.items) {
+      for (const [idx, item] of data.items.entries()) {
         await tx.purchaseOrderItem.create({
           data: {
             orderId: po.id,
             materialId: item.materialId,
+            line: item.line && item.line > 0 ? item.line : idx + 1,
             quantity: item.quantity,
             unit: item.unit || null,
             unitPrice: item.unitPrice ?? 0,
@@ -210,11 +212,12 @@ export async function updatePurchaseOrder(id: number, data: PurchaseOrderInput) 
 
   return prisma.$transaction(async (tx) => {
     await tx.purchaseOrderItem.deleteMany({ where: { orderId: id } });
-    for (const item of data.items) {
+    for (const [idx, item] of data.items.entries()) {
       await tx.purchaseOrderItem.create({
         data: {
           orderId: id,
           materialId: item.materialId,
+          line: item.line && item.line > 0 ? item.line : idx + 1,
           quantity: item.quantity,
           receivedQty: item.id ? (receivedById.get(item.id) ?? 0) : 0,
           unit: item.unit || null,

@@ -100,9 +100,19 @@ function onSupplierChange() {
 
 function applyLocationToItems() { for (const it of form.items) it.location = headerLocation.value || '' }
 function applyExpectedDateToItems() { for (const it of form.items) if (!it.expectedDate) it.expectedDate = form.expectedDate || '' }
+function applyTaxToItems() {
+  for (const it of form.items) {
+    it.taxIncluded = !!form.taxIncluded
+    it.taxRate = form.taxRate ?? 0
+  }
+}
 
 function addItem() {
-  form.items.push({ id: null, receivedQty: 0, materialId: null, quantity: 1, unit: '', unitPrice: 0, unitPriceText: '', taxIncluded: !!form.taxIncluded, taxRate: form.taxRate ?? 0, location: headerLocation.value || 'A01', expectedDate: form.expectedDate || '', remark: '', status: 'blank', sourceOrderNo: '', __options: [] })
+  form.items.push({ id: null, receivedQty: 0, materialId: null, quantity: 1, unit: '', unitPrice: 0, unitPriceText: '', taxIncluded: !!form.taxIncluded, taxRate: form.taxRate ?? 0, location: headerLocation.value || 'A01', expectedDate: form.expectedDate || '', remark: '', status: 'blank', sourceOrderNo: '', line: 0, __options: [] })
+  renumberLines()
+}
+function renumberLines() {
+  form.items.forEach((it: any, i: number) => { it.line = i + 1 })
 }
 const selectedRows = ref<any[]>([])
 const itemsTableRef = ref()
@@ -110,6 +120,7 @@ function removeSelected() {
   form.items = form.items.filter((it: any) => !selectedRows.value.includes(it))
   selectedRows.value = []
   itemsTableRef.value?.clearSelection()
+  renumberLines()
 }
 
 function onMaterialChange(row: any, materialId: number) {
@@ -205,9 +216,10 @@ async function loadOrder(id: number) {
   form.orderDate = row.orderDate?.slice(0, 10) || ''
   form.expectedDate = row.expectedDate?.slice(0, 10) || ''
   form.buyer = row.buyer || ''
-  form.items = row.items?.map((i: any) => ({
+  form.items = row.items?.map((i: any, idx: number) => ({
     id: i.id,
     receivedQty: i.receivedQty ?? 0,
+    line: i.line > 0 ? i.line : idx + 1,
     materialId: i.materialId,
     quantity: i.quantity,
     unit: i.unit || i.material?.unit || '',
@@ -243,6 +255,7 @@ function buildPayload() {
     items: form.items.map((i: any) => ({
       id: i.id,
       receivedQty: i.receivedQty ?? 0,
+      line: i.line || 0,
       materialId: i.materialId,
       quantity: i.quantity,
       unit: i.unit,
@@ -422,89 +435,99 @@ async function copyOrderNo() {
         <span style="font-weight: 600">{{ isEditLoad ? '编辑采购单' : '新增采购单' }}</span>
 
         <el-button style="margin-left: auto" @click="router.push('/purchase/order')">返回采购订单</el-button>
+        <el-button v-if="form.id && form.status === 'draft'" type="danger" plain @click="handleDelete">删除</el-button>
         <el-button @click="onNewClick">新增</el-button>
         <el-button v-if="isEditLoad" type="primary" plain @click="handlePrint">打印</el-button>
         <el-button type="primary" @click="handleSave">保存</el-button>
       </div>
 
-      <el-form ref="formRef" :model="form" :rules="rules" label-width="100px">
+      <el-form ref="formRef" :model="form" :rules="rules" label-width="72px" class="kd-header-form">
         <div class="erp-group">
-          <el-row :gutter="16">
-            <el-col :span="12">
+          <div class="kd-grid">
+            <div class="kd-field">
               <el-form-item label="采购单号">
-              <div style="display: flex; align-items: center; gap: 8px">
-                <el-select-v2 v-model="selectedOrderId" filterable clearable placeholder="选择采购单号编辑，留空为新增" style="width: 280px" :options="orderFilterOptions" :filter-method="filterOrderOptions" @change="(v: any) => onOrderSelect(v)">
-                  <template #default="{ item }">
-                    <span>{{ item.label }}</span>
-                    <span style="color: var(--el-text-color-secondary); margin-left: 8px">{{ item.supplier }}</span>
-                  </template>
-                </el-select-v2>
-                <el-tooltip v-if="form.orderNo" content="复制采购单号">
-                  <el-button size="small" text type="primary" @click="copyOrderNo"><el-icon><CopyDocument /></el-icon></el-button>
-                </el-tooltip>
-                <el-select v-if="form.status" :model-value="form.status" size="small" style="width: 110px" @change="(v: string) => handleStatusChange(v)">
+                <div class="kd-inline">
+                  <el-select-v2 v-model="selectedOrderId" filterable clearable placeholder="选择采购单号编辑，留空为新增" class="kd-flex" :options="orderFilterOptions" :filter-method="filterOrderOptions" @change="(v: any) => onOrderSelect(v)">
+                    <template #default="{ item }">
+                      <span>{{ item.label }}</span>
+                      <span style="color: var(--el-text-color-secondary); margin-left: 8px">{{ item.supplier }}</span>
+                    </template>
+                  </el-select-v2>
+                  <el-tooltip v-if="form.orderNo" content="复制采购单号">
+                    <el-button size="small" text type="primary" @click="copyOrderNo"><el-icon><CopyDocument /></el-icon></el-button>
+                  </el-tooltip>
+                </div>
+              </el-form-item>
+            </div>
+            <div class="kd-field">
+              <el-form-item label="状态">
+                <el-select v-if="form.status" :model-value="form.status" class="kd-flex" @change="(v: string) => handleStatusChange(v)">
                   <el-option v-for="o in statusOptions" :key="o.value" :label="o.label" :value="o.value" />
                 </el-select>
-                <el-button v-if="form.id && form.status === 'draft'" size="small" type="danger" plain @click="handleDelete">删除</el-button>
-              </div>
-            </el-form-item>
-          </el-col>
-        </el-row>
-        <el-row :gutter="16">
-          <el-col :span="8">
-            <el-form-item label="供应商" prop="supplierId">
-              <el-select v-model="form.supplierId" filterable style="width: 100%" @change="onSupplierChange">
-                <el-option v-for="s in suppliers" :key="s.id" :label="s.name" :value="s.id" />
-              </el-select>
-            </el-form-item>
-          </el-col>
-          <el-col :span="6">
-            <el-form-item label="结算方式">
-              <el-select v-model="form.settleMethod" filterable allow-create default-first-option placeholder="自动带出，可改" style="width: 100%">
-                <el-option v-for="m in settleMethodOptions" :key="m" :label="m" :value="m" />
-              </el-select>
-            </el-form-item>
-          </el-col>
-          <el-col :span="4">
-            <el-form-item label="含税">
-              <el-checkbox v-model="form.taxIncluded">含税价</el-checkbox>
-            </el-form-item>
-          </el-col>
-          <el-col :span="6">
-            <el-form-item label="税率">
-              <el-select v-model="form.taxRate" filterable allow-create default-first-option placeholder="税率" style="width: 100%">
-                <el-option v-for="r in taxRateOptions" :key="r" :label="`${r}%`" :value="r" />
-              </el-select>
-            </el-form-item>
-          </el-col>
-        </el-row>
+                <span v-else class="kd-muted">—</span>
+              </el-form-item>
+            </div>
+            <div class="kd-field kd-field-span3" aria-hidden="true"></div>
 
-        <el-row :gutter="16">
-          <el-col :span="6">
-            <el-form-item label="订货日期" prop="orderDate">
-              <el-date-picker v-model="form.orderDate" type="date" value-format="YYYY-MM-DD" style="width: 100%" placeholder="选择订货日期" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="6">
-            <el-form-item label="截止日期" prop="expectedDate">
-              <el-date-picker v-model="form.expectedDate" type="date" value-format="YYYY-MM-DD" style="width: 100%" placeholder="选择截止日期" @change="applyExpectedDateToItems" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="6">
-            <el-form-item label="采购员" prop="buyer">
-              <el-select v-model="form.buyer" filterable allow-create default-first-option placeholder="选择或输入采购员" style="width: 100%">
-                <el-option v-for="b in buyerOptions" :key="b" :label="b" :value="b" />
-              </el-select>
-            </el-form-item>
-          </el-col>
-          <el-col :span="6">
-            <el-form-item label="库位">
-              <el-select v-model="headerLocation" clearable filterable allow-create default-first-option placeholder="选择后应用到明细" style="width: 100%" @change="applyLocationToItems">
-                <el-option v-for="l in locationOptions" :key="l.code" :label="l.name ? `${l.code} - ${l.name}` : l.code" :value="l.code" />
-              </el-select>
-            </el-form-item>
-          </el-col>
-        </el-row>
+            <div class="kd-field">
+              <el-form-item label="供应商" prop="supplierId">
+                <el-select v-model="form.supplierId" filterable class="kd-flex" @change="onSupplierChange">
+                  <el-option v-for="s in suppliers" :key="s.id" :label="s.name" :value="s.id" />
+                </el-select>
+              </el-form-item>
+            </div>
+            <div class="kd-field">
+              <el-form-item label="结算方式">
+                <el-select v-model="form.settleMethod" filterable allow-create default-first-option placeholder="自动带出，可改" class="kd-flex">
+                  <el-option v-for="m in settleMethodOptions" :key="m" :label="m" :value="m" />
+                </el-select>
+              </el-form-item>
+            </div>
+            <div class="kd-field">
+              <el-form-item label="含税">
+                <el-checkbox v-model="form.taxIncluded" @change="applyTaxToItems" />
+              </el-form-item>
+            </div>
+            <div class="kd-field">
+              <el-form-item label="税率">
+                <el-select v-model="form.taxRate" filterable allow-create default-first-option placeholder="税率" class="kd-flex" @change="applyTaxToItems">
+                  <el-option v-for="r in taxRateOptions" :key="r" :label="`${r}%`" :value="r" />
+                </el-select>
+              </el-form-item>
+            </div>
+            <div class="kd-field" aria-hidden="true"></div>
+
+            <div class="kd-field">
+              <el-form-item label="订货日期" prop="orderDate">
+                <el-date-picker v-model="form.orderDate" type="date" value-format="YYYY-MM-DD" class="kd-flex kd-date" placeholder="选择订货日期" />
+              </el-form-item>
+            </div>
+
+            <div class="kd-field">
+              <el-form-item label="截止日期" prop="expectedDate">
+                <el-date-picker v-model="form.expectedDate" type="date" value-format="YYYY-MM-DD" class="kd-flex kd-date" placeholder="选择截止日期" @change="applyExpectedDateToItems" />
+              </el-form-item>
+            </div>
+            <div class="kd-field">
+              <el-form-item label="采购员" prop="buyer">
+                <el-select v-model="form.buyer" filterable allow-create default-first-option placeholder="选择或输入采购员" class="kd-flex">
+                  <el-option v-for="b in buyerOptions" :key="b" :label="b" :value="b" />
+                </el-select>
+              </el-form-item>
+            </div>
+            <div class="kd-field">
+              <el-form-item label="库位">
+                <el-select v-model="headerLocation" clearable filterable allow-create default-first-option placeholder="选择后应用到明细" class="kd-flex" @change="applyLocationToItems">
+                  <el-option v-for="l in locationOptions" :key="l.code" :label="l.name ? `${l.code} - ${l.name}` : l.code" :value="l.code" />
+                </el-select>
+              </el-form-item>
+            </div>
+            <div class="kd-field kd-field-remark">
+              <el-form-item label="备注">
+                <el-input v-model="form.remark" placeholder="备注" />
+              </el-form-item>
+            </div>
+          </div>
         </div>
 
         <div style="width: 100%">
@@ -512,7 +535,10 @@ async function copyOrderNo() {
             <el-button size="small" type="primary" plain style="margin-left: 8px" :disabled="selectedRows.length === 0" @click="removeSelected">删除选中</el-button>
             <el-table ref="itemsTableRef" class="items-editor" :data="form.items" size="small" border style="margin-top: 8px; width: 100%" @selection-change="(v: any[]) => selectedRows = v">
               <el-table-column type="selection" width="45" />
-              <el-table-column label="物料编码" min-width="145">
+              <el-table-column label="行号" width="56" align="center">
+                <template #default="{ row }">{{ row.line }}</template>
+              </el-table-column>
+              <el-table-column label="物料编码" min-width="110">
                 <template #default="{ row }">
                   <div style="display: flex; align-items: center; gap: 2px">
                     <el-select-v2 v-model="row.materialId" :options="row.__options || []" filterable remote reserve-keyword :remote-method="(q: string) => searchMaterials(q, row)" :loading="materialLoading" placeholder="输入编码搜索" popper-class="mat-code-popper" style="width: 100%; min-width: 0" @visible-change="(open: boolean) => onCodeSelectVisible(open, row)" @change="(v: number) => onMaterialChange(row, v)">
@@ -529,7 +555,7 @@ async function copyOrderNo() {
                   </div>
                 </template>
               </el-table-column>
-              <el-table-column label="名称/型号规格" min-width="180">
+              <el-table-column label="名称/型号规格" min-width="240">
                 <template #default="{ row }">
                   <span>{{ rowMaterialName(row) }}</span>
                   <span v-if="rowMaterialSpec(row)" style="margin-left: 6px; color: var(--el-text-color-secondary)">{{ rowMaterialSpec(row) }}</span>
@@ -579,7 +605,7 @@ async function copyOrderNo() {
                   <el-input v-model="row.expectedDate" type="date" size="small" style="width: 100%" />
                 </template>
               </el-table-column>
-              <el-table-column label="订单号" width="140">
+              <el-table-column label="订单号" width="100">
                 <template #default="{ row }">
                   <el-input v-model="row.sourceOrderNo" size="small" placeholder="需求来源订单" />
                 </template>
@@ -592,13 +618,10 @@ async function copyOrderNo() {
                 </template>
               </el-table-column>
               <el-table-column label="备注" width="140">
-                <template #default="{ row }"><el-input v-model="row.remark" size="small" placeholder="备注" /></template>
+                <template #default="{ row }"><el-input v-model="row.remark" size="small" /></template>
               </el-table-column>
             </el-table>
           </div>
-        <el-form-item label="备注" label-position="top">
-          <el-input v-model="form.remark" type="textarea" :rows="2" style="width: 100%" />
-        </el-form-item>
       </el-form>
     </div>
 
@@ -619,13 +642,81 @@ async function copyOrderNo() {
 .erp-group {
   border: 1px solid var(--el-border-color);
   border-radius: 6px;
-  padding: 14px 16px 4px;
-  margin-bottom: 16px;
+  padding: 8px 12px 2px;
+  margin-bottom: 12px;
 }
 .erp-group-title {
   font-weight: 600;
   color: var(--el-text-color-primary);
   margin-bottom: 12px;
+}
+
+/* 金蝶表头：3 行 5 列网格，固定标签宽，列对齐、行距紧凑 */
+.kd-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) repeat(4, minmax(0, 1fr));
+  column-gap: 16px;
+  row-gap: 2px;
+}
+.kd-field-span2 { grid-column: span 2; }
+.kd-field-span3 { grid-column: span 3; }
+.kd-field-remark { grid-column: 1 / 5; }
+.kd-header-form .kd-grid :deep(.el-form-item) {
+  margin-bottom: 6px;
+  margin-right: 0;
+  white-space: nowrap;
+}
+.kd-header-form .kd-grid :deep(.el-form-item__label) {
+  line-height: 26px;
+  height: 26px;
+  font-size: 13px;
+  color: var(--el-text-color-regular);
+  white-space: nowrap;
+}
+.kd-header-form .kd-grid :deep(.el-form-item__content) {
+  line-height: 26px;
+  min-height: 26px;
+  white-space: nowrap;
+}
+.kd-inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.kd-flex {
+  width: 100%;
+}
+.kd-muted {
+  color: var(--el-text-color-secondary);
+}
+
+/* 金蝶风格：表头输入控件无方框，仅底部下划线；聚焦时下划线变主题色 */
+.erp-group :deep(.el-input__wrapper),
+.erp-group :deep(.el-select__wrapper) {
+  box-shadow: 0 1px 0 0 var(--erp-hairline);
+  background: transparent;
+  border-radius: 0;
+  padding-left: 2px;
+  padding-right: 2px;
+  transition: box-shadow 0.2s;
+}
+.erp-group :deep(.el-input__wrapper:hover),
+.erp-group :deep(.el-select__wrapper:hover) {
+  box-shadow: 0 1px 0 0 var(--el-text-color-secondary);
+}
+.erp-group :deep(.el-input__wrapper.is-focus),
+.erp-group :deep(.el-select__wrapper.is-focused) {
+  box-shadow: 0 1px 0 0 var(--erp-copper);
+  background: transparent;
+}
+/* 下拉/日期图标与文本对齐，去掉浮起阴影 */
+.erp-group :deep(.el-select__caret),
+.erp-group :deep(.el-input__icon) {
+  color: var(--el-text-color-secondary);
+}
+.erp-group :deep(.el-input__wrapper.is-focus .el-input__icon),
+.erp-group :deep(.el-select__wrapper.is-focused .el-select__caret) {
+  color: var(--erp-copper);
 }
 
 /* 明细表 Excel 网格风格：细线表格 + 紧凑单元格 + 全幅无边框输入，聚焦铜色选中感 */

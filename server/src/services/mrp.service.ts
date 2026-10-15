@@ -924,12 +924,13 @@ export async function generatePurchaseOrders(
             },
           });
 
-          for (const s of items) {
+          for (const [idx, s] of items.entries()) {
             const unitPrice = priceOf(s);
             await tx.purchaseOrderItem.create({
               data: {
                 orderId: po.id,
                 materialId: s.materialId,
+                line: idx + 1,
                 quantity: s.suggestedQty,
                 unit: s.material.unit || null,
                 unitPrice,
