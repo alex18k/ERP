@@ -19,6 +19,7 @@ export interface SalesOrderCreateInput {
   deliveryDate?: string;
   remark?: string;
   items: {
+    id?: number;
     materialId: number;
     quantity: number;
     unit?: string;
@@ -27,6 +28,7 @@ export interface SalesOrderCreateInput {
     taxRate?: number;
     deliveryDate?: string;
     remark?: string;
+    line?: number;
   }[];
 }
 
@@ -106,6 +108,7 @@ export async function listOrders(where: any) {
         customer: { select: { id: true, name: true } },
         items: {
           include: { material: { select: { id: true, code: true, name: true, unit: true } } },
+          orderBy: { line: "asc" },
         },
         productionOrders: { select: { id: true, orderNo: true, status: true } },
       },
@@ -126,6 +129,7 @@ export async function getOrder(id: number) {
       creator: { select: { id: true, realName: true } },
       items: {
         include: { material: true },
+        orderBy: { line: "asc" },
       },
       productionOrders: {
         include: {
@@ -144,11 +148,21 @@ function assertDeliveryNotBeforeOrder(orderDate?: string | Date | null, delivery
   }
 }
 
+function assertItemLines(items: { line?: number }[]) {
+  items.forEach((item, idx) => {
+    const lineNo = Number(item.line);
+    if (!Number.isInteger(lineNo) || lineNo < 1) {
+      throw new Error(`第 ${idx + 1} 行明细未填写行号`);
+    }
+  });
+}
+
 export async function createOrder(data: SalesOrderCreateInput, userId: number) {
   if (!data.items || data.items.length === 0) {
     throw new Error("订单至少需要一个产品明细");
   }
   assertDeliveryNotBeforeOrder(data.orderDate, data.deliveryDate);
+  assertItemLines(data.items);
 
   for (const item of data.items) {
     const exists = await prisma.material.findUnique({ where: { id: item.materialId } });
@@ -194,6 +208,7 @@ export async function createOrder(data: SalesOrderCreateInput, userId: number) {
           data: {
             orderId: order.id,
             materialId: item.materialId,
+            line: Number(item.line),
             quantity: item.quantity,
             unit: item.unit || info?.baseUnit || null,
             conversionRate: rate,
@@ -224,12 +239,14 @@ export async function updateOrder(id: number, data: Partial<SalesOrderCreateInpu
     throw new Error("已发货或已取消的订单不能修改");
   }
   assertDeliveryNotBeforeOrder(data.orderDate ?? exists.orderDate, data.deliveryDate ?? exists.deliveryDate);
+  if (data.items) assertItemLines(data.items);
 
   const rateMap = data.items
     ? await resolveUnitRateMap(data.items.map((i) => ({ materialId: i.materialId, unit: i.unit })))
     : null;
 
   return prisma.$transaction(async (tx) => {
+    const existingItems = await tx.salesOrderItem.findMany({ where: { orderId: id } });
     const totalAmount = data.items
       ? data.items.reduce((sum, item) => sum + item.quantity * (item.unitPrice ?? 0), 0)
       : exists.totalAmount;
@@ -255,8 +272,29 @@ export async function updateOrder(id: number, data: Partial<SalesOrderCreateInpu
     });
 
     if (data.items) {
+      // 已发运明细保护：有发货记录的行不允许删除，数量也不允许改到小于已发量
+      const existingById = new Map(existingItems.map((it) => [it.id, it]));
+      const keptIds = new Set<number>();
+      for (const item of data.items) {
+        if (item.id && existingById.has(item.id)) keptIds.add(item.id);
+      }
+      for (const old of existingItems) {
+        if (!keptIds.has(old.id) && (old.deliveredQty ?? 0) > 1e-6) {
+          throw new Error(`行号 ${old.line} 的明细已发运 ${old.deliveredQty}，不能删除`);
+        }
+      }
+      data.items.forEach((item, idx) => {
+        const old = item.id ? existingById.get(item.id) : undefined;
+        const delivered = old?.deliveredQty ?? 0;
+        if (delivered > 1e-6 && item.quantity < delivered - 1e-6) {
+          throw new Error(`第 ${item.line ?? idx + 1} 行明细已发运 ${delivered}，数量不能小于已发量`);
+        }
+      });
+
       await tx.salesOrderItem.deleteMany({ where: { orderId: id } });
       for (const item of data.items) {
+        const old = item.id ? existingById.get(item.id) : undefined;
+        const delivered = old?.deliveredQty ?? 0;
         const amount = item.quantity * (item.unitPrice ?? 0);
         const info = rateMap?.get(item.materialId);
         const rate = info?.rate ?? 1;
@@ -264,6 +302,7 @@ export async function updateOrder(id: number, data: Partial<SalesOrderCreateInpu
           data: {
             orderId: id,
             materialId: item.materialId,
+            line: Number(item.line),
             quantity: item.quantity,
             unit: item.unit || info?.baseUnit || null,
             conversionRate: rate,
@@ -274,7 +313,8 @@ export async function updateOrder(id: number, data: Partial<SalesOrderCreateInpu
             amount,
             deliveryDate: item.deliveryDate ? new Date(item.deliveryDate) : null,
             remark: item.remark,
-            status: "pending",
+            deliveredQty: delivered,
+            status: delivered > 1e-6 ? (old?.status ?? "pending") : "pending",
           },
         });
       }

@@ -143,10 +143,12 @@ async function loadOrder(id: number) {
   Object.assign(form, row)
   form.orderDate = row.orderDate?.slice(0, 10) || ''
   form.deliveryDate = row.deliveryDate?.slice(0, 10) || ''
-  form.items = (row.items || []).map((i: any) => ({
+  form.items = (row.items || []).map((i: any, idx: number) => ({
     id: i.id,
+    line: Number(i.line) > 0 ? Number(i.line) : idx + 1,
     materialId: i.materialId,
     quantity: i.quantity,
+    deliveredQty: i.deliveredQty ?? 0,
     unit: i.unit || i.material?.unit || '',
     unitPrice: i.unitPrice ?? 0,
     taxIncluded: !!i.taxIncluded,
@@ -225,8 +227,12 @@ function onCustomerChange(val: any) {
   }
 }
 
+function nextLine(): number {
+  return form.items.reduce((m: number, it: any) => Math.max(m, Number(it.line) || 0), 0) + 1
+}
+
 function addItem() {
-  form.items.push({ materialId: null, quantity: 1, unitPrice: 0, unit: '', deliveryDate: form.deliveryDate || '', taxIncluded: false, taxRate: 0 })
+  form.items.push({ line: nextLine(), materialId: null, quantity: 1, unitPrice: 0, unit: '', deliveryDate: form.deliveryDate || '', taxIncluded: false, taxRate: 0 })
 }
 
 const prevDeliveryDate = ref('')
@@ -294,6 +300,8 @@ function buildPayload() {
     deliveryDate: form.deliveryDate,
     remark: form.remark,
     items: form.items.map((i: any) => ({
+      id: i.id ?? undefined,
+      line: Number(i.line) || 0,
       materialId: i.materialId,
       quantity: i.quantity,
       unit: i.unit || '',
@@ -315,6 +323,10 @@ async function handleSave() {
     return false
   }
   for (const item of form.items) {
+    if (!Number.isInteger(Number(item.line)) || Number(item.line) < 1) {
+      ElMessage.warning('请填写明细行号（正整数）')
+      return false
+    }
     if (!item.materialId) {
       ElMessage.warning('请选择产品物料')
       return false
@@ -328,6 +340,7 @@ async function handleSave() {
     if (isEditLoad.value) {
       await orderApi.update(form.id, buildPayload())
       ElMessage.success('销售订单更新成功')
+      await loadOrder(form.id)
     } else {
       const res: any = await orderApi.create(buildPayload())
       ElMessage.success('新增销售订单成功（已确认）')
@@ -521,6 +534,11 @@ onMounted(async () => {
           </div>
           <el-form-item label-width="0">
             <el-table :data="form.items" class="items-editor" size="small" style="width: 100%">
+              <el-table-column label="行号" width="80" align="center">
+                <template #default="{ row }">
+                  <el-input-number v-model="row.line" :min="1" :step="1" :precision="0" :controls="false" style="width: 100%" />
+                </template>
+              </el-table-column>
               <el-table-column label="产品" min-width="220">
                 <template #default="{ row }">
                   <el-select v-model="row.materialId" filterable remote :remote-method="searchProducts" :loading="loadingProducts" placeholder="搜索产品（编码/名称）" style="width: 100%" @change="(v: number) => onProductChange(row, v)">
@@ -537,8 +555,13 @@ onMounted(async () => {
               </el-table-column>
               <el-table-column label="数量" width="105">
                 <template #default="{ row }">
-                  <el-input-number v-model="row.quantity" :min="1" :controls="false" style="width: 100%" />
+                  <el-input-number v-model="row.quantity" :min="Math.max(1, row.deliveredQty || 0)" :controls="false" style="width: 100%" />
                   <div v-if="rowBaseHint(row)" class="unit-hint">{{ rowBaseHint(row) }}</div>
+                </template>
+              </el-table-column>
+              <el-table-column label="已发量" width="80" align="center">
+                <template #default="{ row }">
+                  <span :class="{ 'delivered-qty': (row.deliveredQty || 0) > 0 }">{{ row.deliveredQty || '-' }}</span>
                 </template>
               </el-table-column>
               <el-table-column label="单价" width="115">
@@ -569,8 +592,15 @@ onMounted(async () => {
                 </template>
               </el-table-column>
               <el-table-column width="60">
-                <template #default="{ $index }">
-                  <el-button type="danger" link size="small" @click="removeItem($index)">删除</el-button>
+                <template #default="{ row, $index }">
+                  <el-button
+                    type="danger"
+                    link
+                    size="small"
+                    :disabled="(row.deliveredQty || 0) > 0"
+                    :title="(row.deliveredQty || 0) > 0 ? `已发运 ${row.deliveredQty}，不能删除` : ''"
+                    @click="removeItem($index)"
+                  >删除</el-button>
                 </template>
               </el-table-column>
             </el-table>
@@ -611,6 +641,11 @@ onMounted(async () => {
   line-height: 1.2;
   color: var(--el-text-color-secondary);
   margin-top: 2px;
+}
+
+.delivered-qty {
+  color: var(--el-color-warning);
+  font-weight: 600;
 }
 
 /* 明细行控件无边框：平时像纯文本，悬停/聚焦显示细线 */

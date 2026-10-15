@@ -350,6 +350,7 @@ model SalesOrderItem {
   deliveryDate DateTime?
   status       String     @default("pending") // pending, in_production, completed, shipped, cancelled
   remark       String?
+  line         Int        @default(0) // 行号（单内明细序号，从 1 开始）
 
   @@index([orderId])
   @@index([materialId])

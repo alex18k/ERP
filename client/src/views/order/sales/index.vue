@@ -175,8 +175,12 @@ function onCustomerChange(val: any) {
   }
 }
 
+function nextLine(): number {
+  return form.items.reduce((m: number, it: any) => Math.max(m, Number(it.line) || 0), 0) + 1
+}
+
 function addItem() {
-  form.items.push({ materialId: null, quantity: 1, unitPrice: 0, unit: '', deliveryDate: form.deliveryDate || '', taxIncluded: false, taxRate: 0 })
+  form.items.push({ line: nextLine(), materialId: null, quantity: 1, unitPrice: 0, unit: '', deliveryDate: form.deliveryDate || '', taxIncluded: false, taxRate: 0 })
 }
 
 function onDeliveryDateChange(val: string) {
@@ -247,6 +251,8 @@ async function handleSave() {
     deliveryDate: form.deliveryDate,
     remark: form.remark,
     items: form.items.map((i: any) => ({
+      id: i.id ?? undefined,
+      line: Number(i.line) || 0,
       materialId: i.materialId,
       quantity: i.quantity,
       unit: i.unit || '',
@@ -336,6 +342,9 @@ const flatRows = computed(() =>
       </div>
 
       <el-table :data="flatRows" v-loading="loading" stripe max-height="calc(100vh - 260px)">
+        <el-table-column label="行号" width="62" align="center">
+          <template #default="{ row }">{{ row.line || '-' }}</template>
+        </el-table-column>
         <el-table-column label="订单编号" width="150">
           <template #default="{ row }">
             <span v-if="row._first" style="font-variant-numeric: tabular-nums">{{ row.orderNo }}</span>
@@ -498,7 +507,7 @@ const flatRows = computed(() =>
               </el-table-column>
               <el-table-column label="数量" width="105">
                 <template #default="{ row }">
-                  <el-input-number v-model="row.quantity" :min="1" :controls="false" style="width: 100%" />
+                  <el-input-number v-model="row.quantity" :min="Math.max(1, row.deliveredQty || 0)" :controls="false" style="width: 100%" />
                 </template>
               </el-table-column>
               <el-table-column label="单价" width="115">
@@ -529,8 +538,15 @@ const flatRows = computed(() =>
                 </template>
               </el-table-column>
               <el-table-column width="60">
-                <template #default="{ $index }">
-                  <el-button type="danger" link size="small" @click="removeItem($index)">删除</el-button>
+                <template #default="{ row, $index }">
+                  <el-button
+                    type="danger"
+                    link
+                    size="small"
+                    :disabled="(row.deliveredQty || 0) > 0"
+                    :title="(row.deliveredQty || 0) > 0 ? `已发运 ${row.deliveredQty}，不能删除` : ''"
+                    @click="removeItem($index)"
+                  >删除</el-button>
                 </template>
               </el-table-column>
             </el-table>

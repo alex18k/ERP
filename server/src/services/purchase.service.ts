@@ -99,7 +99,7 @@ export async function listPurchaseOrders(where: any) {
       where: filters,
       include: {
         supplier: { select: { id: true, name: true, code: true } },
-        items: { include: { material: { select: { id: true, code: true, name: true, specification: true, unit: true, location: true } } } },
+        items: { include: { material: { select: { id: true, code: true, name: true, specification: true, unit: true, location: true } } }, orderBy: { line: "asc" } },
       },
       orderBy: { createdAt: "desc" },
       skip: (Number(page) - 1) * Number(pageSize),
@@ -115,8 +115,18 @@ export async function getPurchaseOrder(id: number) {
     where: { id },
     include: {
       supplier: true,
-      items: { include: { material: true } },
+      items: { include: { material: true }, orderBy: { line: "asc" } },
     },
+  });
+}
+
+// 明细行号必填（正整数），与销售订单明细一致
+function assertItemLines(items: { line?: number }[]) {
+  items.forEach((item, idx) => {
+    const lineNo = Number(item.line);
+    if (!Number.isInteger(lineNo) || lineNo < 1) {
+      throw new Error(`第 ${idx + 1} 行明细未填写行号`);
+    }
   });
 }
 
@@ -125,6 +135,7 @@ export async function createPurchaseOrder(data: PurchaseOrderInput, userId: numb
   if (!data.orderDate) throw new Error("请选择订货日期");
   if (!data.expectedDate) throw new Error("请选择截止日期");
   if (!data.buyer) throw new Error("请输入采购员");
+  assertItemLines(data.items);
   const supplier = data.supplierId ? await prisma.supplier.findUnique({ where: { id: data.supplierId } }) : null;
   if (data.supplierId && !supplier) throw new Error("供应商不存在");
 
@@ -156,13 +167,13 @@ export async function createPurchaseOrder(data: PurchaseOrderInput, userId: numb
         },
       });
 
-      for (const [idx, item] of data.items.entries()) {
+      for (const item of data.items) {
         const rate = rateMap.get(item.materialId)?.rate ?? 1;
         await tx.purchaseOrderItem.create({
           data: {
             orderId: po.id,
             materialId: item.materialId,
-            line: item.line && item.line > 0 ? item.line : idx + 1,
+            line: Number(item.line),
             quantity: item.quantity,
             unit: item.unit || null,
             conversionRate: rate,
@@ -192,6 +203,7 @@ export async function updatePurchaseOrder(id: number, data: PurchaseOrderInput) 
   if (!data.orderDate) throw new Error("请选择订货日期");
   if (!data.expectedDate) throw new Error("请选择截止日期");
   if (!data.buyer) throw new Error("请输入采购员");
+  assertItemLines(data.items);
 
   const supplier = data.supplierId ? await prisma.supplier.findUnique({ where: { id: data.supplierId } }) : null;
   if (data.supplierId && !supplier) throw new Error("供应商不存在");
@@ -206,29 +218,40 @@ export async function updatePurchaseOrder(id: number, data: PurchaseOrderInput) 
         : exists.settleMethod;
 
   const existingItems = await prisma.purchaseOrderItem.findMany({ where: { orderId: id } });
+  const existingById = new Map(existingItems.map((it) => [it.id, it]));
   const receivedById = new Map(existingItems.map((it) => [it.id, it.receivedQty]));
 
   // 计量单位换算率（按明细行的计量单位解析）
   const rateMap = await resolveUnitRateMap(data.items.map((i) => ({ materialId: i.materialId, unit: i.unit })));
 
-  // 已收货明细的数量不能再改小，否则会出现 已收 > 订购 的矛盾数据
+  // 已收货明细保护：有收货记录的行不允许删除
+  const keptIds = new Set<number>();
   for (const item of data.items) {
-    if (!item.id) continue;
-    const alreadyReceived = receivedById.get(item.id) ?? 0;
-    if (item.quantity < alreadyReceived) {
-      throw new Error(`明细「${item.materialId ?? item.id}」已收货 ${alreadyReceived}，数量不能小于已收数量`);
+    if (item.id && existingById.has(item.id)) keptIds.add(item.id);
+  }
+  for (const old of existingItems) {
+    if (!keptIds.has(old.id) && (old.receivedQty ?? 0) > 1e-6) {
+      throw new Error(`行号 ${old.line} 的明细已收货 ${old.receivedQty}，不能删除`);
     }
   }
 
+  // 已收货明细的数量不能再改小，否则会出现 已收 > 订购 的矛盾数据
+  data.items.forEach((item, idx) => {
+    const alreadyReceived = item.id ? (receivedById.get(item.id) ?? 0) : 0;
+    if (alreadyReceived > 1e-6 && item.quantity < alreadyReceived - 1e-6) {
+      throw new Error(`第 ${item.line ?? idx + 1} 行明细已收货 ${alreadyReceived}，数量不能小于已收量`);
+    }
+  });
+
   return prisma.$transaction(async (tx) => {
     await tx.purchaseOrderItem.deleteMany({ where: { orderId: id } });
-    for (const [idx, item] of data.items.entries()) {
+    for (const item of data.items) {
       const rate = rateMap.get(item.materialId)?.rate ?? 1;
       await tx.purchaseOrderItem.create({
         data: {
           orderId: id,
           materialId: item.materialId,
-          line: item.line && item.line > 0 ? item.line : idx + 1,
+          line: Number(item.line),
           quantity: item.quantity,
           receivedQty: item.id ? (receivedById.get(item.id) ?? 0) : 0,
           unit: item.unit || null,

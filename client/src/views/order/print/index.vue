@@ -155,7 +155,7 @@ onMounted(async () => {
         </thead>
         <tbody>
           <tr v-for="(it, idx) in order.items" :key="it.id">
-            <td class="c">{{ Number(idx) + 1 }}</td>
+            <td class="c">{{ it.line || Number(idx) + 1 }}</td>
             <td>{{ it.material?.code }}</td>
             <td class="l">
               {{ it.material?.name }}

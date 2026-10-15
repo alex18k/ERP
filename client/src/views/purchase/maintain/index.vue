@@ -107,20 +107,22 @@ function applyTaxToItems() {
   }
 }
 
-function addItem() {
-  form.items.push({ id: null, receivedQty: 0, materialId: null, quantity: 1, unit: '', unitPrice: 0, unitPriceText: '', taxIncluded: !!form.taxIncluded, taxRate: form.taxRate ?? 0, location: headerLocation.value || 'A01', expectedDate: form.expectedDate || '', remark: '', status: 'blank', sourceOrderNo: '', line: 0, __options: [] })
-  renumberLines()
+function nextLine(): number {
+  return form.items.reduce((m: number, it: any) => Math.max(m, Number(it.line) || 0), 0) + 1
 }
-function renumberLines() {
-  form.items.forEach((it: any, i: number) => { it.line = i + 1 })
+function addItem() {
+  form.items.push({ id: null, receivedQty: 0, materialId: null, quantity: 1, unit: '', unitPrice: 0, unitPriceText: '', taxIncluded: !!form.taxIncluded, taxRate: form.taxRate ?? 0, location: headerLocation.value || 'A01', expectedDate: form.expectedDate || '', remark: '', status: 'blank', sourceOrderNo: '', line: nextLine(), __options: [] })
 }
 const selectedRows = ref<any[]>([])
 const itemsTableRef = ref()
 function removeSelected() {
-  form.items = form.items.filter((it: any) => !selectedRows.value.includes(it))
+  form.items = form.items.filter((it: any) => !selectedRows.value.includes(it) || (it.receivedQty || 0) > 0)
   selectedRows.value = []
   itemsTableRef.value?.clearSelection()
-  renumberLines()
+}
+// 有收货记录的行不能勾选删除
+function rowSelectable(row: any) {
+  return (row.receivedQty || 0) <= 0
 }
 
 function onMaterialChange(row: any, materialId: number) {
@@ -296,11 +298,15 @@ const isDirty = computed(() => snapshot.value !== '' && JSON.stringify(buildPayl
 async function handleSave() {
   try { await (formRef.value as any).validate() } catch { return false }
   if (form.items.length === 0) { ElMessage.warning('请至少添加一个采购明细'); return false }
-  for (const it of form.items) { if (!it.materialId) { ElMessage.warning('请选择物料'); return false } }
+  for (const it of form.items) {
+    if (!Number.isInteger(Number(it.line)) || Number(it.line) < 1) { ElMessage.warning('请填写明细行号（正整数）'); return false }
+    if (!it.materialId) { ElMessage.warning('请选择物料'); return false }
+  }
   try {
     if (isEditLoad.value) {
       await purchaseApi.update(form.id, buildPayload())
       ElMessage.success('采购单更新成功')
+      await loadOrder(form.id)
     } else {
       const res: any = await purchaseApi.create(buildPayload())
       ElMessage.success('采购单创建成功')
@@ -553,9 +559,11 @@ async function copyOrderNo() {
             <el-button size="small" type="primary" plain @click="addItem"><el-icon><Plus /></el-icon>添加明细</el-button>
             <el-button size="small" type="primary" plain style="margin-left: 8px" :disabled="selectedRows.length === 0" @click="removeSelected">删除选中</el-button>
             <el-table ref="itemsTableRef" class="items-editor" :data="form.items" size="small" border style="margin-top: 8px; width: 100%" @selection-change="(v: any[]) => selectedRows = v">
-              <el-table-column type="selection" width="45" />
-              <el-table-column label="行号" width="56" align="center">
-                <template #default="{ row }">{{ row.line }}</template>
+              <el-table-column type="selection" width="45" :selectable="rowSelectable" />
+              <el-table-column label="行号" width="72" align="center">
+                <template #default="{ row }">
+                  <el-input-number v-model="row.line" :min="1" :step="1" :precision="0" :controls="false" size="small" style="width: 100%" />
+                </template>
               </el-table-column>
               <el-table-column label="物料编码" min-width="110">
                 <template #default="{ row }">
@@ -589,8 +597,13 @@ async function copyOrderNo() {
               </el-table-column>
               <el-table-column label="数量" width="85" align="right">
                 <template #default="{ row }">
-                  <el-input-number v-model="row.quantity" :min="1" :controls="false" style="width: 100%" />
+                  <el-input-number v-model="row.quantity" :min="Math.max(1, row.receivedQty || 0)" :controls="false" style="width: 100%" />
                   <div v-if="rowBaseHint(row)" class="unit-hint">{{ rowBaseHint(row) }}</div>
+                </template>
+              </el-table-column>
+              <el-table-column label="已收量" width="76" align="right">
+                <template #default="{ row }">
+                  <span :class="{ 'received-qty': (row.receivedQty || 0) > 0 }">{{ row.receivedQty || '-' }}</span>
                 </template>
               </el-table-column>
               <el-table-column label="单价" width="90" align="right">
@@ -664,6 +677,10 @@ async function copyOrderNo() {
   line-height: 1.2;
   color: var(--el-text-color-secondary);
   margin-top: 2px;
+}
+.received-qty {
+  color: var(--el-color-warning);
+  font-weight: 600;
 }
 .erp-group {
   border: 1px solid #D5DAE2;

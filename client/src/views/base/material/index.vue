@@ -7,6 +7,8 @@ import { MATERIAL_CATEGORIES, materialCategoryLabel } from '../../../utils/categ
 const loading = ref(false)
 const list = ref<any[]>([])
 const total = ref(0)
+const tableRef = ref()
+const currentRow = ref<any>(null)
 const query = reactive({ page: 1, pageSize: 20, code: '', name: '', materialType: '', status: 1 })
 
 const categoryOptions = MATERIAL_CATEGORIES
@@ -25,6 +27,8 @@ async function loadData() {
     const res: any = await materialApi.list(query)
     list.value = res.data.items
     total.value = res.data.total
+    currentRow.value = null
+    tableRef.value?.setCurrentRow()
   } finally {
     loading.value = false
   }
@@ -177,6 +181,20 @@ async function handleDelete(row: any) {
   } catch { /* canceled */ }
 }
 
+function handleCurrentChange(row: any) {
+  currentRow.value = row
+}
+
+function handleEditCurrent() {
+  if (!currentRow.value) return ElMessage.warning('请先点击选择一行')
+  openDialog(currentRow.value)
+}
+
+function handleDeleteCurrent() {
+  if (!currentRow.value) return ElMessage.warning('请先点击选择一行')
+  handleDelete(currentRow.value)
+}
+
 async function handleRecalcCost() {
   try {
     await ElMessageBox.confirm('将按 BOM 子件成本重算所有制造件成本，确定继续？', '重算成本', { type: 'warning' })
@@ -205,12 +223,20 @@ onMounted(() => {
         </el-select>
         <el-button type="primary" @click="handleSearch"><el-icon><Search /></el-icon>查询</el-button>
         <el-button @click="handleReset">重置</el-button>
-        <el-button style="margin-left: auto" type="success" plain class="btn-add" @click="openDialog()"><el-icon><Plus /></el-icon>新增物料</el-button>
-        <el-button @click="handleRecalcCost">重算成本</el-button>
-        <el-button @click="materialApi.exportCsv()"><el-icon><Download /></el-icon>导出</el-button>
+        <el-button style="margin-left: auto" @click="handleEditCurrent"><el-icon><Edit /></el-icon>编辑</el-button>
+        <el-button @click="handleDeleteCurrent"><el-icon><Delete /></el-icon>删除</el-button>
+        <el-button type="success" plain class="btn-add" @click="openDialog()"><el-icon><Plus /></el-icon>新增物料</el-button>
       </div>
 
-      <el-table :data="list" v-loading="loading" stripe max-height="calc(100vh - 250px)">
+      <el-table
+        ref="tableRef"
+        :data="list"
+        v-loading="loading"
+        stripe
+        highlight-current-row
+        max-height="calc(100vh - 250px)"
+        @current-change="handleCurrentChange"
+      >
         <el-table-column prop="code" label="物料编码" width="110" />
         <el-table-column prop="name" label="物料名称" min-width="160" />
         <el-table-column prop="specification" label="规格型号" min-width="140" />
@@ -242,15 +268,13 @@ onMounted(() => {
           </template>
         </el-table-column>
         <el-table-column prop="createdAt" label="创建日期" width="150" :formatter="(row: any) => fmtDateTime(row.createdAt)" />
-        <el-table-column label="操作" width="110" fixed="right">
-          <template #default="{ row }">
-            <el-button size="small" type="primary" link @click="openDialog(row)">编辑</el-button>
-            <el-button size="small" type="info" link @click="handleDelete(row)">删除</el-button>
-          </template>
-        </el-table-column>
       </el-table>
 
       <div class="pagination-wrap">
+        <div style="margin-right: auto; display: flex; align-items: center">
+          <el-button @click="handleRecalcCost">重算成本</el-button>
+          <el-button @click="materialApi.exportCsv()"><el-icon><Download /></el-icon>导出</el-button>
+        </div>
         <el-pagination
           v-model:current-page="query.page"
           v-model:page-size="query.pageSize"
