@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { productionApi, warehouseApi } from '../../../api'
 import { warehouseIdByLocation } from '../../../utils/location'
@@ -13,7 +13,28 @@ const query = reactive({ page: 1, pageSize: 20, orderNo: '', onlyReceivable: 'tr
 const dialogVisible = ref(false)
 const submitting = ref(false)
 const current = ref<any>(null)
-const form = reactive<any>({ quantity: 0, warehouseId: null, batchNo: '' })
+const form = reactive<any>({ quantity: 0, unit: '', warehouseId: null, batchNo: '' })
+
+// 入库计量单位（产品基本单位 + 转换单位）与换算提示
+const productMaterial = computed(() => current.value?.productionOrder?.material || null)
+const unitOptions = computed<string[]>(() => {
+  const m = productMaterial.value
+  const set = new Set<string>()
+  if (m?.units) for (const u of m.units) set.add(u)
+  if (form.unit) set.add(form.unit)
+  return [...set]
+})
+const unitRate = computed(() => {
+  const m = productMaterial.value
+  if (!m?.unit || !form.unit || form.unit === m.unit) return 1
+  return m.unitRates?.[form.unit] || 0
+})
+const baseHint = computed(() => {
+  const m = productMaterial.value
+  if (!m?.unit || !form.unit || form.unit === m.unit) return ''
+  if (!unitRate.value) return ''
+  return `= ${Number(((Number(form.quantity) || 0) * unitRate.value).toFixed(6))} ${m.unit}`
+})
 
 function remaining(row: any) {
   return (row.quantity ?? 0) - (row.receivedQty ?? 0)
@@ -42,6 +63,7 @@ async function loadWarehouses() {
 function openDialog(row: any) {
   current.value = row
   form.quantity = remaining(row)
+  form.unit = row.productionOrder?.material?.unit || ''
   form.batchNo = row.batchNo != null ? String(row.batchNo) : ''
   form.warehouseId = warehouseIdByLocation(warehouses.value, row.productionOrder?.material?.location) || warehouses.value[0]?.id || null
   dialogVisible.value = true
@@ -56,13 +78,18 @@ async function submit() {
     ElMessage.warning('请选择入库仓库')
     return
   }
-  if (form.quantity > remaining(current.value) + 1e-6) {
+  if (!unitRate.value) {
+    ElMessage.warning(`单位「${form.unit}」未维护换算关系`)
+    return
+  }
+  const baseQty = (Number(form.quantity) || 0) * unitRate.value
+  if (baseQty > remaining(current.value) + 1e-6) {
     ElMessage.warning(`入库数量超过剩余可入库数量 ${remaining(current.value)}`)
     return
   }
   submitting.value = true
   try {
-    await productionApi.receiveBatch(current.value.id, { quantity: form.quantity, warehouseId: form.warehouseId, batchNo: form.batchNo || undefined })
+    await productionApi.receiveBatch(current.value.id, { quantity: form.quantity, unit: form.unit || undefined, warehouseId: form.warehouseId, batchNo: form.batchNo || undefined })
     ElMessage.success('生产入库成功')
     dialogVisible.value = false
     loadData()
@@ -151,6 +178,12 @@ onMounted(async () => {
         </el-form-item>
         <el-form-item label="入库数量" required>
           <el-input-number v-model="form.quantity" :min="0" :precision="2" :controls="false" style="width: 100%" />
+          <div v-if="baseHint" class="unit-hint">{{ baseHint }}</div>
+        </el-form-item>
+        <el-form-item label="计量单位">
+          <el-select v-model="form.unit" filterable allow-create default-first-option placeholder="默认基本单位" style="width: 100%">
+            <el-option v-for="u in unitOptions" :key="u" :label="u" :value="u" />
+          </el-select>
         </el-form-item>
         <el-form-item label="批号">
           <el-input v-model="form.batchNo" placeholder="空则自动生成；批号管理物料建议填生产批次号" />
@@ -163,3 +196,11 @@ onMounted(async () => {
     </el-dialog>
   </div>
 </template>
+
+<style scoped>
+.unit-hint {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  margin-top: 2px;
+}
+</style>

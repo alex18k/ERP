@@ -85,6 +85,9 @@ onMounted(async () => {
             <span :class="{ 'text-low': row.isLow }" style="font-weight: 600">{{ row.quantity }}</span>
           </template>
         </el-table-column>
+        <el-table-column label="单位" width="70" align="center">
+          <template #default="{ row }">{{ row.material?.unit || '-' }}</template>
+        </el-table-column>
         <el-table-column label="批号" min-width="170">
           <template #default="{ row }">{{ row.batchNo || '-' }}</template>
         </el-table-column>

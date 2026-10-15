@@ -249,6 +249,26 @@ function onProductChange(row: any, materialId: number) {
   }
 }
 
+// 单据行可选计量单位：产品基本单位 + 已维护的转换单位（含当前行单位）
+function rowUnitOptions(row: any): string[] {
+  const m = products.value.find((p) => p.id === row.materialId) || row.material || null
+  const set = new Set<string>(['个', '件', '套', '台', '只', '箱', '包'])
+  if (m?.units) for (const u of m.units) set.add(u)
+  if (row.unit) set.add(row.unit)
+  return [...set]
+}
+// 换算提示：录入单位≠基本单位时显示折算后的基本单位数量
+function rowBaseHint(row: any): string {
+  const m = products.value.find((p) => p.id === row.materialId) || row.material || null
+  if (!m?.unit) return ''
+  const u = row.unit || m.unit
+  if (u === m.unit) return ''
+  const rate = m.unitRates?.[u] ?? 0
+  if (!rate) return ''
+  const base = (Number(row.quantity) || 0) * rate
+  return `= ${Number(base.toFixed(6))} ${m.unit}`
+}
+
 function taxAmountOf(row: any) {
   const qty = Number(row.quantity || 0)
   const price = Number(row.unitPrice || 0)
@@ -508,14 +528,17 @@ onMounted(async () => {
                   </el-select>
                 </template>
               </el-table-column>
-              <el-table-column label="单位" width="58" align="center">
+              <el-table-column label="单位" width="88" align="center">
                 <template #default="{ row }">
-                  <el-input v-model="row.unit" placeholder="单位" @change="(v: string) => { row.unit = v }" />
+                  <el-select v-model="row.unit" filterable allow-create default-first-option placeholder="单位" size="small" style="width: 100%">
+                    <el-option v-for="u in rowUnitOptions(row)" :key="u" :label="u" :value="u" />
+                  </el-select>
                 </template>
               </el-table-column>
               <el-table-column label="数量" width="105">
                 <template #default="{ row }">
                   <el-input-number v-model="row.quantity" :min="1" :controls="false" style="width: 100%" />
+                  <div v-if="rowBaseHint(row)" class="unit-hint">{{ rowBaseHint(row) }}</div>
                 </template>
               </el-table-column>
               <el-table-column label="单价" width="115">
@@ -582,6 +605,12 @@ onMounted(async () => {
   font-weight: 600;
   color: var(--el-text-color-primary);
   margin-bottom: 12px;
+}
+.unit-hint {
+  font-size: 11px;
+  line-height: 1.2;
+  color: var(--el-text-color-secondary);
+  margin-top: 2px;
 }
 
 /* 明细行控件无边框：平时像纯文本，悬停/聚焦显示细线 */

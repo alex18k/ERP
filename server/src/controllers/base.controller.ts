@@ -1,5 +1,5 @@
 import { Request, Response } from "express";
-import { supplierService, warehouseService, customerService, workshopService, workstationService, stockTransactionTypeService } from "../services/base.service";
+import { supplierService, warehouseService, customerService, workshopService, workstationService, stockTransactionTypeService, unitConversionService, materialCategoryService } from "../services/base.service";
 import { success, fail } from "../utils/response";
 
 function makeController(service: any) {
@@ -53,6 +53,8 @@ export const warehouseController = makeController(warehouseService);
 export const customerController = makeController(customerService);
 export const workshopController = makeController(workshopService);
 export const stockTransactionTypeController = makeController(stockTransactionTypeService);
+export const unitConversionController = makeController(unitConversionService);
+export const materialCategoryController = makeController(materialCategoryService);
 
 const workstationControllerRaw = makeController(workstationService);
 export const workstationController = {

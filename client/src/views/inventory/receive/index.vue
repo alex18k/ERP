@@ -92,6 +92,7 @@ function openReceive(row: any) {
       status: it.status,
       materialCode: it.material?.code,
       materialName: it.material?.name,
+      unit: it.unit || it.material?.unit,
       quantity: it.quantity,
       receivedQty: it.receivedQty ?? 0,
       remaining: it.quantity - (it.receivedQty ?? 0),
@@ -205,6 +206,7 @@ onMounted(loadData)
         <el-table-column label="物料" min-width="180">
           <template #default="{ row }">{{ row.materialCode }} - {{ row.materialName }}</template>
         </el-table-column>
+        <el-table-column prop="unit" label="单位" width="70" />
         <el-table-column prop="quantity" label="采购数量" width="90" />
         <el-table-column prop="receivedQty" label="已收" width="80" />
         <el-table-column prop="remaining" label="未收" width="80" />

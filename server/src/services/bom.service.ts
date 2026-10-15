@@ -76,12 +76,32 @@ export async function bomProductOptions(where?: { keyword?: string; limit?: numb
       { name: { contains: keyword } },
     ];
   }
-  return prisma.material.findMany({
+  const products = await prisma.material.findMany({
     where: filters,
     select: { id: true, code: true, name: true, specification: true, unit: true },
     orderBy: { code: "asc" },
     take: Math.min(Number(limit) || 50, 500),
   });
+  // 附带可用计量单位（基本单位 + 转换单位）及换算率，供销售单据行选择与换算提示
+  const convs = products.length
+    ? await prisma.materialUnitConversion.findMany({
+        where: { materialId: { in: products.map((m) => m.id) }, status: 1 },
+        orderBy: { id: "asc" },
+      })
+    : [];
+  const unitMap = new Map<number, string[]>();
+  const rateMap = new Map<number, Record<string, number>>();
+  for (const c of convs) {
+    if (!unitMap.has(c.materialId)) unitMap.set(c.materialId, []);
+    unitMap.get(c.materialId)!.push(c.unit);
+    if (!rateMap.has(c.materialId)) rateMap.set(c.materialId, {});
+    rateMap.get(c.materialId)![c.unit] = c.conversionRate;
+  }
+  return products.map((m) => ({
+    ...m,
+    units: [m.unit, ...(unitMap.get(m.id) ?? [])],
+    unitRates: { [m.unit]: 1, ...(rateMap.get(m.id) ?? {}) },
+  }));
 }
 
 export async function getBom(id: number) {

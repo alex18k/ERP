@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { localDateCompact } from "../utils/date";
 import { retryOnDuplicate, lockOrderNo, ORDER_NO_LOCK } from "../utils/retry";
 import { generateStockDocNo, applyBatchIn, applyBatchOut } from "./stock.service";
+import { resolveUnitRate, toBaseQty } from "../utils/unit";
 
 // ===== 生产订单 =====
 // 单号 = 前缀 + 当日最大序号+1（配合 lockOrderNo 串行化，避免 count+1 并发撞号）
@@ -733,14 +734,36 @@ export async function getBatchMaterials(batchId: number) {
     },
   });
   if (!batch) throw new Error("批次不存在");
+  await attachUnitInfo([batch.productionOrder.material, ...batch.materials.map((m) => m.material)]);
   return batch;
+}
+
+/** 给物料对象附带可用计量单位（基本单位 + 转换单位）及换算率 */
+async function attachUnitInfo(materials: any[]) {
+  const list = materials.filter(Boolean);
+  const ids = [...new Set(list.map((m) => m.id))];
+  const convs = ids.length
+    ? await prisma.materialUnitConversion.findMany({ where: { materialId: { in: ids }, status: 1 }, orderBy: { id: "asc" } })
+    : [];
+  const unitMap = new Map<number, string[]>();
+  const rateMap = new Map<number, Record<string, number>>();
+  for (const c of convs) {
+    if (!unitMap.has(c.materialId)) unitMap.set(c.materialId, []);
+    unitMap.get(c.materialId)!.push(c.unit);
+    if (!rateMap.has(c.materialId)) rateMap.set(c.materialId, {});
+    rateMap.get(c.materialId)![c.unit] = c.conversionRate;
+  }
+  for (const m of list) {
+    m.units = [m.unit, ...(unitMap.get(m.id) ?? [])];
+    m.unitRates = { [m.unit]: 1, ...(rateMap.get(m.id) ?? {}) };
+  }
 }
 
 // 批量发料：异常行（数量非法/超未发/库存不足）跳过，其余正常出库
 export async function issueBatchMaterials(
   batchId: number,
   warehouseId: number,
-  items: { batchMaterialId: number; quantity: number; location?: string; batchNo?: string }[],
+  items: { batchMaterialId: number; quantity: number; unit?: string; location?: string; batchNo?: string }[],
   userId: number,
   effectiveDate?: string
 ) {
@@ -777,29 +800,33 @@ export async function issueBatchMaterials(
         skipped.push({ ...base, reason: "数量必须大于0" });
         continue;
       }
+      // 计量单位换算：录入数量按换算率折算为基本单位（需求量/已发量均以基本单位计）
+      const { rate } = await resolveUnitRate(row.materialId, it.unit, tx as any);
+      const baseQty = toBaseQty(qty, rate);
+
       const remain = row.requiredQty - row.issuedQty;
-      if (qty > remain + 1e-6) {
+      if (baseQty > remain + 1e-6) {
         skipped.push({ ...base, reason: `超过未发数量（${remain}）` });
         continue;
       }
 
       // 1) 库存预检（只读，未通过则跳过该行，无副作用）
       const stock = await tx.stock.findFirst({ where: { materialId: row.materialId, warehouseId } });
-      if (!stock || stock.quantity < qty) {
+      if (!stock || stock.quantity < baseQty) {
         skipped.push({ ...base, reason: `库存不足（当前 ${stock?.quantity ?? 0}）` });
         continue;
       }
 
       // 2) 原子累加已发量（写入时校验不超需求量），防止并发超发；并发冲突时中止整个事务（回滚保证一致性）
       const issuedUpd = await tx.productionBatchMaterial.updateMany({
-        where: { id: row.id, issuedQty: { lte: row.requiredQty - qty + 1e-6 } },
-        data: { issuedQty: { increment: qty } },
+        where: { id: row.id, issuedQty: { lte: row.requiredQty - baseQty + 1e-6 } },
+        data: { issuedQty: { increment: baseQty } },
       });
       if (issuedUpd.count === 0) {
         throw new Error(`物料 ${row.material.code} 未发数量已变化，请刷新后重试`);
       }
       const freshRow = await tx.productionBatchMaterial.findUnique({ where: { id: row.id } });
-      const newIssued = freshRow?.issuedQty ?? row.issuedQty + qty;
+      const newIssued = freshRow?.issuedQty ?? row.issuedQty + baseQty;
       await tx.productionBatchMaterial.update({
         where: { id: row.id },
         data: { status: newIssued >= (freshRow?.requiredQty ?? row.requiredQty) - 1e-6 ? "issued" : "partial" },
@@ -808,21 +835,21 @@ export async function issueBatchMaterials(
 
       // 3) 原子扣减库存（写入时再次校验充足），防止预检与写入之间被并发扣减
       const stockUpd = await tx.stock.updateMany({
-        where: { id: stock.id, quantity: { gte: qty } },
-        data: { quantity: { decrement: qty }, lastOutDate: new Date() },
+        where: { id: stock.id, quantity: { gte: baseQty } },
+        data: { quantity: { decrement: baseQty }, lastOutDate: new Date() },
       });
       if (stockUpd.count === 0) {
         const freshStock = await tx.stock.findUnique({ where: { id: stock.id } });
         throw new Error(`物料 ${row.material.code} 库存不足（当前 ${freshStock?.quantity ?? 0}）`);
       }
 
-      const resolvedBatchNo = await applyBatchOut(tx, row.material, warehouseId, it.batchNo, qty);
+      const resolvedBatchNo = await applyBatchOut(tx, row.material, warehouseId, it.batchNo, baseQty);
       await tx.stockRecord.create({
         data: {
           materialId: row.materialId,
           warehouseId,
           type: "out",
-          quantity: qty,
+          quantity: baseQty,
           batchNo: resolvedBatchNo,
           relatedType: "ProductionBatch",
           relatedId: batchId,
@@ -1079,6 +1106,7 @@ export async function listReceivableBatches(where: any) {
     }),
   ]);
 
+  await attachUnitInfo(items.map((b) => b.productionOrder.material));
   return { total, page: Number(page), pageSize: Number(pageSize), items };
 }
 
@@ -1087,7 +1115,8 @@ export async function receiveBatchProduct(
   quantity: number,
   warehouseId: number,
   userId: number,
-  batchNo?: string
+  batchNo?: string,
+  unit?: string
 ) {
   if (!Number.isFinite(quantity) || quantity <= 0) throw new Error("入库数量必须大于0");
   if (!warehouseId) throw new Error("请选择入库仓库");
@@ -1097,9 +1126,12 @@ export async function receiveBatchProduct(
   });
   if (!batch) throw new Error("批次不存在");
   if (batch.status === "cancelled") throw new Error("批次已取消，不能入库");
-  const remain = batch.quantity - batch.receivedQty;
-  if (quantity > remain + 1e-6) throw new Error(`入库数量超过剩余可入库数量（${remain}）`);
   const material = batch.productionOrder.material;
+  // 计量单位换算：录入数量按换算率折算为基本单位后入库
+  const { rate } = await resolveUnitRate(material.id, unit);
+  const baseQty = toBaseQty(quantity, rate);
+  const remain = batch.quantity - batch.receivedQty;
+  if (baseQty > remain + 1e-6) throw new Error(`入库数量超过剩余可入库数量（${remain}）`);
   const warehouse = await prisma.warehouse.findUnique({ where: { id: warehouseId } });
   if (!warehouse) throw new Error("仓库不存在");
   const receiveType = await prisma.stockTransactionType.findUnique({ where: { code: "RCT-WO" } });
@@ -1108,29 +1140,29 @@ export async function receiveBatchProduct(
   return prisma.$transaction(async (tx) => {
     // 1) 原子累加入库量（写入时校验不超批次数量），防止并发超收
     const recvUpd = await tx.productionBatch.updateMany({
-      where: { id: batch.id, status: { not: "cancelled" }, receivedQty: { lte: batch.quantity - quantity + 1e-6 } },
-      data: { receivedQty: { increment: quantity } },
+      where: { id: batch.id, status: { not: "cancelled" }, receivedQty: { lte: batch.quantity - baseQty + 1e-6 } },
+      data: { receivedQty: { increment: baseQty } },
     });
     if (recvUpd.count === 0) {
       const fresh = await tx.productionBatch.findUnique({ where: { id: batch.id }, select: { quantity: true, receivedQty: true } });
       throw new Error(`入库数量超过剩余可入库数量（${(fresh?.quantity ?? 0) - (fresh?.receivedQty ?? 0)}）`);
     }
     const after = await tx.productionBatch.findUnique({ where: { id: batch.id }, select: { receivedQty: true } });
-    const newReceived = after?.receivedQty ?? batch.receivedQty + quantity;
+    const newReceived = after?.receivedQty ?? batch.receivedQty + baseQty;
 
     // 2) 库存 upsert + 原子累加
     await tx.stock.upsert({
       where: { materialId_warehouseId: { materialId: material.id, warehouseId } },
-      create: { materialId: material.id, warehouseId, quantity, lastInDate: new Date() },
-      update: { quantity: { increment: quantity }, lastInDate: new Date() },
+      create: { materialId: material.id, warehouseId, quantity: baseQty, lastInDate: new Date() },
+      update: { quantity: { increment: baseQty }, lastInDate: new Date() },
     });
-    const resolvedBatchNo = await applyBatchIn(tx, material, warehouseId, batchNo, quantity);
+    const resolvedBatchNo = await applyBatchIn(tx, material, warehouseId, batchNo, baseQty);
     await tx.stockRecord.create({
       data: {
         materialId: material.id,
         warehouseId,
         type: "in",
-        quantity,
+        quantity: baseQty,
         batchNo: resolvedBatchNo,
         relatedType: "ProductionBatch",
         relatedId: batch.id,

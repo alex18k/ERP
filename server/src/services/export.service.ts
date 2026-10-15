@@ -60,10 +60,10 @@ export async function stockExport() {
     },
     orderBy: { material: { code: "asc" } },
   });
-  const headers = ["物料编码", "物料名称", "类别", "仓库", "现存量", "预占", "可用量", "安全库存", "是否预警"];
+  const headers = ["物料编码", "物料名称", "类别", "仓库", "现存量", "单位", "预占", "可用量", "安全库存", "是否预警"];
   const rows = list.map((s) => [
     s.material.code, s.material.name, categoryLabel[s.material.category] ?? s.material.category,
-    s.warehouse?.name ?? "", s.quantity, s.reservedQty, s.quantity - s.reservedQty,
+    s.warehouse?.name ?? "", s.quantity, s.material.unit ?? "", s.reservedQty, s.quantity - s.reservedQty,
     s.material.safetyStock,
     s.material.safetyStock > 0 && s.quantity <= s.material.safetyStock ? "低库存" : "正常",
   ]);

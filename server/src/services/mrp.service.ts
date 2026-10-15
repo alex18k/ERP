@@ -229,17 +229,19 @@ export async function runMrp(params: MrpParams = {}, userId?: number, existingRu
   const allDemands: ExpandedDemand[] = [];
   for (const order of orders) {
     for (const item of order.items) {
+      // 计量单位换算：销售明细按录入单位录入，MRP 需求按基本单位展开
+      const baseQty = item.baseQty && item.baseQty > 0 ? item.baseQty : item.quantity;
       // 成品自身需求也要统计（用于跟踪）
       allDemands.push({
         materialId: item.materialId,
-        quantity: item.quantity,
+        quantity: baseQty,
         orderId: order.id,
         orderNo: order.orderNo,
         needDate: item.deliveryDate ?? order.deliveryDate ?? null,
         isSemiProduct: true,
       });
 
-      const expanded = await expandDemand(item.materialId, item.quantity, order.id, order.orderNo, item.deliveryDate ?? order.deliveryDate ?? null, cache);
+      const expanded = await expandDemand(item.materialId, baseQty, order.id, order.orderNo, item.deliveryDate ?? order.deliveryDate ?? null, cache);
       allDemands.push(...expanded);
     }
   }
@@ -279,7 +281,8 @@ export async function runMrp(params: MrpParams = {}, userId?: number, existingRu
   });
   const inTransitMap = new Map<number, number>();
   for (const r of inTransitRows) {
-    const remaining = Math.max(0, r.quantity - r.receivedQty);
+    // 在途量按基本单位折算（数量为计量单位，换算率取自明细快照）
+    const remaining = Math.max(0, r.quantity - r.receivedQty) * (r.conversionRate || 1);
     inTransitMap.set(r.materialId, (inTransitMap.get(r.materialId) ?? 0) + remaining);
   }
 
@@ -978,7 +981,7 @@ export async function createSafetyStockSuggestions() {
   });
   const inTransitMap = new Map<number, number>();
   for (const r of inTransitRows) {
-    inTransitMap.set(r.materialId, (inTransitMap.get(r.materialId) ?? 0) + Math.max(0, r.quantity - r.receivedQty));
+    inTransitMap.set(r.materialId, (inTransitMap.get(r.materialId) ?? 0) + Math.max(0, r.quantity - r.receivedQty) * (r.conversionRate || 1));
   }
 
   // 候选：启用中的采购件，安全库存>0

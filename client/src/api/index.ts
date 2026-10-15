@@ -88,6 +88,20 @@ export const workshopApi = {
   remove: (id: number) => request.delete(`/workshops/${id}`),
 }
 
+export const unitConversionApi = {
+  list: (params: PageParams) => request.get('/unit-conversions', { params }),
+  create: (data: any) => request.post('/unit-conversions', data),
+  update: (id: number, data: any) => request.put(`/unit-conversions/${id}`, data),
+  remove: (id: number) => request.delete(`/unit-conversions/${id}`),
+}
+
+export const materialCategoryApi = {
+  list: (params: PageParams) => request.get('/material-categories', { params }),
+  create: (data: any) => request.post('/material-categories', data),
+  update: (id: number, data: any) => request.put(`/material-categories/${id}`, data),
+  remove: (id: number) => request.delete(`/material-categories/${id}`),
+}
+
 // ===== 销售订单 =====
 export const orderApi = {
   list: (params: PageParams) => request.get('/sales-orders', { params }),

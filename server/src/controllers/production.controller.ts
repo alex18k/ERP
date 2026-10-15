@@ -245,13 +245,14 @@ export async function receivableBatchesHandler(req: Request, res: Response) {
 
 export async function receiveBatchHandler(req: AuthRequest, res: Response) {
   try {
-    const { quantity, warehouseId, batchNo } = req.body || {};
+    const { quantity, warehouseId, batchNo, unit } = req.body || {};
     const data = await productionService.receiveBatchProduct(
       Number(req.params.id),
       Number(quantity),
       Number(warehouseId),
       req.user!.id,
-      batchNo
+      batchNo,
+      unit
     );
     return success(res, data, "生产入库成功");
   } catch (error: any) {
