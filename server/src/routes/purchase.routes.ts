@@ -9,6 +9,7 @@ router.use(authMiddleware);
 router.get("/arrival", requirePermission("purchase:view"), purchaseController.arrivalHandler);
 router.get("/receipts", requirePermission("purchase:view"), purchaseController.receiptsHandler);
 router.get("/buyers", requirePermission("purchase:view"), purchaseController.buyersHandler);
+router.get("/options", requirePermission("purchase:view"), purchaseController.optionsHandler);
 router.get("/export", requirePermission("purchase:view"), purchaseController.exportHandler);
 router.get("/", requirePermission("purchase:view"), purchaseController.listHandler);
 router.get("/:id", requirePermission("purchase:view"), purchaseController.getHandler);

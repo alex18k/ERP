@@ -22,6 +22,14 @@ export async function listHandler(req: Request, res: Response) {
     return fail(res, 500, error.message, 500);
   }
 }
+export async function optionsHandler(req: Request, res: Response) {
+  try {
+    const data = await purchaseService.listPurchaseOrderOptions(req.query as any);
+    return success(res, data);
+  } catch (error: any) {
+    return fail(res, 500, error.message, 500);
+  }
+}
 export async function receiptsHandler(req: Request, res: Response) {
   try {
     const data = await purchaseService.listPurchaseReceipts(req.query as any);

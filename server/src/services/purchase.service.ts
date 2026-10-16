@@ -110,6 +110,27 @@ export async function listPurchaseOrders(where: any) {
   return { total, page: Number(page), pageSize: Number(pageSize), items };
 }
 
+// 轻量下拉选项：仅返回单号与供应商名，供采购单维护页选单/远程搜索使用，避免拉取整单+明细
+export async function listPurchaseOrderOptions(where: any) {
+  const { keyword, limit = 50 } = where || {};
+  const filters: Prisma.PurchaseOrderWhereInput = {};
+  const kw = keyword ? String(keyword).trim() : "";
+  if (kw) {
+    filters.OR = [
+      { orderNo: { contains: kw } },
+      { supplier: { name: { contains: kw } } },
+    ];
+  }
+  const take = Math.min(Math.max(Number(limit) || 50, 1), 200);
+  const items = await prisma.purchaseOrder.findMany({
+    where: filters,
+    select: { id: true, orderNo: true, supplier: { select: { name: true } } },
+    orderBy: { createdAt: "desc" },
+    take,
+  });
+  return items.map((o) => ({ id: o.id, orderNo: o.orderNo, supplier: o.supplier?.name || "未指定" }));
+}
+
 export async function getPurchaseOrder(id: number) {
   return prisma.purchaseOrder.findUnique({
     where: { id },

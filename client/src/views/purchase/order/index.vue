@@ -12,15 +12,15 @@ const query = reactive({ page: 1, pageSize: 20, orderNo: '', supplierId: '', sta
 
 const statusOptions = [
   { label: '草稿', value: 'draft', type: 'info' },
-  { label: '已确认', value: 'confirmed', type: 'primary' },
+  { label: '已确认', value: 'confirmed', type: 'warning' },
 ]
-// 历史数据兼容：旧的主表状态仅用于展示，不再参与任何逻辑
-const legacyStatusMap: Record<string, { label: string; type: string }> = {
-  partial_received: { label: '部分收货', type: 'warning' },
-  received: { label: '已收货', type: 'success' },
-  cancelled: { label: '已取消', type: 'danger' },
-  closed: { label: '已关闭', type: 'info' },
-}
+
+// 明细行状态（采购单状态列取明细行）：空白(可收货/参与MRP)、关闭、取消
+const itemStatusOptions = [
+  { label: '空白', value: '', type: 'info' },
+  { label: '关闭', value: 'closed', type: 'warning' },
+  { label: '取消', value: 'cancelled', type: 'danger' },
+]
 
 const suppliers = ref<any[]>([])
 
@@ -33,11 +33,18 @@ async function loadData() {
   } finally { loading.value = false }
 }
 
-function statusLabel(s: string) {
-  return statusOptions.find(o => o.value === s)?.label || legacyStatusMap[s]?.label || s
+function itemStatusLabel(s: string) {
+  return itemStatusOptions.find(o => o.value === (s || ''))?.label || (s || '空白')
 }
-function statusType(s: string) {
-  return statusOptions.find(o => o.value === s)?.type || legacyStatusMap[s]?.type || 'info'
+function itemStatusType(s: string) {
+  return itemStatusOptions.find(o => o.value === (s || ''))?.type || 'info'
+}
+// 单据确认状态（表头）
+function confirmLabel(s: string) {
+  return statusOptions.find(o => o.value === s)?.label || s
+}
+function confirmType(s: string) {
+  return statusOptions.find(o => o.value === s)?.type || 'info'
 }
 
 // 平铺明细行：每行 = 一个采购明细；有物料关键词时只保留匹配的明细行
@@ -57,7 +64,8 @@ const rows = computed(() => {
         supplierName: o.supplier?.name || '未指定',
         settleMethod: o.settleMethod,
         buyer: o.buyer,
-        status: o.status,
+        confirmStatus: o.status,
+        status: it.status || '',
         orderDate: o.orderDate,
         line: it.line || 0,
         materialCode: m?.code,
@@ -98,6 +106,15 @@ function fmtPrice(v: any) {
   return n ? String(n) : ''
 }
 
+// 已收量配色：未收灰色、部分收货橙色、已收满绿色
+function receivedClass(row: any) {
+  const q = Number(row.quantity) || 0
+  const r = Number(row.receivedQty) || 0
+  if (r <= 0) return 'qty-zero'
+  if (q > 0 && r >= q) return 'qty-full'
+  return 'qty-partial'
+}
+
 onMounted(async () => {
   loadData()
   try {
@@ -115,31 +132,35 @@ onMounted(async () => {
         <el-select v-model="query.supplierId" placeholder="供应商" clearable filterable style="width: 180px">
           <el-option v-for="s in suppliers" :key="s.id" :label="s.name" :value="s.id" />
         </el-select>
-        <el-select v-model="query.status" placeholder="状态" clearable style="width: 120px">
+        <el-select v-model="query.status" placeholder="单据状态" clearable style="width: 120px">
           <el-option v-for="o in statusOptions" :key="o.value" :label="o.label" :value="o.value" />
         </el-select>
         <el-input v-model="query.materialKeyword" placeholder="物料编码/名称/规格" clearable style="width: 200px" />
         <el-button type="primary" @click="query.page = 1, loadData()"><el-icon><Search /></el-icon>查询</el-button>
         <el-button @click="Object.assign(query, { orderNo: '', supplierId: '', status: '', materialKeyword: '', page: 1 }), loadData()">重置</el-button>
-        <el-button style="margin-left: auto" @click="handleToolbarEdit" :disabled="!currentRow"><el-icon><Edit /></el-icon>编辑</el-button>
-        <el-button @click="handleToolbarPrint" :disabled="!currentRow"><el-icon><Printer /></el-icon>打印</el-button>
+        <el-button type="primary" plain style="margin-left: auto" @click="handleToolbarEdit" :disabled="!currentRow"><el-icon><Edit /></el-icon>编辑</el-button>
+        <el-button type="warning" plain @click="handleToolbarPrint" :disabled="!currentRow"><el-icon><Printer /></el-icon>打印</el-button>
         <el-button type="success" plain class="btn-add" @click="router.push('/purchase/maintain')"><el-icon><Plus /></el-icon>新增采购单</el-button>
       </div>
 
       <el-table :data="rows" v-loading="loading" stripe max-height="calc(100vh - 260px)" highlight-current-row @current-change="onCurrentChange">
         <el-table-column prop="orderNo" label="采购单号" width="150" />
+        <el-table-column prop="line" label="行号" width="60" align="center" />
         <el-table-column prop="supplierName" label="供应商" min-width="140" />
         <el-table-column prop="buyer" label="采购员" width="100" />
         <el-table-column label="订货日期" width="110">
           <template #default="{ row }">{{ row.orderDate?.slice(0, 10) || '-' }}</template>
         </el-table-column>
         <el-table-column prop="settleMethod" label="结算方式" width="100" />
-        <el-table-column prop="line" label="行号" width="60" align="center" />
         <el-table-column prop="materialCode" label="物料编码" width="110" />
         <el-table-column prop="materialName" label="物料名称" min-width="150" />
         <el-table-column prop="specification" label="型号规格" min-width="140" />
         <el-table-column prop="quantity" label="数量" width="90" />
-        <el-table-column prop="receivedQty" label="已收" width="80" />
+        <el-table-column label="已收" width="80">
+          <template #default="{ row }">
+            <span :class="receivedClass(row)">{{ row.receivedQty ?? 0 }}</span>
+          </template>
+        </el-table-column>
         <el-table-column label="单价" width="80">
           <template #default="{ row }">{{ fmtPrice(row.unitPrice) }}</template>
         </el-table-column>
@@ -150,9 +171,14 @@ onMounted(async () => {
           <template #default="{ row }">{{ row.expectedDate?.slice(0, 10) || '-' }}</template>
         </el-table-column>
         <el-table-column prop="sourceOrderNo" label="订单号" width="140" />
+        <el-table-column label="确认" width="100">
+          <template #default="{ row }">
+            <el-tag :type="confirmType(row.confirmStatus)" size="small">{{ confirmLabel(row.confirmStatus) }}</el-tag>
+          </template>
+        </el-table-column>
         <el-table-column label="状态" width="120">
           <template #default="{ row }">
-            <el-tag :type="statusType(row.status)" size="small">{{ statusLabel(row.status) }}</el-tag>
+            <el-tag :type="itemStatusType(row.status)" size="small">{{ itemStatusLabel(row.status) }}</el-tag>
           </template>
         </el-table-column>
       </el-table>
@@ -165,3 +191,17 @@ onMounted(async () => {
 
   </div>
 </template>
+
+<style scoped>
+.qty-zero {
+  color: var(--el-text-color-placeholder);
+}
+.qty-partial {
+  color: var(--el-color-warning);
+  font-weight: 600;
+}
+.qty-full {
+  color: var(--el-color-success);
+  font-weight: 600;
+}
+</style>

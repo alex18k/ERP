@@ -17,6 +17,12 @@ const buyerOptions = ref<string[]>([])
 const unitOptions = ref<string[]>([])
 const locationOptions = ref<{ code: string; name: string }[]>([])
 const orderOptions = ref<any[]>([])
+const orderLoading = ref(false)
+const pageLoading = ref(false)
+// 供应商列表变化不频繁：模块级缓存（60s），重复进入编辑页不再重复拉取
+let supplierCache: any[] | null = null
+let supplierCacheAt = 0
+const SUPPLIER_CACHE_TTL = 60 * 1000
 const taxRateOptions = [0, 1, 3, 5, 6, 9, 13]
 const headerLocation = ref('')
 const isEditLoad = ref(false)
@@ -113,16 +119,23 @@ function nextLine(): number {
 function addItem() {
   form.items.push({ id: null, receivedQty: 0, materialId: null, quantity: 1, unit: '', unitPrice: 0, unitPriceText: '', taxIncluded: !!form.taxIncluded, taxRate: form.taxRate ?? 0, location: headerLocation.value || 'A01', expectedDate: form.expectedDate || '', remark: '', status: 'blank', sourceOrderNo: '', line: nextLine(), __options: [] })
 }
-const selectedRows = ref<any[]>([])
+const currentRow = ref<any | null>(null)
 const itemsTableRef = ref()
-function removeSelected() {
-  form.items = form.items.filter((it: any) => !selectedRows.value.includes(it) || (it.receivedQty || 0) > 0)
-  selectedRows.value = []
-  itemsTableRef.value?.clearSelection()
+function onCurrentChange(row: any | null) { currentRow.value = row }
+// 捕获阶段处理：行内控件（下拉/输入框）会 stopPropagation，用 capture 保证点击任意位置都能选中该行
+function onTableClickCapture(e: MouseEvent) {
+  const tr = (e.target as HTMLElement)?.closest('tr') as HTMLTableRowElement | null
+  if (!tr || !tr.closest('.el-table__body')) return
+  const row = form.items[tr.rowIndex]
+  if (row) { currentRow.value = row; itemsTableRef.value?.setCurrentRow(row) }
 }
-// 有收货记录的行不能勾选删除
-function rowSelectable(row: any) {
-  return (row.receivedQty || 0) <= 0
+// 点击选中一行后删除；有收货记录的行禁止删除
+function removeSelected() {
+  if (!currentRow.value) { ElMessage.warning('请先点击选择一行'); return }
+  if ((currentRow.value.receivedQty || 0) > 0) { ElMessage.warning('有收货记录的行不能删除'); return }
+  form.items = form.items.filter((it: any) => it !== currentRow.value)
+  currentRow.value = null
+  itemsTableRef.value?.setCurrentRow()
 }
 
 function onMaterialChange(row: any, materialId: number) {
@@ -195,25 +208,32 @@ async function loadBuyers() {
   } catch { buyerOptions.value = [] }
 }
 
-async function loadOrderOptions() {
-  const res: any = await purchaseApi.list({ page: 1, pageSize: 200 })
-  orderOptions.value = res.data.items || []
+async function loadOrderOptions(keyword = '') {
+  orderLoading.value = true
+  try {
+    const res: any = await purchaseApi.options({ keyword: keyword || undefined, limit: 50 })
+    const fetched = res.data || []
+    // 无关键字时保留当前编辑单据，避免旧单不在最近 50 条内导致单号下拉空白
+    if (!keyword && form.id && !fetched.some((o: any) => o.id === form.id)) {
+      fetched.unshift({ id: form.id, orderNo: form.orderNo, supplier: form.supplier?.name || '未指定' })
+    }
+    orderOptions.value = fetched
+  } catch { orderOptions.value = [] } finally { orderLoading.value = false }
 }
 
-const orderQuery = ref('')
-const orderFilterOptions = computed(() => {
-  const q = orderQuery.value.trim().toLowerCase()
-  return orderOptions.value
-    .filter((o: any) => !q || `${o.orderNo} ${o.supplier?.name || ''}`.toLowerCase().includes(q))
-    .map((o: any) => ({
-      value: o.id,
-      label: o.orderNo,
-      supplier: o.supplier?.name || '未指定',
-    }))
-})
+const orderFilterOptions = computed(() =>
+  orderOptions.value.map((o: any) => ({
+    value: o.id,
+    label: o.orderNo,
+    supplier: o.supplier || o.supplierName || '未指定',
+  }))
+)
 
-function filterOrderOptions(val: string) {
-  orderQuery.value = val
+// 编辑单据时确保当前单号在选项中（可能不在最近 50 条内），否则下拉框显示空白
+function ensureOrderOption(order: any) {
+  if (!order?.id) return
+  if (orderOptions.value.some((o: any) => o.id === order.id)) return
+  orderOptions.value = [{ id: order.id, orderNo: order.orderNo, supplier: order.supplier?.name || '未指定' }, ...orderOptions.value]
 }
 
 function resetForm() {
@@ -231,36 +251,42 @@ function resetForm() {
 }
 
 async function loadOrder(id: number) {
-  const res: any = await purchaseApi.get(id)
-  const row = res.data
-  Object.assign(form, row)
-  form.orderDate = row.orderDate?.slice(0, 10) || ''
-  form.expectedDate = row.expectedDate?.slice(0, 10) || ''
-  form.buyer = row.buyer || ''
-  form.items = row.items?.map((i: any, idx: number) => ({
-    id: i.id,
-    receivedQty: i.receivedQty ?? 0,
-    line: i.line > 0 ? i.line : idx + 1,
-    materialId: i.materialId,
-    quantity: i.quantity,
-    unit: i.unit || i.material?.unit || '',
-    unitPrice: i.unitPrice,
-    unitPriceText: i.unitPrice != null && i.unitPrice !== 0 ? String(i.unitPrice) : '',
-    taxIncluded: !!i.taxIncluded,
-    taxRate: i.taxRate ?? 0,
-    location: i.location || i.material?.location || '',
-    expectedDate: i.expectedDate?.slice(0, 10) || '',
-    remark: i.remark || '',
-    status: i.status || 'blank',
-    sourceOrderNo: i.sourceOrderNo || '',
-    __options: i.material ? [toCodeOption(i.material)] : [],
-  })) || []
-  registerMaterials((row.items || []).map((i: any) => i.material).filter(Boolean))
-  const locs = new Set<string>((row.items || []).map((i: any) => i.location).filter(Boolean))
-  headerLocation.value = locs.size === 1 ? [...locs][0] : ''
-  isEditLoad.value = true
-  buildItemOptions()
-  snapshot.value = JSON.stringify(buildPayload())
+  pageLoading.value = true
+  try {
+    const res: any = await purchaseApi.get(id)
+    const row = res.data
+    ensureOrderOption(row)
+    Object.assign(form, row)
+    form.orderDate = row.orderDate?.slice(0, 10) || ''
+    form.expectedDate = row.expectedDate?.slice(0, 10) || ''
+    form.buyer = row.buyer || ''
+    form.items = row.items?.map((i: any, idx: number) => ({
+      id: i.id,
+      receivedQty: i.receivedQty ?? 0,
+      line: i.line > 0 ? i.line : idx + 1,
+      materialId: i.materialId,
+      quantity: i.quantity,
+      unit: i.unit || i.material?.unit || '',
+      unitPrice: i.unitPrice,
+      unitPriceText: i.unitPrice != null && i.unitPrice !== 0 ? String(i.unitPrice) : '',
+      taxIncluded: !!i.taxIncluded,
+      taxRate: i.taxRate ?? 0,
+      location: i.location || i.material?.location || '',
+      expectedDate: i.expectedDate?.slice(0, 10) || '',
+      remark: i.remark || '',
+      status: i.status || 'blank',
+      sourceOrderNo: i.sourceOrderNo || '',
+      __options: i.material ? [toCodeOption(i.material)] : [],
+    })) || []
+    registerMaterials((row.items || []).map((i: any) => i.material).filter(Boolean))
+    const locs = new Set<string>((row.items || []).map((i: any) => i.location).filter(Boolean))
+    headerLocation.value = locs.size === 1 ? [...locs][0] : ''
+    isEditLoad.value = true
+    buildItemOptions()
+    snapshot.value = JSON.stringify(buildPayload())
+  } finally {
+    pageLoading.value = false
+  }
 }
 
 function buildPayload() {
@@ -401,20 +427,27 @@ async function handleDelete() {
 
 const formRef = ref()
 
-onMounted(async () => {
+async function loadSuppliers() {
+  if (supplierCache && Date.now() - supplierCacheAt < SUPPLIER_CACHE_TTL) { suppliers.value = supplierCache; return }
+  const res: any = await supplierApi.list({ pageSize: 200 })
+  const items = res.data?.items || []
+  supplierCache = items
+  supplierCacheAt = Date.now()
+  suppliers.value = items
+}
+
+onMounted(() => {
   window.addEventListener('beforeunload', handleBeforeUnload)
-  const [sRes, mRes] = await Promise.all([
-    supplierApi.list({ pageSize: 200 }),
-    materialApi.options({ limit: 200 }),
-  ])
-  suppliers.value = sRes.data.items
-  registerMaterials(mRes.data || [])
-  buildItemOptions()
+  // 先立即加载单据，主表/明细不被下拉数据阻塞
+  const id = Number(route.query.id)
+  if (id) { selectedOrderId.value = id; loadOrder(id) } else { resetForm() }
+  // 下拉数据并行加载，不阻塞表单显示
+  loadSuppliers().catch(() => {})
   loadBuyers()
   loadOrderOptions()
-  resetForm()
-  const id = Number(route.query.id)
-  if (id) { selectedOrderId.value = id; loadOrder(id) }
+  materialApi.options({ limit: 200 })
+    .then((res: any) => { registerMaterials(res.data || []); buildItemOptions() })
+    .catch(() => {})
 })
 
 function onOrderSelect(id: number | null) {
@@ -466,13 +499,13 @@ async function copyOrderNo() {
         <el-button type="primary" @click="handleSave">保存</el-button>
       </div>
 
-      <el-form ref="formRef" :model="form" :rules="rules" label-width="72px" class="kd-header-form">
+      <el-form ref="formRef" v-loading="pageLoading" :model="form" :rules="rules" label-width="72px" class="kd-header-form">
         <div class="erp-group">
           <div class="kd-grid">
             <div class="kd-field">
               <el-form-item label="采购单号">
                 <div class="kd-inline kd-order-no">
-                  <el-select-v2 v-model="selectedOrderId" filterable clearable placeholder="选择采购单号，留空为新增" class="kd-flex" :options="orderFilterOptions" :filter-method="filterOrderOptions" @change="(v: any) => onOrderSelect(v)">
+                  <el-select-v2 v-model="selectedOrderId" filterable remote reserve-keyword clearable placeholder="输入单号/供应商搜索，留空为新增" class="kd-flex" :options="orderFilterOptions" :remote-method="loadOrderOptions" :loading="orderLoading" @visible-change="(open: boolean) => open && loadOrderOptions('')" @change="(v: any) => onOrderSelect(v)">
                     <template #default="{ item }">
                       <span>{{ item.label }}</span>
                       <span style="color: var(--el-text-color-secondary); margin-left: 8px">{{ item.supplier }}</span>
@@ -485,8 +518,8 @@ async function copyOrderNo() {
               </el-form-item>
             </div>
             <div class="kd-field">
-              <el-form-item label="状态">
-                <el-select v-if="form.status" :model-value="form.status" class="kd-flex" @change="(v: string) => handleStatusChange(v)">
+              <el-form-item label="确认">
+                <el-select v-if="form.status" :model-value="form.status" class="kd-flex" :class="{ 'confirm-amber': form.status === 'confirmed' }" @change="(v: string) => handleStatusChange(v)">
                   <el-option v-for="o in statusOptions" :key="o.value" :label="o.label" :value="o.value" />
                 </el-select>
                 <span v-else class="kd-muted">—</span>
@@ -557,10 +590,9 @@ async function copyOrderNo() {
 
         <div style="width: 100%">
             <el-button size="small" type="primary" plain @click="addItem"><el-icon><Plus /></el-icon>添加明细</el-button>
-            <el-button size="small" type="primary" plain style="margin-left: 8px" :disabled="selectedRows.length === 0" @click="removeSelected">删除选中</el-button>
-            <el-table ref="itemsTableRef" class="items-editor" :data="form.items" size="small" border style="margin-top: 8px; width: 100%" @selection-change="(v: any[]) => selectedRows = v">
-              <el-table-column type="selection" width="45" :selectable="rowSelectable" />
-              <el-table-column label="行号" width="72" align="center">
+            <el-button size="small" type="primary" plain style="margin-left: 8px" :disabled="!currentRow" @click="removeSelected">删除选中</el-button>
+            <el-table ref="itemsTableRef" class="items-editor" :data="form.items" size="small" border style="margin-top: 8px; width: 100%" highlight-current-row @current-change="onCurrentChange" @click.capture="onTableClickCapture">
+              <el-table-column label="行" width="52" align="center">
                 <template #default="{ row }">
                   <el-input-number v-model="row.line" :min="1" :step="1" :precision="0" :controls="false" size="small" style="width: 100%" />
                 </template>
@@ -748,6 +780,13 @@ async function copyOrderNo() {
 }
 .kd-muted {
   color: var(--el-text-color-secondary);
+}
+
+/* 确认状态为“已确认”时用琥珀色 */
+.confirm-amber :deep(.el-select__selected-item),
+.confirm-amber :deep(.el-select__placeholder) {
+  color: #e6a23c;
+  font-weight: 600;
 }
 
 /* 金蝶风格：表头输入控件无方框，仅底部下划线；聚焦时下划线变主题色 */
