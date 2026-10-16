@@ -39,6 +39,7 @@ async function main() {
     { code: "order:edit", name: "编辑订单", module: "order", action: "edit" },
     { code: "order:confirm", name: "审核订单", module: "order", action: "confirm" },
     { code: "order:ship", name: "发货确认", module: "order", action: "ship" },
+    { code: "order:delete", name: "删除客户", module: "order", action: "delete" },
     { code: "mrp:run", name: "MRP运算", module: "mrp", action: "run" },
     { code: "mrp:view", name: "查看MRP结果", module: "mrp", action: "view" },
     { code: "production:view", name: "查看生产", module: "production", action: "view" },
@@ -46,10 +47,13 @@ async function main() {
     { code: "production:manage", name: "生产管理", module: "production", action: "manage" },
     { code: "purchase:view", name: "查看采购", module: "purchase", action: "view" },
     { code: "purchase:create", name: "创建采购单", module: "purchase", action: "create" },
+    { code: "purchase:edit", name: "编辑采购/供应商", module: "purchase", action: "edit" },
     { code: "purchase:approve", name: "审批采购单", module: "purchase", action: "approve" },
     { code: "purchase:delete", name: "删除采购单", module: "purchase", action: "delete" },
     { code: "stock:view", name: "查看库存", module: "stock", action: "view" },
+    { code: "stock:create", name: "新增仓库", module: "stock", action: "create" },
     { code: "stock:edit", name: "库存操作", module: "stock", action: "edit" },
+    { code: "stock:delete", name: "删除仓库", module: "stock", action: "delete" },
     { code: "dashboard:view", name: "查看看板", module: "dashboard", action: "view" },
     { code: "user:manage", name: "用户管理", module: "user", action: "manage" },
     { code: "role:manage", name: "角色管理", module: "role", action: "manage" },
@@ -144,7 +148,7 @@ async function main() {
     }
   }
 
-  const managerCodes = ["material:view", "bom:view", "order:view", "mrp:view", "mrp:run", "production:view", "production:manage", "purchase:view", "stock:view", "dashboard:view"];
+  const managerCodes = ["material:view", "bom:view", "order:view", "mrp:view", "mrp:run", "production:view", "production:manage", "purchase:view", "purchase:approve", "purchase:delete", "stock:view", "dashboard:view"];
   for (const code of managerCodes) {
     const pid = permMap.get(code);
     if (pid) {
@@ -153,7 +157,7 @@ async function main() {
     }
   }
 
-  const salesCodes = ["order:view", "order:create", "order:edit", "order:confirm", "order:ship", "material:view"];
+  const salesCodes = ["order:view", "order:create", "order:edit", "order:confirm", "order:ship", "order:delete", "material:view"];
   for (const code of salesCodes) {
     const pid = permMap.get(code);
     if (pid) {
@@ -171,7 +175,7 @@ async function main() {
     }
   }
 
-  const purchaseCodes = ["material:view", "purchase:view", "purchase:create", "purchase:approve", "purchase:delete", "mrp:view", "dashboard:view"];
+  const purchaseCodes = ["material:view", "purchase:view", "purchase:create", "purchase:edit", "mrp:view", "dashboard:view"];
   for (const code of purchaseCodes) {
     const pid = permMap.get(code);
     if (pid) {
@@ -180,12 +184,25 @@ async function main() {
     }
   }
 
-  const warehouseCodes = ["material:view", "stock:view", "stock:edit", "purchase:view"];
+  const warehouseCodes = ["material:view", "stock:view", "stock:create", "stock:edit", "stock:delete", "purchase:view"];
   for (const code of warehouseCodes) {
     const pid = permMap.get(code);
     if (pid) {
       const exists = await prisma.rolePermission.findFirst({ where: { roleId: roleWarehouse.id, permissionId: pid } });
       if (!exists) await prisma.rolePermission.create({ data: { roleId: roleWarehouse.id, permissionId: pid } });
+    }
+  }
+
+  // 显式回收授权：upsert 不会删除旧授权，职责分离（SoD）需要在既有库上也能生效
+  const revokeMap: Record<string, string[]> = {
+    PURCHASE: ["purchase:approve", "purchase:delete"],
+  };
+  for (const [roleCode, codes] of Object.entries(revokeMap)) {
+    const role = await prisma.role.findUnique({ where: { code: roleCode } });
+    if (!role) continue;
+    for (const code of codes) {
+      const pid = permMap.get(code);
+      if (pid) await prisma.rolePermission.deleteMany({ where: { roleId: role.id, permissionId: pid } });
     }
   }
 

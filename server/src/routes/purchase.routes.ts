@@ -1,6 +1,7 @@
 import { Router } from "express";
 import * as purchaseController from "../controllers/purchase.controller";
 import { authMiddleware, requirePermission } from "../middleware/auth";
+import { operationLog } from "../middleware/log";
 
 const router = Router();
 
@@ -13,11 +14,11 @@ router.get("/options", requirePermission("purchase:view"), purchaseController.op
 router.get("/export", requirePermission("purchase:view"), purchaseController.exportHandler);
 router.get("/", requirePermission("purchase:view"), purchaseController.listHandler);
 router.get("/:id", requirePermission("purchase:view"), purchaseController.getHandler);
-router.post("/", requirePermission("purchase:create"), purchaseController.createHandler);
-router.put("/:id", requirePermission("purchase:create"), purchaseController.updateHandler);
-router.put("/:id/confirm", requirePermission("purchase:approve"), purchaseController.confirmHandler);
-router.put("/:id/status", requirePermission("purchase:approve"), purchaseController.updateStatusHandler);
-router.delete("/:id", requirePermission("purchase:delete"), purchaseController.deleteHandler);
-router.put("/:id/receive", requirePermission("stock:edit"), purchaseController.receiveHandler);
+router.post("/", requirePermission("purchase:create"), operationLog("purchase", "create"), purchaseController.createHandler);
+router.put("/:id", requirePermission("purchase:create"), operationLog("purchase", "update"), purchaseController.updateHandler);
+router.put("/:id/confirm", requirePermission("purchase:approve"), operationLog("purchase", "confirm"), purchaseController.confirmHandler);
+router.put("/:id/status", requirePermission("purchase:approve"), operationLog("purchase", "status"), purchaseController.updateStatusHandler);
+router.delete("/:id", requirePermission("purchase:delete"), operationLog("purchase", "delete"), purchaseController.deleteHandler);
+router.put("/:id/receive", requirePermission("stock:edit"), operationLog("purchase", "receive"), purchaseController.receiveHandler);
 
 export default router;
