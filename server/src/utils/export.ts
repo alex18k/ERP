@@ -1,7 +1,9 @@
 import { Response } from "express";
 
 export function csvEscape(value: any): string {
-  const s = value === null || value === undefined ? "" : String(value);
+  let s = value === null || value === undefined ? "" : String(value);
+  // 防 CSV 公式注入：以 = + - @ 或制表符/回车开头的字段加前导单引号
+  if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
   return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
