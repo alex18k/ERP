@@ -121,6 +121,27 @@ export async function listOrders(where: any) {
   return { total, page: Number(page), pageSize: Number(pageSize), items };
 }
 
+// 轻量单号查询：供维护页单号下拉远程搜索，仅返回 单号/客户/状态
+export async function listSalesOrderOptions(where: any) {
+  const { keyword, limit = 50 } = where || {};
+  const filters: Prisma.SalesOrderWhereInput = {};
+  const kw = keyword ? String(keyword).trim() : "";
+  if (kw) {
+    filters.OR = [
+      { orderNo: { contains: kw } },
+      { customerName: { contains: kw } },
+    ];
+  }
+  const take = Math.min(Math.max(Number(limit) || 50, 1), 200);
+  const items = await prisma.salesOrder.findMany({
+    where: filters,
+    select: { id: true, orderNo: true, customerName: true, status: true },
+    orderBy: { orderNo: "desc" },
+    take,
+  });
+  return items.map((o) => ({ id: o.id, orderNo: o.orderNo, customer: o.customerName || "未指定", status: o.status }));
+}
+
 export async function getOrder(id: number) {
   return prisma.salesOrder.findUnique({
     where: { id },

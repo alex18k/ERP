@@ -413,75 +413,75 @@ const flatRows = computed(() =>
     </el-dialog>
 
     <el-dialog v-model="dialogVisible" :title="isEdit ? '编辑订单' : '新增销售订单'" width="1080px" destroy-on-close>
-      <el-form ref="formRef" :model="form" :rules="rules" label-width="100px">
+      <el-form ref="formRef" :model="form" :rules="rules" label-width="72px" class="kd-header-form">
         <div class="erp-group">
           <div class="erp-group-title">基本信息</div>
-        <el-row :gutter="16">
-          <el-col :span="12">
-            <el-form-item label="客户" prop="customerName">
-              <el-select
-                v-model="form.customerId"
-                filterable
-                :filter-method="filterCustomerMethod"
-                style="width: 100%"
-                @change="onCustomerChange"
-                @visible-change="onCustomerVisible"
-              >
-                <el-option v-for="c in filteredCustomers" :key="c.id" :label="c.code" :value="c.id">
-                  <span>{{ c.code }}</span>
-                  <span style="margin-left: 10px; color: #909399">{{ c.name }}</span>
-                </el-option>
-              </el-select>
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="客户名称">
-              <el-tag v-if="form.customerName" type="info">{{ form.customerName }}</el-tag>
-            </el-form-item>
-          </el-col>
-        </el-row>
-        <el-row :gutter="16">
-          <el-col :span="12">
-            <el-form-item label="订货日期" prop="orderDate">
-              <el-date-picker v-model="form.orderDate" type="date" value-format="YYYY-MM-DD" style="width: 100%" placeholder="选择订货日期" @change="onOrderDateChange" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="渠道">
-              <el-input v-model="form.channel" placeholder="自定义输入，如：线上/展会/代理" />
-            </el-form-item>
-          </el-col>
-        </el-row>
-        <el-row :gutter="16">
-          <el-col :span="12">
-            <el-form-item label="销售员1" prop="seller1">
-              <el-select v-model="form.seller1" filterable placeholder="选择销售员" style="width: 100%">
-                <el-option v-for="s in userOptions" :key="s" :label="s" :value="s" />
-              </el-select>
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="销售员2" prop="seller2">
-              <el-select v-model="form.seller2" filterable clearable placeholder="选择销售员" style="width: 100%">
-                <el-option v-for="s in userOptions" :key="s" :label="s" :value="s" />
-              </el-select>
-            </el-form-item>
-          </el-col>
-        </el-row>
-        <el-row :gutter="16">
-          <el-col :span="12">
-            <el-form-item label="结算方式">
-              <el-select v-model="form.paymentMethod" filterable allow-create default-first-option placeholder="选择或输入" style="width: 100%">
-                <el-option v-for="p in paymentOptions" :key="p" :label="p" :value="p" />
-              </el-select>
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="交货日期" prop="deliveryDate">
-              <el-date-picker v-model="form.deliveryDate" type="date" value-format="YYYY-MM-DD" style="width: 100%" placeholder="选择交货日期" @change="onDeliveryDateChange" />
-            </el-form-item>
-          </el-col>
-        </el-row>
+          <div class="kd-grid">
+            <div class="kd-field">
+              <el-form-item label="客户" prop="customerName">
+                <el-select
+                  v-model="form.customerId"
+                  filterable
+                  :filter-method="filterCustomerMethod"
+                  class="kd-flex"
+                  @change="onCustomerChange"
+                  @visible-change="onCustomerVisible"
+                >
+                  <el-option v-for="c in filteredCustomers" :key="c.id" :label="c.code" :value="c.id">
+                    <span>{{ c.code }}</span>
+                    <span style="margin-left: 10px; color: var(--el-text-color-secondary)">{{ c.name }}</span>
+                  </el-option>
+                </el-select>
+              </el-form-item>
+            </div>
+            <div class="kd-field">
+              <el-form-item label="客户名称">
+                <el-tag v-if="form.customerName" type="info">{{ form.customerName }}</el-tag>
+                <span v-else class="kd-muted">—</span>
+              </el-form-item>
+            </div>
+            <div class="kd-field">
+              <el-form-item label="订货日期" prop="orderDate">
+                <el-date-picker v-model="form.orderDate" type="date" value-format="YYYY-MM-DD" class="kd-flex" placeholder="选择订货日期" @change="onOrderDateChange" />
+              </el-form-item>
+            </div>
+            <div class="kd-field">
+              <el-form-item label="交货日期" prop="deliveryDate">
+                <el-date-picker v-model="form.deliveryDate" type="date" value-format="YYYY-MM-DD" class="kd-flex" placeholder="选择交货日期" @change="onDeliveryDateChange" />
+              </el-form-item>
+            </div>
+            <div class="kd-field">
+              <el-form-item label="销售员1" prop="seller1">
+                <el-select v-model="form.seller1" filterable allow-create default-first-option placeholder="选择或输入" class="kd-flex">
+                  <el-option v-for="s in userOptions" :key="s" :label="s" :value="s" />
+                </el-select>
+              </el-form-item>
+            </div>
+            <div class="kd-field">
+              <el-form-item label="销售员2">
+                <el-select v-model="form.seller2" filterable clearable allow-create default-first-option placeholder="选择或输入" class="kd-flex">
+                  <el-option v-for="s in userOptions" :key="s" :label="s" :value="s" />
+                </el-select>
+              </el-form-item>
+            </div>
+            <div class="kd-field">
+              <el-form-item label="结算方式">
+                <el-select v-model="form.paymentMethod" filterable allow-create default-first-option placeholder="选择或输入" class="kd-flex">
+                  <el-option v-for="p in paymentOptions" :key="p" :label="p" :value="p" />
+                </el-select>
+              </el-form-item>
+            </div>
+            <div class="kd-field">
+              <el-form-item label="渠道">
+                <el-input v-model="form.channel" placeholder="如：线上/展会/代理" />
+              </el-form-item>
+            </div>
+            <div class="kd-field kd-field-span2">
+              <el-form-item label="备注">
+                <el-input v-model="form.remark" placeholder="备注" />
+              </el-form-item>
+            </div>
+          </div>
         </div>
 
         <div class="erp-group">
@@ -552,10 +552,6 @@ const flatRows = computed(() =>
             </el-table>
           </div>
         </el-form-item>
-
-        <el-form-item label="备注">
-          <el-input v-model="form.remark" type="textarea" :rows="2" />
-        </el-form-item>
         </div>
       </el-form>
       <template #footer>
@@ -568,15 +564,77 @@ const flatRows = computed(() =>
 
 <style scoped>
 .erp-group {
-  border: 1px solid var(--el-border-color);
+  border: 1px solid #D5DAE2;
+  border-left: 3px solid var(--erp-primary);
   border-radius: 6px;
-  padding: 14px 16px 4px;
-  margin-bottom: 16px;
+  padding: 8px 12px 2px;
+  margin-bottom: 12px;
+  background: #FAFBFC;
 }
 .erp-group-title {
   font-weight: 600;
   color: var(--el-text-color-primary);
   margin-bottom: 12px;
+}
+
+/* 金蝶表头：5 列网格，固定标签宽，列对齐、行距紧凑 */
+.kd-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) repeat(4, minmax(0, 1fr));
+  column-gap: 16px;
+  row-gap: 2px;
+}
+.kd-field-span2 { grid-column: span 2; }
+.kd-header-form .kd-grid :deep(.el-form-item) {
+  margin-bottom: 6px;
+  margin-right: 0;
+  white-space: nowrap;
+}
+.kd-header-form .kd-grid :deep(.el-form-item__label) {
+  line-height: 26px;
+  height: 26px;
+  font-size: 13px;
+  color: var(--el-text-color-regular);
+  white-space: nowrap;
+}
+.kd-header-form .kd-grid :deep(.el-form-item__content) {
+  line-height: 26px;
+  min-height: 26px;
+  white-space: nowrap;
+}
+.kd-flex {
+  width: 100%;
+}
+.kd-muted {
+  color: var(--el-text-color-secondary);
+}
+
+/* 金蝶风格：表头输入控件无方框，仅底部下划线；聚焦时下划线变主题色 */
+.erp-group :deep(.el-input__wrapper),
+.erp-group :deep(.el-select__wrapper) {
+  box-shadow: 0 1px 0 0 var(--erp-hairline);
+  background: transparent;
+  border-radius: 0;
+  padding-left: 2px;
+  padding-right: 2px;
+  transition: box-shadow 0.2s;
+}
+.erp-group :deep(.el-input__wrapper:hover),
+.erp-group :deep(.el-select__wrapper:hover) {
+  box-shadow: 0 1px 0 0 var(--el-text-color-secondary);
+}
+.erp-group :deep(.el-input__wrapper.is-focus),
+.erp-group :deep(.el-select__wrapper.is-focused) {
+  box-shadow: 0 1px 0 0 var(--erp-copper);
+  background: transparent;
+}
+.erp-group :deep(.el-select__caret),
+.erp-group :deep(.el-input__icon) {
+  color: var(--el-text-color-secondary);
+}
+.erp-group :deep(.el-input__wrapper.is-focus .el-input__icon),
+.erp-group :deep(.el-select__wrapper.is-focused .el-select__caret) {
+  color: var(--erp-copper);
 }
 
 /* 明细行控件无边框：平时像纯文本，悬停/聚焦显示细线 */

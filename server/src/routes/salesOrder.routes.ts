@@ -9,6 +9,7 @@ router.use(authMiddleware);
 router.get("/shippable", requirePermission("order:view"), orderController.shippableHandler);
 router.get("/overdue", requirePermission("order:view"), orderController.overdueHandler);
 router.get("/export", requirePermission("order:view"), orderController.exportHandler);
+router.get("/options", requirePermission("order:view"), orderController.optionsHandler);
 router.get("/:id/downstream", requirePermission("order:view"), orderController.downstreamHandler);
 router.get("/", requirePermission("order:view"), orderController.listHandler);
 router.get("/:id/track", requirePermission("order:view"), orderController.trackHandler);

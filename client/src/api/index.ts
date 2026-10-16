@@ -105,6 +105,7 @@ export const materialCategoryApi = {
 // ===== 销售订单 =====
 export const orderApi = {
   list: (params: PageParams) => request.get('/sales-orders', { params }),
+  options: (params?: any) => request.get('/sales-orders/options', { params }),
   get: (id: number) => request.get(`/sales-orders/${id}`),
   create: (data: any) => request.post('/sales-orders', data),
   update: (id: number, data: any) => request.put(`/sales-orders/${id}`, data),
