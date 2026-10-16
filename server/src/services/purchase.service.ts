@@ -141,14 +141,45 @@ export async function getPurchaseOrder(id: number) {
   });
 }
 
-// 明细行号必填（正整数），与销售订单明细一致
+// 明细行号必填（正整数）且不可重复，与销售订单明细一致
 function assertItemLines(items: { line?: number }[]) {
+  const seen = new Set<number>();
   items.forEach((item, idx) => {
     const lineNo = Number(item.line);
     if (!Number.isInteger(lineNo) || lineNo < 1) {
       throw new Error(`第 ${idx + 1} 行明细未填写行号`);
     }
+    if (seen.has(lineNo)) throw new Error(`行号 ${lineNo} 重复`);
+    seen.add(lineNo);
   });
+}
+
+// 明细数值校验：必须选择物料、数量为正、单价不为负
+function assertItemsPositive(items: PurchaseOrderInput["items"]) {
+  items.forEach((item, idx) => {
+    const line = Number(item.line) || idx + 1;
+    if (!item.materialId) throw new Error(`第 ${line} 行明细未选择物料`);
+    const qty = Number(item.quantity);
+    if (!Number.isFinite(qty) || qty <= 0) throw new Error(`第 ${line} 行明细数量必须大于 0`);
+    const price = Number(item.unitPrice ?? 0);
+    if (!Number.isFinite(price) || price < 0) throw new Error(`第 ${line} 行明细单价不能为负数`);
+  });
+}
+
+// 供应商必须存在且未停用
+async function resolveActiveSupplier(supplierId: number | null | undefined) {
+  if (!supplierId) throw new Error("请选择供应商");
+  const supplier = await prisma.supplier.findUnique({ where: { id: supplierId } });
+  if (!supplier) throw new Error("供应商不存在");
+  if (supplier.status !== 1) throw new Error("供应商已停用，不能下单");
+  return supplier;
+}
+
+// 订货日期不得晚于截止日期
+function assertDateOrder(orderDate?: string, expectedDate?: string) {
+  if (orderDate && expectedDate && new Date(expectedDate) < new Date(orderDate)) {
+    throw new Error("截止日期不能早于订货日期");
+  }
 }
 
 export async function createPurchaseOrder(data: PurchaseOrderInput, userId: number) {
@@ -157,8 +188,9 @@ export async function createPurchaseOrder(data: PurchaseOrderInput, userId: numb
   if (!data.expectedDate) throw new Error("请选择截止日期");
   if (!data.buyer) throw new Error("请输入采购员");
   assertItemLines(data.items);
-  const supplier = data.supplierId ? await prisma.supplier.findUnique({ where: { id: data.supplierId } }) : null;
-  if (data.supplierId && !supplier) throw new Error("供应商不存在");
+  assertItemsPositive(data.items);
+  assertDateOrder(data.orderDate, data.expectedDate);
+  const supplier = await resolveActiveSupplier(data.supplierId);
 
   const totalAmount = data.items.reduce((s, i) => s + i.quantity * (i.unitPrice ?? 0), 0);
   const settleMethod = data.settleMethod ?? supplier?.settleMethod ?? null;
@@ -182,7 +214,7 @@ export async function createPurchaseOrder(data: PurchaseOrderInput, userId: numb
           buyer: data.buyer || null,
           taxIncluded: data.taxIncluded ?? false,
           taxRate: data.taxRate ?? 0,
-          status: "confirmed",
+          status: "draft",
           remark: data.remark,
           createdBy: userId,
         },
@@ -225,9 +257,13 @@ export async function updatePurchaseOrder(id: number, data: PurchaseOrderInput) 
   if (!data.expectedDate) throw new Error("请选择截止日期");
   if (!data.buyer) throw new Error("请输入采购员");
   assertItemLines(data.items);
+  assertItemsPositive(data.items);
+  assertDateOrder(data.orderDate, data.expectedDate);
 
-  const supplier = data.supplierId ? await prisma.supplier.findUnique({ where: { id: data.supplierId } }) : null;
-  if (data.supplierId && !supplier) throw new Error("供应商不存在");
+  const supplier = await resolveActiveSupplier(data.supplierId);
+  if (exists.status !== "draft" && exists.supplierId !== data.supplierId) {
+    throw new Error("已确认的采购单不能更换供应商");
+  }
 
   const totalAmount = data.items.reduce((s, i) => s + i.quantity * (i.unitPrice ?? 0), 0);
   // 供应商变更时自动继承新供应商的结算方式；否则保留原单值
@@ -238,33 +274,36 @@ export async function updatePurchaseOrder(id: number, data: PurchaseOrderInput) 
         ? (supplier?.settleMethod ?? null)
         : exists.settleMethod;
 
-  const existingItems = await prisma.purchaseOrderItem.findMany({ where: { orderId: id } });
-  const existingById = new Map(existingItems.map((it) => [it.id, it]));
-  const receivedById = new Map(existingItems.map((it) => [it.id, it.receivedQty]));
-
   // 计量单位换算率（按明细行的计量单位解析）
   const rateMap = await resolveUnitRateMap(data.items.map((i) => ({ materialId: i.materialId, unit: i.unit })));
 
-  // 已收货明细保护：有收货记录的行不允许删除
-  const keptIds = new Set<number>();
-  for (const item of data.items) {
-    if (item.id && existingById.has(item.id)) keptIds.add(item.id);
-  }
-  for (const old of existingItems) {
-    if (!keptIds.has(old.id) && (old.receivedQty ?? 0) > 1e-6) {
-      throw new Error(`行号 ${old.line} 的明细已收货 ${old.receivedQty}，不能删除`);
-    }
-  }
-
-  // 已收货明细的数量不能再改小，否则会出现 已收 > 订购 的矛盾数据
-  data.items.forEach((item, idx) => {
-    const alreadyReceived = item.id ? (receivedById.get(item.id) ?? 0) : 0;
-    if (alreadyReceived > 1e-6 && item.quantity < alreadyReceived - 1e-6) {
-      throw new Error(`第 ${item.line ?? idx + 1} 行明细已收货 ${alreadyReceived}，数量不能小于已收量`);
-    }
-  });
-
   return prisma.$transaction(async (tx) => {
+    // 锁定本单明细行：与「收货」的原子 UPDATE 串行化，读取最新 receivedQty，避免丢更新
+    await tx.$executeRaw`SELECT "id" FROM "PurchaseOrderItem" WHERE "orderId" = ${id} FOR UPDATE`;
+
+    const existingItems = await tx.purchaseOrderItem.findMany({ where: { orderId: id } });
+    const existingById = new Map(existingItems.map((it) => [it.id, it]));
+    const receivedById = new Map(existingItems.map((it) => [it.id, it.receivedQty]));
+
+    // 已收货明细保护：有收货记录的行不允许删除
+    const keptIds = new Set<number>();
+    for (const item of data.items) {
+      if (item.id && existingById.has(item.id)) keptIds.add(item.id);
+    }
+    for (const old of existingItems) {
+      if (!keptIds.has(old.id) && (old.receivedQty ?? 0) > 1e-6) {
+        throw new Error(`行号 ${old.line} 的明细已收货 ${old.receivedQty}，不能删除`);
+      }
+    }
+
+    // 已收货明细的数量不能再改小，否则会出现 已收 > 订购 的矛盾数据
+    data.items.forEach((item, idx) => {
+      const alreadyReceived = item.id ? (receivedById.get(item.id) ?? 0) : 0;
+      if (alreadyReceived > 1e-6 && item.quantity < alreadyReceived - 1e-6) {
+        throw new Error(`第 ${item.line ?? idx + 1} 行明细已收货 ${alreadyReceived}，数量不能小于已收量`);
+      }
+    });
+
     await tx.purchaseOrderItem.deleteMany({ where: { orderId: id } });
     for (const item of data.items) {
       const rate = rateMap.get(item.materialId)?.rate ?? 1;
@@ -448,9 +487,11 @@ export async function receivePurchaseOrder(
         throw new Error(`收货数量不能超过未收数量（${item.quantity - item.receivedQty}）或明细状态已变更`);
       }
 
-      // 采购件成本：按最近一次采购单价回写物料成本
+      // 采购件成本：按最近一次采购单价回写物料成本（折算为基本单位成本，避免录入单位≠基本单位时被放大）
       if (item.unitPrice != null && item.unitPrice > 0) {
-        await tx.material.update({ where: { id: item.materialId }, data: { cost: item.unitPrice } });
+        const rate = item.conversionRate || 1;
+        const baseCost = rate > 0 ? item.unitPrice / rate : item.unitPrice;
+        await tx.material.update({ where: { id: item.materialId }, data: { cost: baseCost } });
       }
 
       // 更新库存：优先记入库位对应的仓库（库位编码 = 仓库编码）
