@@ -157,7 +157,7 @@ async function main() {
     }
   }
 
-  const salesCodes = ["order:view", "order:create", "order:edit", "order:confirm", "order:ship", "order:delete", "material:view"];
+  const salesCodes = ["order:view", "order:create", "order:edit", "order:confirm", "order:ship", "order:delete", "material:view", "stock:view"];
   for (const code of salesCodes) {
     const pid = permMap.get(code);
     if (pid) {
@@ -184,7 +184,7 @@ async function main() {
     }
   }
 
-  const warehouseCodes = ["material:view", "stock:view", "stock:create", "stock:edit", "stock:delete", "purchase:view"];
+  const warehouseCodes = ["material:view", "stock:view", "stock:create", "stock:edit", "stock:delete", "purchase:view", "production:view"];
   for (const code of warehouseCodes) {
     const pid = permMap.get(code);
     if (pid) {

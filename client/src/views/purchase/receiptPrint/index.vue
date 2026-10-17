@@ -73,45 +73,48 @@ onMounted(async () => {
     </div>
 
     <div v-if="order" id="print-area" class="sheet">
-      <div class="doc-header">
-        <div class="brand">
-          <div class="brand-name">{{ COMPANY_NAME }}</div>
-          <div class="brand-sub">{{ COMPANY_CONTACT }}</div>
-        </div>
-        <div class="docno">
-          <div class="docno-row"><span>收货单号</span><b>{{ receipts[0]?.receiptNo || receipts[0]?.documentNo || '-' }}</b></div>
-          <div class="docno-row"><span>采购单号</span><b>{{ order.orderNo }}</b></div>
-          <div class="docno-row"><span>订货日期</span><b>{{ fmt(order.orderDate) }}</b></div>
-          <div class="docno-row"><span>收货日期</span><b>{{ receiptDates }}</b></div>
-        </div>
-      </div>
-
-      <div class="title">收货单</div>
-      <div class="title-rule"></div>
-
-      <div class="parties">
-        <div class="party">
-          <h4>供方 <span class="mute">SUPPLIER</span></h4>
-          <dl>
-            <div><dt>名称</dt><dd>{{ order.supplier?.name || '未指定' }}</dd></div>
-            <div><dt>联系人</dt><dd>{{ order.supplier?.contactPerson || '-' }}</dd></div>
-            <div><dt>电话</dt><dd>{{ order.supplier?.phone || '-' }}</dd></div>
-            <div><dt>供应商编号</dt><dd>{{ order.supplier?.code || '-' }}</dd></div>
-          </dl>
-        </div>
-        <div class="party">
-          <h4>收货信息 <span class="mute">RECEIVE</span></h4>
-          <dl>
-            <div><dt>需方</dt><dd>{{ COMPANY_NAME }}</dd></div>
-            <div><dt>采购员</dt><dd>{{ order.buyer || '-' }}</dd></div>
-            <div><dt>收货仓库</dt><dd>{{ receipts[0]?.warehouse?.name || '-' }}</dd></div>
-            <div><dt>收货人</dt><dd>{{ receipts[0]?.operator?.realName || receipts[0]?.operator?.username || '-' }}</dd></div>
-          </dl>
-        </div>
-      </div>
-
       <table class="items">
         <thead>
+          <tr class="doc-head-row">
+            <td colspan="8" class="doc-head-cell">
+              <div class="doc-header">
+                <div class="brand">
+                  <div class="brand-name">{{ COMPANY_NAME }}</div>
+                  <div class="brand-sub">{{ COMPANY_CONTACT }}</div>
+                </div>
+                <div class="docno">
+                  <div class="docno-row"><span>收货单号</span><b>{{ receipts[0]?.receiptNo || receipts[0]?.documentNo || '-' }}</b></div>
+                  <div class="docno-row"><span>采购单号</span><b>{{ order.orderNo }}</b></div>
+                  <div class="docno-row"><span>订货日期</span><b>{{ fmt(order.orderDate) }}</b></div>
+                  <div class="docno-row"><span>收货日期</span><b>{{ receiptDates }}</b></div>
+                </div>
+              </div>
+
+              <div class="title">收货单</div>
+              <div class="title-rule"></div>
+
+              <div class="parties">
+                <div class="party">
+                  <h4>供方 <span class="mute">SUPPLIER</span></h4>
+                  <dl>
+                    <div><dt>名称</dt><dd>{{ order.supplier?.name || '未指定' }}</dd></div>
+                    <div><dt>联系人</dt><dd>{{ order.supplier?.contactPerson || '-' }}</dd></div>
+                    <div><dt>电话</dt><dd>{{ order.supplier?.phone || '-' }}</dd></div>
+                    <div><dt>供应商编号</dt><dd>{{ order.supplier?.code || '-' }}</dd></div>
+                  </dl>
+                </div>
+                <div class="party">
+                  <h4>收货信息 <span class="mute">RECEIVE</span></h4>
+                  <dl>
+                    <div><dt>需方</dt><dd>{{ COMPANY_NAME }}</dd></div>
+                    <div><dt>采购员</dt><dd>{{ order.buyer || '-' }}</dd></div>
+                    <div><dt>收货仓库</dt><dd>{{ receipts[0]?.warehouse?.name || '-' }}</dd></div>
+                    <div><dt>收货人</dt><dd>{{ receipts[0]?.operator?.realName || receipts[0]?.operator?.username || '-' }}</dd></div>
+                  </dl>
+                </div>
+              </div>
+            </td>
+          </tr>
           <tr>
             <th class="c" style="width: 34px">序</th>
             <th style="width: 90px">物料编码</th>
@@ -296,6 +299,11 @@ onMounted(async () => {
   border-collapse: collapse;
   table-layout: fixed;
 }
+.doc-head-cell {
+  border: none !important;
+  background: #fff !important;
+  padding: 0 !important;
+}
 .items th {
   background: #e8e8e8;
   color: #000;
@@ -413,6 +421,9 @@ onMounted(async () => {
   }
   .items thead {
     display: table-header-group;
+  }
+  .items tr {
+    break-inside: avoid;
   }
   .items th {
     -webkit-print-color-adjust: exact;

@@ -1,4 +1,5 @@
 import { Response } from "express";
+import { config } from "../config";
 
 export interface ApiResponse<T = any> {
   code: number;
@@ -18,7 +19,9 @@ export function created<T>(res: Response, data?: T, message = "created"): Respon
 }
 
 export function fail(res: Response, code: number, message: string, httpStatus = 400): Response {
-  const body: ApiResponse = { code, message, timestamp: Date.now() };
+  // 生产环境不向客户端暴露 500 的内部错误信息
+  const safeMessage = code >= 500 && config.nodeEnv === "production" ? "服务器错误" : message;
+  const body: ApiResponse = { code, message: safeMessage, timestamp: Date.now() };
   return res.status(httpStatus).json(body);
 }
 

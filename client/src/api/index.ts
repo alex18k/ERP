@@ -198,8 +198,8 @@ export const stockApi = {
   alert: (params?: any) => request.get('/stocks/alert', { params }),
   batches: (params: PageParams) => request.get('/stocks/batches', { params }),
   zeroStock: (params?: PageParams) => request.get('/stocks/zero-stock', { params }),
-  clearZero: () => request.post('/stocks/clear-zero'),
-  exportCsv: () => downloadCsv('/stocks/export', '库存现况'),
+  clearZero: (params?: any) => request.post('/stocks/clear-zero', null, { params }),
+  exportCsv: (params?: any) => downloadCsv('/stocks/export', '库存现况', params),
 }
 
 // ===== 库存事务类型 =====

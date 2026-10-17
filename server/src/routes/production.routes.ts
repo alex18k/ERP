@@ -1,6 +1,7 @@
 import { Router } from "express";
 import * as productionController from "../controllers/production.controller";
 import { authMiddleware, requirePermission } from "../middleware/auth";
+import { operationLog } from "../middleware/log";
 
 const router = Router();
 
@@ -30,8 +31,8 @@ router.put("/batch-materials/:id", requirePermission("production:manage"), produ
 router.delete("/batch-materials/:id", requirePermission("production:manage"), productionController.deleteBatchMaterialHandler);
 router.get("/batches/receivable", requirePermission("production:view"), productionController.receivableBatchesHandler);
 router.get("/batches/:id/materials", requirePermission("production:view"), productionController.batchMaterialsDetailHandler);
-router.post("/batches/:id/issue", requirePermission("stock:edit"), productionController.issueBatchMaterialsHandler);
-router.post("/batches/:id/receive", requirePermission("stock:edit"), productionController.receiveBatchHandler);
+router.post("/batches/:id/issue", requirePermission("stock:edit"), operationLog("stock", "issue"), productionController.issueBatchMaterialsHandler);
+router.post("/batches/:id/receive", requirePermission("stock:edit"), operationLog("stock", "receive"), productionController.receiveBatchHandler);
 
 // 导出（按批次）
 router.get("/export", requirePermission("production:view"), productionController.exportHandler);

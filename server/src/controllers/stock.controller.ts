@@ -5,9 +5,9 @@ import { success, fail } from "../utils/response";
 import { AuthRequest } from "../middleware/auth";
 import { sendCsv } from "../utils/export";
 
-export async function exportHandler(_req: Request, res: Response) {
+export async function exportHandler(req: Request, res: Response) {
   try {
-    const { filename, csv } = await exportService.stockExport();
+    const { filename, csv } = await exportService.stockExport(req.query as any);
     return sendCsv(res, filename, csv);
   } catch (error: any) {
     return fail(res, 500, error.message, 500);
@@ -104,9 +104,9 @@ export async function zeroStockHandler(req: Request, res: Response) {
   }
 }
 
-export async function clearZeroStockHandler(_req: Request, res: Response) {
+export async function clearZeroStockHandler(req: Request, res: Response) {
   try {
-    const data = await stockService.clearZeroStock();
+    const data = await stockService.clearZeroStock(req.query as any);
     return success(res, data, `已清除 0 库存记录 ${data.deletedStock + data.deletedBatch} 条`);
   } catch (error: any) {
     return fail(res, 500, error.message, 500);

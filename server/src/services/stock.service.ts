@@ -24,15 +24,20 @@ export async function generateStockDocNo(client: any = prisma): Promise<string> 
   return generateDocNo(client, "ST");
 }
 
-// 取事务类型配置的单据前缀；未配置时回退默认值（如手工出入库/移库用 ST）
-export async function resolveDocPrefix(client: any, transactionTypeId?: number | null, fallback = "ST"): Promise<string> {
-  if (!transactionTypeId) return fallback;
-  const type = await client.stockTransactionType.findUnique({
-    where: { id: Number(transactionTypeId) },
-    select: { documentPrefix: true },
-  });
-  const prefix = String(type?.documentPrefix ?? "").trim().toUpperCase();
-  return prefix || fallback;
+// 手工出入库必须指定启用的事务类型，且方向必须与本次操作一致
+async function resolveManualTransactionType(transactionTypeId: number | undefined, expected: "in" | "out") {
+  if (!transactionTypeId) throw new Error("请选择事务类型");
+  const type = await prisma.stockTransactionType.findUnique({ where: { id: Number(transactionTypeId) } });
+  if (!type) throw new Error("事务类型不存在");
+  if (type.status !== 1) throw new Error(`事务类型「${type.description}」已停用`);
+  if (type.direction !== expected) {
+    throw new Error(`事务类型「${type.description}」方向为${type.direction === "in" ? "入库" : "出库"}，与本次操作不一致`);
+  }
+  return type;
+}
+
+function typeDocPrefix(type: { documentPrefix: string | null }, fallback = "ST") {
+  return String(type.documentPrefix ?? "").trim().toUpperCase() || fallback;
 }
 
 function buildStockFilters(where: any) {
@@ -55,31 +60,59 @@ async function materialStockTotals(materialIds: number[]) {
   if (materialIds.length === 0) return new Map<number, number>();
   const grouped = await prisma.stock.groupBy({
     by: ["materialId"],
-    where: { materialId: { in: materialIds } },
+    where: { materialId: { in: materialIds }, warehouse: { status: 1 } },
     _sum: { quantity: true },
   });
   return new Map(grouped.map((g) => [g.materialId, g._sum.quantity ?? 0]));
 }
 
-// 查询当前筛选条件下的全部库存行（含物料/仓库/货位/批次），供按批号平铺、按仓库×物料分组后分页。
-// 库存行数 = 物料×仓库×货位，量级远小于物料主数据；这里只在服务端汇总，避免把全量数据推给前端。
-async function loadStockRows(where: any) {
+function clampPage(page: any, pageSize: any) {
+  const pageNum = Math.max(1, Number(page) || 1);
+  const sizeNum = Math.min(1000, Math.max(1, Number(pageSize) || 20));
+  return { pageNum, sizeNum, offset: (pageNum - 1) * sizeNum };
+}
+
+function escapeLike(value: any) {
+  return String(value ?? "").replace(/[\\%_]/g, (c) => `\\${c}`);
+}
+
+// SQL 过滤条件（使用 s/m 别名），供明细/分组的数据库分页复用
+function buildStockSqlWhere(where: any): Prisma.Sql {
+  const parts: Prisma.Sql[] = [Prisma.sql`s.quantity > 0`];
+  if (where.materialCode) {
+    parts.push(Prisma.sql`m.code LIKE ${`%${escapeLike(where.materialCode)}%`}`);
+  }
+  if (where.materialName) {
+    const pattern = `%${escapeLike(where.materialName)}%`;
+    parts.push(Prisma.sql`(m.name LIKE ${pattern} OR m.specification LIKE ${pattern})`);
+  }
+  if (where.warehouseId !== undefined && where.warehouseId !== "" && where.warehouseId !== null) {
+    const id = Number(where.warehouseId);
+    if (Number.isFinite(id)) parts.push(Prisma.sql`s."warehouseId" = ${id}`);
+  }
+  if (where.binId !== undefined && where.binId !== "" && where.binId !== null) {
+    const id = Number(where.binId);
+    if (Number.isFinite(id)) parts.push(Prisma.sql`s."binId" = ${id}`);
+  }
+  return Prisma.sql`AND ${Prisma.join(parts, " AND ")}`;
+}
+
+// 按 id 批量加载库存行，并附带物料/仓库/货位/批次与低库存标记（顺序按传入 id）
+async function loadStockRowsByIds(ids: number[]) {
+  if (ids.length === 0) return [];
   const items = await prisma.stock.findMany({
-    where: buildStockFilters(where),
+    where: { id: { in: ids } },
     include: {
       material: { select: { id: true, code: true, name: true, specification: true, category: true, unit: true, safetyStock: true } },
       warehouse: { select: { id: true, code: true, name: true, binManaged: true } },
       bin: { select: { id: true, code: true, name: true } },
     },
-    orderBy: [{ material: { code: "asc" } }, { warehouseId: "asc" }, { binId: "asc" }],
   });
 
-  const batchRows = items.length > 0
-    ? await prisma.materialBatch.findMany({
-        where: { materialId: { in: [...new Set(items.map((s) => s.materialId))] }, warehouseId: { in: [...new Set(items.map((s) => s.warehouseId))] } },
-        orderBy: { batchNo: "asc" },
-      })
-    : [];
+  const batchRows = await prisma.materialBatch.findMany({
+    where: { materialId: { in: [...new Set(items.map((s) => s.materialId))] }, warehouseId: { in: [...new Set(items.map((s) => s.warehouseId))] } },
+    orderBy: { batchNo: "asc" },
+  });
   const batchByKey = new Map<string, { batchNo: string; quantity: number }[]>();
   for (const b of batchRows) {
     const key = `${b.materialId}|${b.warehouseId}|${b.binId ?? ""}`;
@@ -88,19 +121,68 @@ async function loadStockRows(where: any) {
   }
 
   const totals = await materialStockTotals([...new Set(items.map((s) => s.materialId))]);
-  return items.map((s) => ({
+  const enriched = items.map((s) => ({
     ...s,
     availableQty: s.quantity - s.reservedQty,
     isLow: s.material.safetyStock > 0 && (totals.get(s.materialId) ?? 0) <= s.material.safetyStock,
     batches: batchByKey.get(`${s.materialId}|${s.warehouseId}|${s.binId ?? ""}`) ?? [],
   }));
+  const byId = new Map(enriched.map((s) => [s.id, s]));
+  return ids.map((id) => byId.get(id)).filter(Boolean) as any[];
 }
 
-// 库存明细台账：按「批号行 + 未分批余量行」平铺后再分页，保证 total 与实际展示行数一致
-export async function listStockDetail(where: any) {
-  const { page = 1, pageSize = 20 } = where;
-  const rows = await loadStockRows(where);
+// 明细分页的“每个库存行会产生几行展示”CTE（批号行 + 未分批余量行）
+function buildDetailRowCountCte(filters: Prisma.Sql) {
+  return Prisma.sql`
+    SELECT s.id, m.code, s."warehouseId", s."binId",
+      (COALESCE(b.batch_count, 0) + CASE
+        WHEN COALESCE(b.batch_count, 0) = 0 OR s.quantity - COALESCE(b.batch_sum, 0) > 1e-6 THEN 1
+        ELSE 0
+      END)::int AS cnt
+    FROM "Stock" s
+    JOIN "Material" m ON m.id = s."materialId"
+    LEFT JOIN (
+      SELECT "materialId", "warehouseId", "binId",
+        COUNT(*)::int AS batch_count,
+        SUM(quantity) AS batch_sum
+      FROM "MaterialBatch"
+      WHERE quantity > 0
+      GROUP BY "materialId", "warehouseId", "binId"
+    ) b ON b."materialId" = s."materialId"
+       AND b."warehouseId" = s."warehouseId"
+       AND b."binId" IS NOT DISTINCT FROM s."binId"
+    WHERE s.quantity > 0 ${filters}
+  `;
+}
 
+// 库存明细台账：SQL 级分页（按批号平铺后计算累计行号），避免全量加载
+export async function listStockDetail(where: any) {
+  const { pageNum, sizeNum, offset } = clampPage(where.page, where.pageSize);
+  const filters = buildStockSqlWhere(where);
+  const cte = buildDetailRowCountCte(filters);
+
+  const countRows = await prisma.$queryRaw<{ total: number }[]>(Prisma.sql`
+    WITH row_counts AS (${cte})
+    SELECT COALESCE(SUM(cnt), 0)::int AS total FROM row_counts
+  `);
+  const total = Number(countRows[0]?.total ?? 0);
+
+  const pageRows = await prisma.$queryRaw<{ id: number; cum_start: number }[]>(Prisma.sql`
+    WITH row_counts AS (${cte}),
+    cum AS (
+      SELECT id, cnt,
+        (SUM(cnt) OVER (ORDER BY code, "warehouseId", "binId" NULLS LAST, id) - cnt)::int AS cum_start,
+        (SUM(cnt) OVER (ORDER BY code, "warehouseId", "binId" NULLS LAST, id))::int AS cum_end
+      FROM row_counts
+    )
+    SELECT id, cum_start FROM cum
+    WHERE cum_end > ${offset} AND cum_start < ${offset + sizeNum}
+    ORDER BY cum_start, id
+  `);
+
+  if (pageRows.length === 0) return { total, page: pageNum, pageSize: sizeNum, items: [] };
+
+  const rows = await loadStockRowsByIds(pageRows.map((r) => Number(r.id)));
   const flat: any[] = [];
   for (const s of rows) {
     const batches = (s.batches || []).filter((b: any) => Number(b.quantity) > 0);
@@ -115,15 +197,53 @@ export async function listStockDetail(where: any) {
     }
   }
 
-  const pageNum = Number(page);
-  const sizeNum = Number(pageSize);
-  return { total: flat.length, page: pageNum, pageSize: sizeNum, items: flat.slice((pageNum - 1) * sizeNum, pageNum * sizeNum) };
+  const localStart = offset - Number(pageRows[0].cum_start);
+  return { total, page: pageNum, pageSize: sizeNum, items: flat.slice(localStart, localStart + sizeNum) };
 }
 
-// 库存查询：按「仓库 × 物料」分组后分页，每组附带货位/批号明细
+// 库存查询：按「仓库 × 物料」分组，SQL 级分页后再加载当前页的分组明细
 export async function listStockSummary(where: any) {
-  const { page = 1, pageSize = 20 } = where;
-  const rows = await loadStockRows(where);
+  const { pageNum, sizeNum, offset } = clampPage(where.page, where.pageSize);
+  const filters = buildStockSqlWhere(where);
+  const joins = Prisma.sql`
+    FROM "Stock" s
+    JOIN "Material" m ON m.id = s."materialId"
+    JOIN "Warehouse" w ON w.id = s."warehouseId"
+    WHERE s.quantity > 0 ${filters}
+  `;
+
+  const countRows = await prisma.$queryRaw<{ total: number }[]>(Prisma.sql`
+    SELECT COUNT(*)::int AS total FROM (
+      SELECT s."warehouseId", s."materialId"
+      ${joins}
+      GROUP BY s."warehouseId", s."materialId"
+    ) t
+  `);
+  const total = Number(countRows[0]?.total ?? 0);
+
+  const groupRows = await prisma.$queryRaw<{ warehouseId: number; materialId: number }[]>(Prisma.sql`
+    SELECT s."warehouseId", s."materialId"
+    ${joins}
+    GROUP BY s."warehouseId", s."materialId", w.name, m.code
+    ORDER BY w.name ASC, m.code ASC, s."warehouseId" ASC, s."materialId" ASC
+    LIMIT ${sizeNum} OFFSET ${offset}
+  `);
+
+  if (groupRows.length === 0) return { total, page: pageNum, pageSize: sizeNum, items: [] };
+
+  const keys = new Set(groupRows.map((g) => `${Number(g.warehouseId)}|${Number(g.materialId)}`));
+  const binFilter = where.binId !== undefined && where.binId !== "" && where.binId !== null ? Number(where.binId) : null;
+  const idRows = await prisma.stock.findMany({
+    where: {
+      quantity: { gt: 0 },
+      warehouseId: { in: [...new Set(groupRows.map((g) => Number(g.warehouseId)))] },
+      materialId: { in: [...new Set(groupRows.map((g) => Number(g.materialId)))] },
+      ...(binFilter !== null && Number.isFinite(binFilter) ? { binId: binFilter } : {}),
+    },
+    select: { id: true, warehouseId: true, materialId: true },
+  });
+  const ids = idRows.filter((s) => keys.has(`${s.warehouseId}|${s.materialId}`)).map((s) => s.id);
+  const rows = await loadStockRowsByIds(ids);
 
   const map = new Map<string, any>();
   for (const s of rows) {
@@ -157,25 +277,24 @@ export async function listStockSummary(where: any) {
   }
 
   const totals = await materialStockTotals([...new Set(rows.map((s) => s.materialId))]);
-  const groups = [...map.values()];
-  for (const g of groups) {
-    g.isLow = g.safetyStock > 0 && (totals.get(g.material.id) ?? 0) <= g.safetyStock;
-    g.children.sort((a: any, b: any) => a.binLabel.localeCompare(b.binLabel));
-    g.children.forEach((c: any, i: number) => (c.index = i + 1));
-    if (!g.children.some((c: any) => c.hasDetail)) delete g.children;
-  }
-  groups.sort((a, b) => {
-    const c = String(a.warehouse?.name || "").localeCompare(String(b.warehouse?.name || ""));
-    return c !== 0 ? c : String(a.material?.code || "").localeCompare(String(b.material?.code || ""));
-  });
+  const groups = groupRows
+    .map((g) => map.get(`${Number(g.warehouseId)}|${Number(g.materialId)}`))
+    .filter(Boolean)
+    .map((g: any) => {
+      g.isLow = g.safetyStock > 0 && (totals.get(g.material.id) ?? 0) <= g.safetyStock;
+      g.children.sort((a: any, b: any) => a.binLabel.localeCompare(b.binLabel));
+      g.children.forEach((c: any, i: number) => (c.index = i + 1));
+      if (!g.children.some((c: any) => c.hasDetail)) delete g.children;
+      return g;
+    });
 
-  const pageNum = Number(page);
-  const sizeNum = Number(pageSize);
-  return { total: groups.length, page: pageNum, pageSize: sizeNum, items: groups.slice((pageNum - 1) * sizeNum, pageNum * sizeNum) };
+  return { total, page: pageNum, pageSize: sizeNum, items: groups };
 }
 
 export async function listStocks(where: any) {
   const { page = 1, pageSize = 20 } = where;
+  const pageNum = Math.max(1, Number(page) || 1);
+  const sizeNum = Math.min(1000, Math.max(1, Number(pageSize) || 20));
   const filters = buildStockFilters(where);
 
   const [total, items] = await Promise.all([
@@ -188,8 +307,8 @@ export async function listStocks(where: any) {
         bin: { select: { id: true, code: true, name: true } },
       },
       orderBy: [{ material: { code: "asc" } }, { warehouseId: "asc" }, { binId: "asc" }],
-      skip: (Number(page) - 1) * Number(pageSize),
-      take: Number(pageSize),
+      skip: (pageNum - 1) * sizeNum,
+      take: sizeNum,
     }),
   ]);
 
@@ -209,8 +328,8 @@ export async function listStocks(where: any) {
 
   return {
     total,
-    page: Number(page),
-    pageSize: Number(pageSize),
+    page: pageNum,
+    pageSize: sizeNum,
     items: items.map((s) => ({
       ...s,
       availableQty: s.quantity - s.reservedQty,
@@ -234,15 +353,21 @@ export async function listStockRecords(where: any) {
   if (warehouseId) filters.warehouseId = Number(warehouseId);
   if (type) filters.type = type;
   if (transactionTypeId) filters.transactionTypeId = Number(transactionTypeId);
+  const and: any[] = [];
   if (documentNo) {
-    filters.OR = [{ documentNo: { contains: documentNo } }, { orderNo: { contains: documentNo } }];
+    and.push({ OR: [{ documentNo: { contains: documentNo } }, { orderNo: { contains: documentNo } }] });
   }
   if (startDate || endDate) {
-    filters.createdAt = {
+    const range = {
       gte: startDate ? parseLocalDateStart(startDate) : undefined,
       lte: endDate ? parseLocalDateEnd(endDate) : undefined,
     };
+    // 页面展示生效日期，优先按生效日期筛选；无生效日期的历史流水回退创建时间
+    and.push({ OR: [{ effectiveDate: range }, { effectiveDate: null, createdAt: range }] });
   }
+  if (and.length > 0) filters.AND = and;
+  const pageNum = Math.max(1, Number(page) || 1);
+  const sizeNum = Math.min(1000, Math.max(1, Number(pageSize) || 20));
 
   const [total, items] = await Promise.all([
     prisma.stockRecord.count({ where: filters }),
@@ -256,12 +381,12 @@ export async function listStockRecords(where: any) {
         transactionType: { select: { id: true, code: true, description: true, direction: true } },
       },
       orderBy: { createdAt: "desc" },
-      skip: (Number(page) - 1) * Number(pageSize),
-      take: Number(pageSize),
+      skip: (pageNum - 1) * sizeNum,
+      take: sizeNum,
     }),
   ]);
 
-  return { total, page: Number(page), pageSize: Number(pageSize), items };
+  return { total, page: pageNum, pageSize: sizeNum, items };
 }
 
 // 按单号取整张库存事务单据（精确匹配），供打印使用
@@ -392,6 +517,8 @@ async function generateBatchNo(tx: any, material: { id: number; code: string }):
 
 export async function listBatches(where: any) {
   const { materialId, materialKeyword, warehouseId, binId, page = 1, pageSize = 20 } = where;
+  const pageNum = Math.max(1, Number(page) || 1);
+  const sizeNum = Math.min(1000, Math.max(1, Number(pageSize) || 20));
   const filters: any = { quantity: { gt: 0 } };
   if (materialId) filters.materialId = Number(materialId);
   if (materialKeyword) filters.material = { OR: [{ code: { contains: materialKeyword } }, { name: { contains: materialKeyword } }] };
@@ -407,15 +534,16 @@ export async function listBatches(where: any) {
         bin: { select: { id: true, code: true, name: true } },
       },
       orderBy: [{ material: { code: "asc" } }, { batchNo: "asc" }],
-      skip: (Number(page) - 1) * Number(pageSize),
-      take: Number(pageSize),
+      skip: (pageNum - 1) * sizeNum,
+      take: sizeNum,
     }),
   ]);
-  return { total, page: Number(page), pageSize: Number(pageSize), items };
+  return { total, page: pageNum, pageSize: sizeNum, items };
 }
 
-export async function stockIn(data: { materialId: number; quantity: number; unit?: string; warehouseId: number; binId?: number | null; batchNo?: string; relatedType?: string; relatedId?: number; transactionTypeId?: number; effectiveDate?: string; orderNo?: string; lineNo?: number; remark?: string }, userId: number) {
-  if (data.quantity <= 0) throw new Error("入库数量必须大于0");
+export async function stockIn(data: { materialId: number; quantity: number; unit?: string; warehouseId: number; binId?: number | null; batchNo?: string; relatedType?: string; relatedId?: number; transactionTypeId: number; effectiveDate?: string; orderNo?: string; lineNo?: number; remark?: string }, userId: number) {
+  if (!Number.isFinite(data.quantity) || data.quantity <= 0) throw new Error("入库数量必须大于0");
+  const transactionType = await resolveManualTransactionType(data.transactionTypeId, "in");
 
   const material = await prisma.material.findUnique({ where: { id: data.materialId } });
   if (!material) throw new Error("物料不存在");
@@ -430,8 +558,7 @@ export async function stockIn(data: { materialId: number; quantity: number; unit
   return prisma.$transaction(async (tx) => {
     // 单号串行生成，避免并发产生重复单号；前缀取事务类型配置，未配置用 ST
     await lockOrderNo(tx, ORDER_NO_LOCK.ST);
-    const prefix = await resolveDocPrefix(tx, data.transactionTypeId, "ST");
-    const docNo = await generateDocNo(tx, prefix);
+    const docNo = await generateDocNo(tx, typeDocPrefix(transactionType));
 
     // 校验货位（启用货位管理的仓库必须指定货位）
     const binId = await resolveBinId(tx, warehouse, data.binId);
@@ -465,8 +592,9 @@ export async function stockIn(data: { materialId: number; quantity: number; unit
   });
 }
 
-export async function stockOut(data: { materialId: number; quantity: number; unit?: string; warehouseId: number; binId?: number | null; batchNo?: string; relatedType?: string; relatedId?: number; transactionTypeId?: number; effectiveDate?: string; orderNo?: string; lineNo?: number; remark?: string }, userId: number) {
-  if (data.quantity <= 0) throw new Error("出库数量必须大于0");
+export async function stockOut(data: { materialId: number; quantity: number; unit?: string; warehouseId: number; binId?: number | null; batchNo?: string; relatedType?: string; relatedId?: number; transactionTypeId: number; effectiveDate?: string; orderNo?: string; lineNo?: number; remark?: string }, userId: number) {
+  if (!Number.isFinite(data.quantity) || data.quantity <= 0) throw new Error("出库数量必须大于0");
+  const transactionType = await resolveManualTransactionType(data.transactionTypeId, "out");
 
   const material = await prisma.material.findUnique({ where: { id: data.materialId } });
   if (!material) throw new Error("物料不存在");
@@ -491,8 +619,7 @@ export async function stockOut(data: { materialId: number; quantity: number; uni
 
   return prisma.$transaction(async (tx) => {
     await lockOrderNo(tx, ORDER_NO_LOCK.ST);
-    const prefix = await resolveDocPrefix(tx, data.transactionTypeId, "ST");
-    const docNo = await generateDocNo(tx, prefix);
+    const docNo = await generateDocNo(tx, typeDocPrefix(transactionType));
 
     const binId = await resolveBinId(tx, warehouse, data.binId);
 
@@ -548,7 +675,7 @@ export async function transferStock(data: {
   remark?: string;
 }, userId: number) {
   if (!data.fromWarehouseId || !data.toWarehouseId) throw new Error("请选择源仓库和目标仓库");
-  if (data.quantity <= 0) throw new Error("移库数量必须大于0");
+  if (!Number.isFinite(data.quantity) || data.quantity <= 0) throw new Error("移库数量必须大于0");
 
   const material = await prisma.material.findUnique({ where: { id: data.materialId } });
   if (!material) throw new Error("物料不存在");
@@ -654,21 +781,26 @@ export async function transferStock(data: {
 }
 
 // 列出库存为 0 的现存量行与批次行（「清除0库存」页面用）
-export async function listZeroStock(where: any = {}) {
-  const page = Number(where.page) || 1;
-  const pageSize = Number(where.pageSize) || 20;
+function buildZeroStockFilters(where: any = {}) {
   const keyword = where.materialKeyword?.trim();
-
   const relationWhere: any = {};
   if (where.warehouseId) relationWhere.warehouseId = Number(where.warehouseId);
 
-  const stockWhere: any = { quantity: { lte: 0 }, ...relationWhere };
-  const batchWhere: any = { quantity: { lte: 0 }, ...relationWhere };
+  // 只处理数量恰好为 0 的记录；负库存属于异常，不能静默删除
+  const stockWhere: any = { quantity: 0, ...relationWhere };
+  const batchWhere: any = { quantity: 0, ...relationWhere };
   if (keyword) {
     const mf = { OR: [{ code: { contains: keyword } }, { name: { contains: keyword } }] };
     stockWhere.material = mf;
     batchWhere.material = mf;
   }
+  return { stockWhere, batchWhere };
+}
+
+export async function listZeroStock(where: any = {}) {
+  const page = Math.max(1, Number(where.page) || 1);
+  const pageSize = Math.min(1000, Math.max(1, Number(where.pageSize) || 20));
+  const { stockWhere, batchWhere } = buildZeroStockFilters(where);
 
   const [stockRows, batchRows] = await Promise.all([
     prisma.stock.findMany({
@@ -709,11 +841,12 @@ export async function listZeroStock(where: any = {}) {
   };
 }
 
-// 清除库存为 0 的现存量行与批次行（保留库存事务流水 StockRecord）
-export async function clearZeroStock() {
+// 清除库存为 0 的现存量行与批次行（保留库存事务流水 StockRecord）；按页面筛选条件限定范围
+export async function clearZeroStock(where: any = {}) {
+  const { stockWhere, batchWhere } = buildZeroStockFilters(where);
   return prisma.$transaction(async (tx) => {
-    const batch = await tx.materialBatch.deleteMany({ where: { quantity: { lte: 0 } } });
-    const stock = await tx.stock.deleteMany({ where: { quantity: { lte: 0 } } });
+    const batch = await tx.materialBatch.deleteMany({ where: batchWhere });
+    const stock = await tx.stock.deleteMany({ where: stockWhere });
     return { deletedStock: stock.count, deletedBatch: batch.count };
   });
 }
@@ -740,7 +873,7 @@ export async function getStockAlerts(where: any = {}) {
   const grouped = materialIds.length
     ? await prisma.stock.groupBy({
         by: ["materialId"],
-        where: { materialId: { in: materialIds } },
+        where: { materialId: { in: materialIds }, warehouse: { status: 1 } },
         _sum: { quantity: true },
       })
     : [];

@@ -147,7 +147,7 @@ async function loadOptions() {
   ])
   registerMaterials(mRes.data || [])
   registerTransferMaterials(mRes.data || [])
-  transactionTypes.value = tRes.data.items
+  transactionTypes.value = (tRes.data.items || []).filter((t: any) => t.status === 1)
 }
 
 function openDialog() {
