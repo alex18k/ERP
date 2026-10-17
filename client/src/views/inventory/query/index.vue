@@ -1,13 +1,14 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue'
-import { stockApi, warehouseApi } from '../../../api'
+import { stockApi, warehouseApi, warehouseBinApi } from '../../../api'
 import { materialCategoryLabel } from '../../../utils/category'
 
 const loading = ref(false)
 const list = ref<any[]>([])
 const total = ref(0)
 const warehouses = ref<any[]>([])
-const query = reactive({ page: 1, pageSize: 20, materialCode: '', materialName: '', warehouseId: '' })
+const bins = ref<any[]>([])
+const query = reactive({ page: 1, pageSize: 20, materialCode: '', materialName: '', warehouseId: '', binId: '' })
 
 // 平铺展示：把每个 物料×仓库 的库存拆成「各批号行 + 无批号（未分批）行」
 const flatList = computed(() => {
@@ -42,6 +43,18 @@ async function loadWarehouses() {
   warehouses.value = res.data.items
 }
 
+const selectedBinManaged = computed(() => warehouses.value.find((w: any) => w.id === query.warehouseId)?.binManaged ?? false)
+
+async function onWarehouseChange() {
+  query.binId = ''
+  bins.value = []
+  const wh = warehouses.value.find((w: any) => w.id === query.warehouseId)
+  if (wh?.binManaged) {
+    const res: any = await warehouseBinApi.list({ warehouseId: wh.id, status: 1, pageSize: 200 })
+    bins.value = res.data.items
+  }
+}
+
 onMounted(async () => {
   await loadWarehouses()
   await loadData()
@@ -54,15 +67,18 @@ onMounted(async () => {
       <div class="search-bar">
         <el-input v-model="query.materialCode" placeholder="物料编码" clearable style="width: 150px" />
         <el-input v-model="query.materialName" placeholder="物料名称/型号规格" clearable style="width: 170px" />
-        <el-select v-model="query.warehouseId" placeholder="仓库" clearable style="width: 160px">
+        <el-select v-model="query.warehouseId" placeholder="仓库" clearable style="width: 160px" @change="onWarehouseChange">
           <el-option v-for="w in warehouses" :key="w.id" :label="w.name" :value="w.id" />
         </el-select>
+        <el-select v-if="selectedBinManaged" v-model="query.binId" placeholder="货位" clearable style="width: 140px">
+          <el-option v-for="b in bins" :key="b.id" :label="`${b.code} - ${b.name}`" :value="b.id" />
+        </el-select>
         <el-button type="primary" @click="query.page = 1, loadData()"><el-icon><Search /></el-icon>查询</el-button>
-        <el-button @click="Object.assign(query, { materialCode: '', materialName: '', warehouseId: '', page: 1 }), loadData()">重置</el-button>
+        <el-button @click="Object.assign(query, { materialCode: '', materialName: '', warehouseId: '', binId: '', page: 1 }), bins = [], loadData()">重置</el-button>
       </div>
 
       <div class="table-toolbar">
-        <span class="toolbar-title">库存台账（按仓库×物料）</span>
+        <span class="toolbar-title">库存明细台账</span>
         <div style="flex: 1" />
         <el-button @click="loadData"><el-icon><Refresh /></el-icon>刷新</el-button>
         <el-button @click="stockApi.exportCsv()"><el-icon><Download /></el-icon>导出</el-button>
@@ -86,10 +102,8 @@ onMounted(async () => {
         <el-table-column label="仓库" width="120">
           <template #default="{ row }">{{ row.warehouse?.name }}</template>
         </el-table-column>
-        <el-table-column label="现存量" width="100">
-          <template #default="{ row }">
-            <span :class="{ 'text-low': row.isLow }" style="font-weight: 600">{{ row.quantity }}</span>
-          </template>
+        <el-table-column label="货位" width="130">
+          <template #default="{ row }">{{ row.bin ? `${row.bin.code} - ${row.bin.name}` : '-' }}</template>
         </el-table-column>
         <el-table-column label="单位" width="70" align="center">
           <template #default="{ row }">{{ row.material?.unit || '-' }}</template>
@@ -103,15 +117,6 @@ onMounted(async () => {
         <el-table-column prop="reservedQty" label="预占量" width="90" />
         <el-table-column label="可用量" width="100">
           <template #default="{ row }">{{ row.availableQty }}</template>
-        </el-table-column>
-        <el-table-column label="安全库存" width="90">
-          <template #default="{ row }">{{ row.material?.safetyStock ?? 0 }}</template>
-        </el-table-column>
-        <el-table-column label="状态" width="100">
-          <template #default="{ row }">
-            <el-tag v-if="row.isLow" type="danger" size="small">低于安全库存</el-tag>
-            <el-tag v-else type="success" size="small">正常</el-tag>
-          </template>
         </el-table-column>
       </el-table>
 

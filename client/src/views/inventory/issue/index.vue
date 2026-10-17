@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { productionApi, warehouseApi } from '../../../api'
+import { productionApi, warehouseApi, warehouseBinApi } from '../../../api'
 import { BASE_LOCATIONS, warehouseIdByLocation } from '../../../utils/location'
 
 const loading = ref(false)
@@ -25,6 +25,23 @@ const detail = ref<any[]>([])
 const locationOptions = ref<{ code: string; name: string }[]>([])
 const form = reactive<any>({ batchId: null, warehouseId: null, issueQty: 0, effectiveDate: '' })
 
+const bins = ref<any[]>([])
+const selectedWarehouse = computed(() => warehouses.value.find((w: any) => w.id === form.warehouseId) || null)
+const binRequired = computed(() => selectedWarehouse.value?.binManaged === true)
+
+async function loadBins() {
+  bins.value = []
+  const wh = selectedWarehouse.value
+  if (!wh?.binManaged) return
+  const res: any = await warehouseBinApi.list({ warehouseId: wh.id, status: 1, pageSize: 200 })
+  bins.value = res.data.items
+}
+
+async function onWarehouseChange() {
+  for (const line of detail.value) line.binId = null
+  await loadBins()
+}
+
 function todayStr() {
   const d = new Date()
   const pad = (n: number) => String(n).padStart(2, '0')
@@ -33,7 +50,8 @@ function todayStr() {
 
 function buildLocationOptions() {
   const map = new Map<string, string>()
-  for (const l of BASE_LOCATIONS) map.set(l.code, l.name)
+  for (const w of warehouses.value) map.set(w.code, w.name)
+  for (const l of BASE_LOCATIONS) if (!map.has(l.code)) map.set(l.code, l.name)
   for (const line of detail.value) if (line.location && !map.has(line.location)) map.set(line.location, '')
   locationOptions.value = [...map.entries()].map(([code, name]) => ({ code, name }))
 }
@@ -74,6 +92,7 @@ async function openDialog(order: any) {
   form.effectiveDate = todayStr()
   dialogVisible.value = true
   await onBatchChange()
+  await loadBins()
 }
 
 async function onBatchChange() {
@@ -96,6 +115,7 @@ async function onBatchChange() {
     requiredQty: m.requiredQty,
     issuedQty: m.issuedQty ?? 0,
     location: m.material?.location || '',
+    binId: null,
     issueQty: 0,
     batchNo: '',
   }))
@@ -129,9 +149,13 @@ async function submit() {
     ElMessage.warning('请选择库位')
     return
   }
+  if (binRequired.value && detail.value.some((l) => Number(l.issueQty) > 0 && !l.binId)) {
+    ElMessage.warning('该仓库启用货位管理，请为发料行选择货位')
+    return
+  }
   const items = detail.value
     .filter((l) => Number(l.issueQty) > 0)
-    .map((l) => ({ batchMaterialId: l.batchMaterialId, quantity: l.issueQty, unit: l.issueUnit || undefined, location: l.location || undefined, batchNo: l.batchNo || undefined }))
+    .map((l) => ({ batchMaterialId: l.batchMaterialId, quantity: l.issueQty, unit: l.issueUnit || undefined, location: l.location || undefined, binId: l.binId || undefined, batchNo: l.batchNo || undefined }))
   if (items.length === 0) {
     ElMessage.warning('请填写发放数量')
     return
@@ -227,7 +251,7 @@ onMounted(async () => {
           </el-select>
         </el-form-item>
         <el-form-item label="库位">
-          <el-select v-model="form.warehouseId" style="width: 220px" placeholder="选择库位">
+          <el-select v-model="form.warehouseId" style="width: 220px" placeholder="选择库位" @change="onWarehouseChange">
             <el-option v-for="w in warehouses" :key="w.id" :label="`${w.code} - ${w.name}`" :value="w.id" />
           </el-select>
         </el-form-item>
@@ -257,6 +281,13 @@ onMounted(async () => {
           <template #default="{ row }">
             <el-select v-model="row.location" size="small" filterable allow-create default-first-option clearable placeholder="库位" style="width: 100%">
               <el-option v-for="l in locationOptions" :key="l.code" :label="l.name ? `${l.code} - ${l.name}` : l.code" :value="l.code" />
+            </el-select>
+          </template>
+        </el-table-column>
+        <el-table-column v-if="binRequired" label="货位" width="150">
+          <template #default="{ row }">
+            <el-select v-model="row.binId" size="small" filterable clearable placeholder="选择货位" style="width: 100%">
+              <el-option v-for="b in bins" :key="b.id" :label="`${b.code} - ${b.name}`" :value="b.id" />
             </el-select>
           </template>
         </el-table-column>

@@ -101,7 +101,7 @@ export async function receiveHandler(req: AuthRequest, res: Response) {
       Number(req.params.id),
       req.user!.id,
       Array.isArray(items) ? items : undefined,
-      { effectiveDate: req.body?.effectiveDate, location: req.body?.location }
+      { effectiveDate: req.body?.effectiveDate, location: req.body?.location, binId: req.body?.binId }
     );
     return success(res, data, "收货完成");
   } catch (error: any) {

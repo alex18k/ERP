@@ -11,7 +11,7 @@ const dialogVisible = ref(false)
 const isEdit = ref(false)
 const formRef = ref()
 const form = reactive<any>({
-  id: null, code: '', name: '', address: '', status: 1,
+  id: null, code: '', name: '', address: '', status: 1, binManaged: false,
 })
 
 const rules = {
@@ -38,6 +38,7 @@ function openDialog(row?: any) {
   if (row) Object.assign(form, row)
   else Object.keys(form).forEach((k) => (form[k] = null))
   form.status = form.status ?? 1
+  form.binManaged = !!form.binManaged
   dialogVisible.value = true
 }
 
@@ -48,6 +49,7 @@ async function handleSave() {
     name: form.name,
     address: form.address,
     status: form.status ?? 1,
+    binManaged: !!form.binManaged,
   }
   if (isEdit.value) {
     await warehouseApi.update(form.id, payload)
@@ -89,6 +91,11 @@ onMounted(loadData)
           </template>
         </el-table-column>
         <el-table-column prop="address" label="地址" min-width="180" />
+        <el-table-column label="货位管理" width="100">
+          <template #default="{ row }">
+            <el-tag :type="row.binManaged ? 'warning' : 'info'">{{ row.binManaged ? '启用' : '未启用' }}</el-tag>
+          </template>
+        </el-table-column>
         <el-table-column label="物料种类" width="100">
           <template #default="{ row }">{{ row.stocks?.length ?? 0 }}</template>
         </el-table-column>
@@ -116,6 +123,10 @@ onMounted(loadData)
           <el-select v-model="form.status" style="width: 100%">
             <el-option v-for="o in statusOptions" :key="o.value" :label="o.label" :value="o.value" />
           </el-select>
+        </el-form-item>
+        <el-form-item label="货位管理">
+          <el-switch v-model="form.binManaged" />
+          <span style="margin-left: 8px; color: #909399; font-size: 12px">启用后该仓库库存按货位细分，出入库必须指定货位</span>
         </el-form-item>
         <el-form-item label="地址">
           <el-input v-model="form.address" />

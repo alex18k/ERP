@@ -2,7 +2,7 @@ import prisma from "../config/prisma";
 import { Prisma } from "@prisma/client";
 import { localDateCompact } from "../utils/date";
 import { retryOnDuplicate, lockOrderNo, ORDER_NO_LOCK } from "../utils/retry";
-import { applyBatchIn } from "./stock.service";
+import { applyBatchIn, addStock, resolveBinId } from "./stock.service";
 import { resolveUnitRateMap, toBaseQty } from "../utils/unit";
 
 export async function generatePurchaseOrderNo(): Promise<string> {
@@ -419,7 +419,7 @@ export async function receivePurchaseOrder(
   id: number,
   userId: number,
   receipts?: { itemId: number; quantity: number; batchNo?: string }[],
-  options?: { effectiveDate?: string; location?: string }
+  options?: { effectiveDate?: string; location?: string; binId?: number | null }
 ) {
   const po = await prisma.purchaseOrder.findUnique({
     where: { id },
@@ -494,40 +494,25 @@ export async function receivePurchaseOrder(
         await tx.material.update({ where: { id: item.materialId }, data: { cost: baseCost } });
       }
 
-      // 更新库存：优先记入库位对应的仓库（库位编码 = 仓库编码）
-      const targetWarehouseId = locationWarehouse?.id ?? null;
-      let warehouseId: number;
-      const stock = targetWarehouseId
-        ? await tx.stock.findFirst({ where: { materialId: item.materialId, warehouseId: targetWarehouseId } })
-        : await tx.stock.findFirst({ where: { materialId: item.materialId } });
-      if (stock) {
-        await tx.stock.update({
-          where: { id: stock.id },
-          data: { quantity: { increment: baseQty }, lastInDate: new Date() },
-        });
-        warehouseId = stock.warehouseId;
-      } else {
-        const wh = targetWarehouseId ?? (await tx.warehouse.findFirst({ where: { status: 1 } }))?.id ?? 1;
-        await tx.stock.upsert({
-          where: { materialId_warehouseId: { materialId: item.materialId, warehouseId: wh } },
-          create: {
-            materialId: item.materialId,
-            warehouseId: wh,
-            quantity: baseQty,
-            lastInDate: new Date(),
-          },
-          update: { quantity: { increment: baseQty }, lastInDate: new Date() },
-        });
-        warehouseId = wh;
+      // 更新库存：确定入库仓库（库位编码=仓库编码；否则用已有库存所在仓库；否则第一个启用仓库），再按货位入库
+      let warehouseId = locationWarehouse?.id ?? null;
+      if (!warehouseId) {
+        const anyStock = await tx.stock.findFirst({ where: { materialId: item.materialId } });
+        warehouseId = anyStock?.warehouseId ?? (await tx.warehouse.findFirst({ where: { status: 1 } }))?.id ?? 1;
       }
+      const warehouse = await tx.warehouse.findUnique({ where: { id: warehouseId } });
+      if (!warehouse) throw new Error("仓库不存在");
+      const binId = await resolveBinId(tx, warehouse, options?.binId);
+      await addStock(tx, item.materialId, warehouseId, binId, baseQty);
 
-      const resolvedBatchNo = await applyBatchIn(tx, item.material, warehouseId, receiptsByItem.get(item.id)?.batchNo, baseQty);
+      const resolvedBatchNo = await applyBatchIn(tx, item.material, warehouseId, binId, receiptsByItem.get(item.id)?.batchNo, baseQty);
 
       // 库存流水
       await tx.stockRecord.create({
         data: {
           materialId: item.materialId,
           warehouseId,
+          binId,
           type: "in",
           quantity: baseQty,
           batchNo: resolvedBatchNo,
@@ -616,6 +601,7 @@ export async function listPurchaseReceipts(where: any) {
       include: {
         material: { select: { id: true, code: true, name: true, specification: true, unit: true } },
         warehouse: { select: { id: true, code: true, name: true } },
+        bin: { select: { id: true, code: true, name: true } },
         operator: { select: { id: true, realName: true, username: true } },
       },
       orderBy: { createdAt: "desc" },

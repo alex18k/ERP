@@ -191,8 +191,11 @@ export const stockApi = {
   records: (params: PageParams) => request.get('/stocks/records', { params }),
   in: (data: any) => request.post('/stocks/in', data),
   out: (data: any) => request.post('/stocks/out', data),
+  transfer: (data: any) => request.post('/stocks/transfer', data),
   alert: (params?: any) => request.get('/stocks/alert', { params }),
   batches: (params: PageParams) => request.get('/stocks/batches', { params }),
+  zeroStock: (params?: PageParams) => request.get('/stocks/zero-stock', { params }),
+  clearZero: () => request.post('/stocks/clear-zero'),
   exportCsv: () => downloadCsv('/stocks/export', '库存现况'),
 }
 

@@ -1,10 +1,13 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { purchaseApi } from '../../../api'
 
+const router = useRouter()
 const loading = ref(false)
 const list = ref<any[]>([])
 const total = ref(0)
+const currentRow = ref<any>(null)
 const query = reactive({ page: 1, pageSize: 20, orderNo: '', materialKeyword: '', startDate: '', endDate: '' })
 
 async function loadData() {
@@ -22,6 +25,11 @@ function dateOnly(v: string | null | undefined) {
   return v ? String(v).slice(0, 10) : '-'
 }
 
+function handlePrint() {
+  if (!currentRow.value?.relatedId) return
+  router.push(`/purchase/receipt-print?id=${currentRow.value.relatedId}`)
+}
+
 onMounted(loadData)
 </script>
 
@@ -35,9 +43,11 @@ onMounted(loadData)
         <el-input v-model="query.endDate" type="date" placeholder="结束" clearable style="width: 150px" />
         <el-button type="primary" @click="query.page = 1, loadData()"><el-icon><Search /></el-icon>查询</el-button>
         <el-button @click="Object.assign(query, { orderNo: '', materialKeyword: '', startDate: '', endDate: '', page: 1 }), loadData()">重置</el-button>
+        <div style="flex: 1" />
+        <el-button type="primary" plain :disabled="!currentRow?.relatedId" @click="handlePrint"><el-icon><Printer /></el-icon>打印收货单</el-button>
       </div>
 
-      <el-table :data="list" v-loading="loading" stripe max-height="calc(100vh - 260px)">
+      <el-table :data="list" v-loading="loading" stripe highlight-current-row max-height="calc(100vh - 260px)" @row-click="(row: any) => (currentRow = row)">
         <el-table-column label="收货日期" width="120">
           <template #default="{ row }">{{ dateOnly(row.effectiveDate || row.createdAt) }}</template>
         </el-table-column>
@@ -70,6 +80,9 @@ onMounted(loadData)
         </el-table-column>
         <el-table-column prop="location" label="库位" width="90">
           <template #default="{ row }">{{ row.location || '-' }}</template>
+        </el-table-column>
+        <el-table-column label="货位" width="120">
+          <template #default="{ row }">{{ row.bin?.name || '-' }}</template>
         </el-table-column>
         <el-table-column label="操作员" width="100">
           <template #default="{ row }">{{ row.operator?.realName || row.operator?.username || '-' }}</template>

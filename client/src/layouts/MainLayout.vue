@@ -85,13 +85,15 @@ const menuItems: MenuNode[] = [
     title: '库存管理',
     icon: 'Box',
     children: [
-      { path: '/inventory/query', title: '库存查询', icon: 'Search' },
+      { path: '/inventory/query', title: '库存明细查询', icon: 'Search' },
+      { path: '/inventory/stock-query', title: '库存查询', icon: 'Search' },
       { path: '/inventory/record', title: '事务记录', icon: 'Clock' },
       { path: '/inventory/receive', title: '采购收货', icon: 'Download' },
       { path: '/inventory/receipt-record', title: '采购收货记录', icon: 'Tickets' },
       { path: '/inventory/issue', title: '生产领料', icon: 'Upload' },
       { path: '/inventory/production-receive', title: '生产入库', icon: 'Download' },
       { path: '/inventory/shipping', title: '销售发运', icon: 'Van' },
+      { path: '/inventory/clear-zero', title: '清除0库存', icon: 'Delete' },
     ],
   },
   {

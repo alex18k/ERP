@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { warehouseBinApi, warehouseApi } from '../../../api'
 
@@ -7,6 +7,7 @@ const loading = ref(false)
 const list = ref<any[]>([])
 const total = ref(0)
 const warehouses = ref<any[]>([])
+const binWarehouses = computed(() => warehouses.value.filter((w: any) => w.binManaged))
 const query = reactive({ page: 1, pageSize: 20, keyword: '', warehouseId: '' })
 
 const dialogVisible = ref(false)
@@ -127,9 +128,10 @@ onMounted(async () => {
     <el-dialog v-model="dialogVisible" :title="isEdit ? '编辑货位' : '新增货位'" width="520px" destroy-on-close>
       <el-form ref="formRef" :model="form" :rules="rules" label-width="100px">
         <el-form-item label="所属仓库" prop="warehouseId">
-          <el-select v-model="form.warehouseId" placeholder="选择仓库" filterable style="width: 100%">
-            <el-option v-for="w in warehouses" :key="w.id" :label="`${w.code} - ${w.name}`" :value="w.id" />
+          <el-select v-model="form.warehouseId" placeholder="选择启用货位管理的仓库" filterable style="width: 100%">
+            <el-option v-for="w in binWarehouses" :key="w.id" :label="`${w.code} - ${w.name}`" :value="w.id" />
           </el-select>
+          <span v-if="binWarehouses.length === 0" style="color: #e6a23c; font-size: 12px">暂无启用货位管理的仓库，请先在「仓库管理」中开启货位管理</span>
         </el-form-item>
         <el-form-item label="货位编码" prop="code">
           <el-input v-model="form.code" placeholder="如 A01-01" />

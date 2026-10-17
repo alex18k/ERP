@@ -2,7 +2,7 @@
 import { ref, reactive, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { purchaseApi, supplierApi, materialApi } from '../../../api'
+import { purchaseApi, supplierApi, materialApi, warehouseApi } from '../../../api'
 import MaterialPickerDialog from '../../../components/MaterialPickerDialog.vue'
 import { BASE_LOCATIONS } from '../../../utils/location'
 
@@ -16,6 +16,7 @@ const materialLoading = ref(false)
 const buyerOptions = ref<string[]>([])
 const unitOptions = ref<string[]>([])
 const locationOptions = ref<{ code: string; name: string }[]>([])
+const warehouses = ref<any[]>([])
 const orderOptions = ref<any[]>([])
 const orderLoading = ref(false)
 const pageLoading = ref(false)
@@ -69,13 +70,25 @@ function toCodeOption(m: any) {
 function buildItemOptions() {
   const units = new Set<string>(['张', '个', '套', '台', '件', '只', '米', '千克', '吨', '升', '箱', '包', '卷'])
   const locs = new Map<string, string>()
-  for (const l of BASE_LOCATIONS) locs.set(l.code, l.name)
+  for (const w of warehouses.value) locs.set(w.code, w.name)
+  for (const l of BASE_LOCATIONS) if (!locs.has(l.code)) locs.set(l.code, l.name)
   for (const m of materials.value) {
     if (m.unit) units.add(m.unit)
     if (m.location && !locs.has(m.location)) locs.set(m.location, '')
   }
   unitOptions.value = [...units]
   locationOptions.value = [...locs.entries()].map(([code, name]) => ({ code, name }))
+}
+
+async function loadWarehouses() {
+  const res: any = await warehouseApi.list({ pageSize: 200 })
+  warehouses.value = res.data.items
+  buildItemOptions()
+  if (!selectedOrderId.value && !headerLocation.value) headerLocation.value = defaultLocation()
+}
+
+function defaultLocation() {
+  return warehouses.value[0]?.code || ''
 }
 
 // 按关键字搜索物料（不限定类别，编码/名称/型号规格任一命中）；结果只写入当前行的选项
@@ -117,7 +130,7 @@ function nextLine(): number {
   return form.items.reduce((m: number, it: any) => Math.max(m, Number(it.line) || 0), 0) + 1
 }
 function addItem() {
-  form.items.push({ id: null, receivedQty: 0, materialId: null, quantity: 1, unit: '', unitPrice: 0, unitPriceText: '', taxIncluded: !!form.taxIncluded, taxRate: form.taxRate ?? 0, location: headerLocation.value || 'A01', expectedDate: form.expectedDate || '', remark: '', status: 'blank', sourceOrderNo: '', line: nextLine(), __options: [] })
+  form.items.push({ id: null, receivedQty: 0, materialId: null, quantity: 1, unit: '', unitPrice: 0, unitPriceText: '', taxIncluded: !!form.taxIncluded, taxRate: form.taxRate ?? 0, location: headerLocation.value || '', expectedDate: form.expectedDate || '', remark: '', status: 'blank', sourceOrderNo: '', line: nextLine(), __options: [] })
 }
 const currentRow = ref<any | null>(null)
 const itemsTableRef = ref()
@@ -244,7 +257,7 @@ function resetForm() {
   form.taxIncluded = false
   form.taxRate = 0
   form.items = []
-  headerLocation.value = 'A01'
+  headerLocation.value = defaultLocation()
   isEditLoad.value = false
   selectedOrderId.value = null
   snapshot.value = JSON.stringify(buildPayload())
@@ -445,6 +458,7 @@ onMounted(() => {
   loadSuppliers().catch(() => {})
   loadBuyers()
   loadOrderOptions()
+  loadWarehouses().catch(() => {})
   materialApi.options({ limit: 200 })
     .then((res: any) => { registerMaterials(res.data || []); buildItemOptions() })
     .catch(() => {})

@@ -1,19 +1,32 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { productionApi, warehouseApi } from '../../../api'
+import { productionApi, warehouseApi, warehouseBinApi } from '../../../api'
 import { warehouseIdByLocation } from '../../../utils/location'
 
 const loading = ref(false)
 const list = ref<any[]>([])
 const total = ref(0)
 const warehouses = ref<any[]>([])
+const bins = ref<any[]>([])
 const query = reactive({ page: 1, pageSize: 20, orderNo: '', onlyReceivable: 'true' })
 
 const dialogVisible = ref(false)
 const submitting = ref(false)
 const current = ref<any>(null)
-const form = reactive<any>({ quantity: 0, unit: '', warehouseId: null, batchNo: '' })
+const form = reactive<any>({ quantity: 0, unit: '', warehouseId: null, binId: null, batchNo: '' })
+
+const selectedWarehouse = computed(() => warehouses.value.find((w: any) => w.id === form.warehouseId) || null)
+const binRequired = computed(() => selectedWarehouse.value?.binManaged === true)
+
+async function loadBins() {
+  form.binId = null
+  bins.value = []
+  const wh = selectedWarehouse.value
+  if (!wh?.binManaged) return
+  const res: any = await warehouseBinApi.list({ warehouseId: wh.id, status: 1, pageSize: 200 })
+  bins.value = res.data.items
+}
 
 // 入库计量单位（产品基本单位 + 转换单位）与换算提示
 const productMaterial = computed(() => current.value?.productionOrder?.material || null)
@@ -67,6 +80,7 @@ function openDialog(row: any) {
   form.batchNo = row.batchNo != null ? String(row.batchNo) : ''
   form.warehouseId = warehouseIdByLocation(warehouses.value, row.productionOrder?.material?.location) || warehouses.value[0]?.id || null
   dialogVisible.value = true
+  loadBins()
 }
 
 async function submit() {
@@ -82,6 +96,10 @@ async function submit() {
     ElMessage.warning(`单位「${form.unit}」未维护换算关系`)
     return
   }
+  if (binRequired.value && !form.binId) {
+    ElMessage.warning('该仓库启用货位管理，请选择货位')
+    return
+  }
   const baseQty = (Number(form.quantity) || 0) * unitRate.value
   if (baseQty > remaining(current.value) + 1e-6) {
     ElMessage.warning(`入库数量超过剩余可入库数量 ${remaining(current.value)}`)
@@ -89,7 +107,7 @@ async function submit() {
   }
   submitting.value = true
   try {
-    await productionApi.receiveBatch(current.value.id, { quantity: form.quantity, unit: form.unit || undefined, warehouseId: form.warehouseId, batchNo: form.batchNo || undefined })
+    await productionApi.receiveBatch(current.value.id, { quantity: form.quantity, unit: form.unit || undefined, warehouseId: form.warehouseId, binId: binRequired.value ? form.binId : undefined, batchNo: form.batchNo || undefined })
     ElMessage.success('生产入库成功')
     dialogVisible.value = false
     loadData()
@@ -172,8 +190,13 @@ onMounted(async () => {
           <span>第{{ current?.batchNo }}批 / {{ current ? remaining(current) : 0 }}</span>
         </el-form-item>
         <el-form-item label="入库仓库" required>
-          <el-select v-model="form.warehouseId" placeholder="选择仓库" style="width: 100%">
+          <el-select v-model="form.warehouseId" placeholder="选择仓库" style="width: 100%" @change="loadBins">
             <el-option v-for="w in warehouses" :key="w.id" :label="`${w.code} - ${w.name}`" :value="w.id" />
+          </el-select>
+        </el-form-item>
+        <el-form-item v-if="binRequired" label="货位" required>
+          <el-select v-model="form.binId" filterable clearable placeholder="选择货位" style="width: 100%">
+            <el-option v-for="b in bins" :key="b.id" :label="`${b.code} - ${b.name}`" :value="b.id" />
           </el-select>
         </el-form-item>
         <el-form-item label="入库数量" required>

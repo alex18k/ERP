@@ -59,6 +59,33 @@ export async function outHandler(req: AuthRequest, res: Response) {
   }
 }
 
+export async function transferHandler(req: AuthRequest, res: Response) {
+  try {
+    const data = await stockService.transferStock(req.body, req.user!.id);
+    return success(res, data, "移库成功");
+  } catch (error: any) {
+    return fail(res, 400, error.message);
+  }
+}
+
+export async function zeroStockHandler(req: Request, res: Response) {
+  try {
+    const data = await stockService.listZeroStock(req.query as any);
+    return success(res, data);
+  } catch (error: any) {
+    return fail(res, 500, error.message, 500);
+  }
+}
+
+export async function clearZeroStockHandler(_req: Request, res: Response) {
+  try {
+    const data = await stockService.clearZeroStock();
+    return success(res, data, `已清除 0 库存记录 ${data.deletedStock + data.deletedBatch} 条`);
+  } catch (error: any) {
+    return fail(res, 500, error.message, 500);
+  }
+}
+
 export async function alertHandler(req: Request, res: Response) {
   try {
     const data = await stockService.getStockAlerts(req.query as any);

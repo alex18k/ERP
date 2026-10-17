@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { orderApi, warehouseApi } from '../../../api'
+import { orderApi, warehouseApi, warehouseBinApi } from '../../../api'
 
 const loading = ref(false)
 const list = ref<any[]>([])
 const total = ref(0)
 const warehouses = ref<any[]>([])
+const binMap = reactive<Record<number, any[]>>({})
 const query = reactive({ page: 1, pageSize: 20, orderNo: '', customerName: '' })
 
 const dialogVisible = ref(false)
@@ -41,6 +42,22 @@ async function loadWarehouses() {
   warehouses.value = res.data.items
 }
 
+function warehouseBinManaged(warehouseId: number) {
+  return warehouses.value.find((w: any) => w.id === warehouseId)?.binManaged === true
+}
+function binOptionsFor(warehouseId: number) {
+  return binMap[warehouseId] || []
+}
+async function onLineWarehouseChange(row: any) {
+  row.binId = null
+  const wh = row.warehouseId
+  if (!wh || !warehouseBinManaged(wh)) return
+  if (!binMap[wh]) {
+    const res: any = await warehouseBinApi.list({ warehouseId: wh, status: 1, pageSize: 200 })
+    binMap[wh] = res.data.items
+  }
+}
+
 function openDialog(row: any) {
   currentOrder.value = row
   form.effectiveDate = todayStr()
@@ -55,6 +72,7 @@ function openDialog(row: any) {
     remaining: it.remaining ?? (it.quantity - (it.deliveredQty ?? 0)),
     location: it.material?.location || '',
     warehouseId: null,
+    binId: null,
     shipQty: 0,
     batchNo: '',
     remark: '',
@@ -73,6 +91,7 @@ async function submit() {
       itemId: l.itemId,
       quantity: l.shipQty,
       warehouseId: l.warehouseId,
+      binId: l.binId || undefined,
       batchNo: l.batchNo || undefined,
       remark: l.remark || undefined,
     }))
@@ -83,6 +102,10 @@ async function submit() {
   for (const l of items) {
     if (!l.warehouseId) {
       ElMessage.warning('请为每条发运明细选择出库仓库')
+      return
+    }
+    if (warehouseBinManaged(l.warehouseId) && !l.binId) {
+      ElMessage.warning('该仓库启用货位管理，请为发运明细选择货位')
       return
     }
   }
@@ -112,6 +135,7 @@ function fillAll() {
   for (const l of detail.value) {
     l.shipQty = l.remaining
     l.warehouseId = l.warehouseId || warehouses.value[0]?.id || null
+    onLineWarehouseChange(l)
   }
 }
 
@@ -196,9 +220,17 @@ onMounted(async () => {
         </el-table-column>
         <el-table-column label="出库仓库" width="170">
           <template #default="{ row }">
-            <el-select v-model="row.warehouseId" size="small" placeholder="选择仓库" style="width: 100%">
+            <el-select v-model="row.warehouseId" size="small" placeholder="选择仓库" style="width: 100%" @change="onLineWarehouseChange(row)">
               <el-option v-for="w in warehouses" :key="w.id" :label="`${w.code} - ${w.name}`" :value="w.id" />
             </el-select>
+          </template>
+        </el-table-column>
+        <el-table-column label="货位" width="150">
+          <template #default="{ row }">
+            <el-select v-if="warehouseBinManaged(row.warehouseId)" v-model="row.binId" size="small" filterable clearable placeholder="选择货位" style="width: 100%">
+              <el-option v-for="b in binOptionsFor(row.warehouseId)" :key="b.id" :label="`${b.code} - ${b.name}`" :value="b.id" />
+            </el-select>
+            <span v-else>-</span>
           </template>
         </el-table-column>
         <el-table-column label="批号" width="150">

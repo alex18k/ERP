@@ -61,8 +61,10 @@ const routes = [
       { path: 'purchase/arrival', name: 'PurchaseArrival', component: () => import('../views/purchase/arrival/index.vue'), meta: { title: '到货跟踪' } },
       { path: 'purchase/maintain', name: 'PurchaseMaintain', component: () => import('../views/purchase/maintain/index.vue'), meta: { title: '采购单维护' } },
       { path: 'purchase/print', name: 'PurchasePrint', component: () => import('../views/purchase/print/index.vue'), meta: { title: '打印采购订单' } },
+      { path: 'purchase/receipt-print', name: 'PurchaseReceiptPrint', component: () => import('../views/purchase/receiptPrint/index.vue'), meta: { title: '打印收货单' } },
       // 库存
-      { path: 'inventory/query', name: 'InventoryQuery', component: () => import('../views/inventory/query/index.vue'), meta: { title: '库存查询' } },
+      { path: 'inventory/query', name: 'InventoryQuery', component: () => import('../views/inventory/query/index.vue'), meta: { title: '库存明细查询' } },
+      { path: 'inventory/stock-query', name: 'InventoryStockQuery', component: () => import('../views/inventory/stockQuery/index.vue'), meta: { title: '库存查询' } },
       { path: 'inventory/record', name: 'InventoryRecord', component: () => import('../views/inventory/record/index.vue'), meta: { title: '库存事务记录' } },
       { path: 'inventory/receive', name: 'InventoryReceive', component: () => import('../views/inventory/receive/index.vue'), meta: { title: '采购收货' } },
       { path: 'inventory/receipt-record', name: 'InventoryReceiptRecord', component: () => import('../views/inventory/receiptRecord/index.vue'), meta: { title: '采购收货记录' } },
@@ -71,6 +73,7 @@ const routes = [
       { path: 'inventory/shipping', name: 'InventoryShipping', component: () => import('../views/inventory/shipping/index.vue'), meta: { title: '销售发运' } },
       { path: 'inventory/batch', name: 'InventoryBatch', component: () => import('../views/inventory/batch/index.vue'), meta: { title: '批号库存' } },
       { path: 'inventory/transaction-type', name: 'StockTransactionType', component: () => import('../views/inventory/transactionType/index.vue'), meta: { title: '事务类型维护' } },
+      { path: 'inventory/clear-zero', name: 'InventoryClearZero', component: () => import('../views/inventory/clearZero/index.vue'), meta: { title: '清除0库存' } },
       // 看板
       { path: 'dashboard/inventory-board', name: 'InventoryBoard', component: () => import('../views/dashboard/inventory/index.vue'), meta: { title: '库存看板' } },
       // 统计报表

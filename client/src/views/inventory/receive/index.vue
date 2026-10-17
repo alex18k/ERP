@@ -1,20 +1,33 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { purchaseApi } from '../../../api'
-import { BASE_LOCATIONS } from '../../../utils/location'
+import { purchaseApi, warehouseApi, warehouseBinApi } from '../../../api'
 
 const loading = ref(false)
 const list = ref<any[]>([])
 const total = ref(0)
 const query = reactive({ page: 1, pageSize: 20, orderNo: '' })
 
+const warehouses = ref<any[]>([])
+const bins = ref<any[]>([])
 const receiveVisible = ref(false)
 const receiving = ref(false)
 const currentOrder = ref<any>(null)
 const receiveItems = ref<any[]>([])
-const receiveForm = reactive({ effectiveDate: '', location: '' })
-const locationOptions = BASE_LOCATIONS
+const receiveForm = reactive({ effectiveDate: '', location: '', binId: null as number | null })
+const locationOptions = ref<{ code: string; name: string }[]>([])
+
+const selectedWarehouse = computed(() => warehouses.value.find((w: any) => w.code === receiveForm.location) || null)
+const binRequired = computed(() => selectedWarehouse.value?.binManaged === true)
+
+async function loadBins() {
+  receiveForm.binId = null
+  bins.value = []
+  const wh = selectedWarehouse.value
+  if (!wh?.binManaged) return
+  const res: any = await warehouseBinApi.list({ warehouseId: wh.id, status: 1, pageSize: 200 })
+  bins.value = res.data.items
+}
 
 function todayStr() {
   const d = new Date()
@@ -96,18 +109,19 @@ function openReceive(row: any) {
       quantity: it.quantity,
       receivedQty: it.receivedQty ?? 0,
       remaining: it.quantity - (it.receivedQty ?? 0),
-      receiveQty: it.quantity - (it.receivedQty ?? 0),
+      receiveQty: 0,
       batchNo: '',
     }))
   receiveForm.effectiveDate = todayStr()
   const locs = new Set<string>((row.items || []).map((it: any) => it.material?.location).filter(Boolean))
   receiveForm.location = locs.size === 1 ? [...locs][0] : ''
+  loadBins()
   receiveVisible.value = true
 }
 
-function clearReceiveQty() {
+function autoFillQty() {
   receiveItems.value.forEach((it) => {
-    it.receiveQty = 0
+    it.receiveQty = it.remaining
   })
 }
 
@@ -124,12 +138,17 @@ async function submitReceive(): Promise<boolean> {
     ElMessage.warning(`${over.materialCode} 收货数量不能超过未收数量 ${over.remaining}`)
     return false
   }
+  if (binRequired.value && !receiveForm.binId) {
+    ElMessage.warning('该仓库启用货位管理，请选择货位')
+    return false
+  }
   receiving.value = true
   try {
     await purchaseApi.receive(currentOrder.value.id, {
       items,
       effectiveDate: receiveForm.effectiveDate || undefined,
       location: receiveForm.location || undefined,
+      binId: binRequired.value ? receiveForm.binId : undefined,
     })
     ElMessage.success('收货完成')
     loadData()
@@ -171,7 +190,12 @@ function confirmLeave(done?: () => void) {
     })
 }
 
-onMounted(loadData)
+onMounted(async () => {
+  const wRes: any = await warehouseApi.list({ pageSize: 200 })
+  warehouses.value = wRes.data.items
+  locationOptions.value = warehouses.value.map((w: any) => ({ code: w.code, name: w.name }))
+  await loadData()
+})
 </script>
 
 <template>
@@ -233,13 +257,18 @@ onMounted(loadData)
           <el-date-picker v-model="receiveForm.effectiveDate" type="date" value-format="YYYY-MM-DD" size="small" style="width: 150px" />
         </el-descriptions-item>
         <el-descriptions-item label="库位">
-          <el-select v-model="receiveForm.location" filterable allow-create default-first-option clearable placeholder="选择或输入库位" size="small" style="width: 160px">
+          <el-select v-model="receiveForm.location" filterable allow-create default-first-option clearable placeholder="选择或输入库位" size="small" style="width: 160px" @change="loadBins">
             <el-option v-for="l in locationOptions" :key="l.code" :label="l.name ? `${l.code} - ${l.name}` : l.code" :value="l.code" />
+          </el-select>
+        </el-descriptions-item>
+        <el-descriptions-item v-if="binRequired" label="货位">
+          <el-select v-model="receiveForm.binId" filterable clearable placeholder="选择货位" size="small" style="width: 160px">
+            <el-option v-for="b in bins" :key="b.id" :label="`${b.code} - ${b.name}`" :value="b.id" />
           </el-select>
         </el-descriptions-item>
       </el-descriptions>
       <div style="display: flex; justify-content: flex-end; margin-bottom: 8px">
-        <el-button size="small" @click="clearReceiveQty">清空数量</el-button>
+        <el-button size="small" @click="autoFillQty">自动</el-button>
       </div>
       <el-table :data="receiveItems" size="small" stripe max-height="356px">
         <el-table-column label="物料" min-width="180">
@@ -251,7 +280,7 @@ onMounted(loadData)
         <el-table-column prop="remaining" label="未收" width="80" />
         <el-table-column label="本次收货" width="140">
           <template #default="{ row }">
-            <el-input-number v-model="row.receiveQty" :min="0" :max="row.remaining" :precision="2" size="small" style="width: 100%" @dblclick="row.receiveQty = row.remaining" />
+            <el-input-number v-model="row.receiveQty" :min="0" :max="row.remaining" :precision="2" :controls="false" size="small" style="width: 100%" @dblclick="row.receiveQty = row.remaining" />
           </template>
         </el-table-column>
         <el-table-column label="批号" width="170">

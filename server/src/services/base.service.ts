@@ -55,6 +55,11 @@ export const warehouseService = {
   update: async (id: number, data: any) => {
     const exists = await prisma.warehouse.findUnique({ where: { id } });
     if (!exists) throw new Error("仓库不存在");
+    // 关闭货位管理前，需确保该仓库没有货位维度的库存
+    if (exists.binManaged && data.binManaged === false) {
+      const binStock = await prisma.stock.findFirst({ where: { warehouseId: id, binId: { not: null } } });
+      if (binStock) throw new Error("该仓库存在货位库存，请先清空货位库存后再关闭货位管理");
+    }
     return prisma.warehouse.update({ where: { id }, data });
   },
   remove: async (id: number) => {
@@ -64,6 +69,8 @@ export const warehouseService = {
     if (count > 0) throw new Error("仓库中还有库存，无法删除");
     const recordCount = await prisma.stockRecord.count({ where: { warehouseId: id } });
     if (recordCount > 0) throw new Error(`仓库存在 ${recordCount} 条库存事务记录，无法删除`);
+    const binCount = await prisma.warehouseBin.count({ where: { warehouseId: id } });
+    if (binCount > 0) throw new Error(`仓库下还有 ${binCount} 个货位，无法删除`);
     await prisma.warehouse.delete({ where: { id } });
     return true;
   },
@@ -101,6 +108,7 @@ export const warehouseBinService = {
     if (!warehouseId) throw new Error("请选择所属仓库");
     const warehouse = await prisma.warehouse.findUnique({ where: { id: warehouseId } });
     if (!warehouse) throw new Error("仓库不存在");
+    if (!warehouse.binManaged) throw new Error("该仓库未启用货位管理，请先在仓库维护中开启");
     const code = String(data.code ?? "").trim();
     const name = String(data.name ?? "").trim();
     if (!code) throw new Error("请输入货位编码");
@@ -117,6 +125,7 @@ export const warehouseBinService = {
     const warehouseId = data.warehouseId ? Number(data.warehouseId) : exists.warehouseId;
     const warehouse = await prisma.warehouse.findUnique({ where: { id: warehouseId } });
     if (!warehouse) throw new Error("仓库不存在");
+    if (!warehouse.binManaged) throw new Error("该仓库未启用货位管理，请先在仓库维护中开启");
     const code = data.code !== undefined ? String(data.code).trim() : exists.code;
     const name = data.name !== undefined ? String(data.name).trim() : exists.name;
     if (!code) throw new Error("请输入货位编码");
@@ -137,6 +146,10 @@ export const warehouseBinService = {
   remove: async (id: number) => {
     const exists = await prisma.warehouseBin.findUnique({ where: { id } });
     if (!exists) throw new Error("货位不存在");
+    const binStock = await prisma.stock.findFirst({ where: { binId: id, quantity: { not: 0 } } });
+    if (binStock) throw new Error("该货位下还有库存，无法删除");
+    const recordCount = await prisma.stockRecord.count({ where: { binId: id } });
+    if (recordCount > 0) throw new Error(`该货位存在 ${recordCount} 条库存事务记录，无法删除`);
     await prisma.warehouseBin.delete({ where: { id } });
     return true;
   },

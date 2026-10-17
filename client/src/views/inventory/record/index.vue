@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { stockApi, warehouseApi, materialApi, stockTransactionTypeApi } from '../../../api'
+import { stockApi, warehouseApi, materialApi, stockTransactionTypeApi, warehouseBinApi } from '../../../api'
 
 const loading = ref(false)
 const list = ref<any[]>([])
@@ -17,7 +17,13 @@ const materials = ref<any[]>([])
 const materialLoading = ref(false)
 const materialMap = new Map<number, any>()
 const transactionTypes = ref<any[]>([])
-const form = reactive<any>({ materialId: null, warehouseId: null, batchNo: '', quantity: 1, unit: '', transactionTypeId: null, effectiveDate: todayStr(), documentNo: '', lineNo: null, remark: '' })
+const form = reactive<any>({ materialId: null, warehouseId: null, binId: null, batchNo: '', quantity: 1, unit: '', transactionTypeId: null, effectiveDate: todayStr(), documentNo: '', lineNo: null, remark: '' })
+
+// 货位：仅当所选仓库启用货位管理时才需要/允许填写
+const bins = ref<any[]>([])
+const binLoading = ref(false)
+const selectedWarehouse = computed(() => warehouses.value.find((w: any) => w.id === form.warehouseId) || null)
+const binRequired = computed(() => selectedWarehouse.value?.binManaged === true)
 
 // 选定物料的可用计量单位（基本单位 + 转换单位）
 const selectedMaterial = computed(() => (form.materialId ? materialMap.get(form.materialId) : null))
@@ -51,13 +57,32 @@ async function loadBatchOptions() {
   }
   batchLoading.value = true
   try {
-    const res: any = await stockApi.batches({ materialId: form.materialId, warehouseId: form.warehouseId, pageSize: 200 })
+    const res: any = await stockApi.batches({ materialId: form.materialId, warehouseId: form.warehouseId, binId: form.binId || undefined, pageSize: 200 })
     batchOptions.value = res.data.items || []
   } catch {
     batchOptions.value = []
   } finally {
     batchLoading.value = false
   }
+}
+
+// 仓库变化：启用货位管理的仓库加载货位列表，并据此重载批号
+async function onWarehouseChange() {
+  form.binId = null
+  bins.value = []
+  const wh = selectedWarehouse.value
+  if (wh?.binManaged) {
+    binLoading.value = true
+    try {
+      const res: any = await warehouseBinApi.list({ warehouseId: wh.id, status: 1, pageSize: 200 })
+      bins.value = res.data.items
+    } catch {
+      bins.value = []
+    } finally {
+      binLoading.value = false
+    }
+  }
+  loadBatchOptions()
 }
 
 // 选择物料后自动带出默认计量单位（基本单位）
@@ -116,12 +141,14 @@ async function loadOptions() {
     stockTransactionTypeApi.list({ pageSize: 200 }),
   ])
   registerMaterials(mRes.data || [])
+  registerTransferMaterials(mRes.data || [])
   transactionTypes.value = tRes.data.items
 }
 
 function openDialog() {
-  Object.assign(form, { materialId: null, warehouseId: null, batchNo: '', quantity: 1, unit: '', transactionTypeId: null, effectiveDate: todayStr(), documentNo: '', lineNo: null, remark: '' })
+  Object.assign(form, { materialId: null, warehouseId: null, binId: null, batchNo: '', quantity: 1, unit: '', transactionTypeId: null, effectiveDate: todayStr(), documentNo: '', lineNo: null, remark: '' })
   batchOptions.value = []
+  bins.value = []
   initialForm.value = { ...form }
   dialogVisible.value = true
 }
@@ -131,20 +158,25 @@ function isDirty() {
   return JSON.stringify(form) !== JSON.stringify(initialForm.value)
 }
 
-async function handleSubmit(): Promise<boolean> {
+function validateForm(): boolean {
   if (!form.transactionTypeId) { ElMessage.warning('请选择事务类型'); return false }
   if (!form.materialId) { ElMessage.warning('请选择物料'); return false }
   if (!form.warehouseId) { ElMessage.warning('请选择仓库'); return false }
+  if (binRequired.value && !form.binId) { ElMessage.warning('该仓库启用货位管理，请选择货位'); return false }
   if (form.quantity <= 0) { ElMessage.warning('数量必须大于0'); return false }
   if (batchRequired.value && !form.batchNo) { ElMessage.warning('出库需选择批号（该物料或仓库存在批次库存）'); return false }
   if (isOutbound.value && form.batchNo && form.quantity > selectedBatchQty.value) {
     ElMessage.warning(`出库数量不能超过该批余量 ${selectedBatchQty.value}`)
     return false
   }
+  return true
+}
 
+async function submitForm(): Promise<boolean> {
   const payload = {
     materialId: form.materialId,
     warehouseId: form.warehouseId,
+    binId: binRequired.value ? form.binId : undefined,
     batchNo: form.batchNo || undefined,
     quantity: form.quantity,
     unit: form.unit || undefined,
@@ -173,8 +205,23 @@ async function handleSubmit(): Promise<boolean> {
   }
 }
 
+async function handleSubmit(): Promise<boolean> {
+  if (!validateForm()) return false
+  return submitForm()
+}
+
 async function confirmSubmit() {
-  if (await handleSubmit()) dialogVisible.value = false
+  if (!validateForm()) return
+  try {
+    await ElMessageBox.confirm(`确定提交该${isOutbound.value ? '出库' : '入库'}事务吗？`, '确认提交', {
+      confirmButtonText: '确定',
+      cancelButtonText: '取消',
+      type: 'warning',
+    })
+  } catch {
+    return
+  }
+  if (await submitForm()) dialogVisible.value = false
 }
 
 // 关闭前检查是否有未保存的修改：有则询问是否保存
@@ -195,6 +242,212 @@ function confirmLeave(done?: () => void) {
   })
     .then(async () => {
       if (await handleSubmit()) close()
+    })
+    .catch((action: string) => {
+      if (action === 'cancel') close()
+    })
+}
+
+// ===== 移库 =====
+const transferVisible = ref(false)
+const transferring = ref(false)
+const transferInitial = ref<any>({})
+const transferMaterials = ref<any[]>([])
+const transferMaterialLoading = ref(false)
+const transferMaterialMap = new Map<number, any>()
+const fromBins = ref<any[]>([])
+const toBins = ref<any[]>([])
+const transferBatchOptions = ref<any[]>([])
+const transferBatchLoading = ref(false)
+const transferForm = reactive<any>({
+  materialId: null, unit: '', quantity: 1,
+  fromWarehouseId: null, fromBinId: null,
+  toWarehouseId: null, toBinId: null,
+  batchNo: '', effectiveDate: todayStr(), documentNo: '', remark: '',
+})
+
+const tSelectedMaterial = computed(() => (transferForm.materialId ? transferMaterialMap.get(transferForm.materialId) : null))
+const tFromWarehouse = computed(() => warehouses.value.find((w: any) => w.id === transferForm.fromWarehouseId) || null)
+const tToWarehouse = computed(() => warehouses.value.find((w: any) => w.id === transferForm.toWarehouseId) || null)
+const tFromBinRequired = computed(() => tFromWarehouse.value?.binManaged === true)
+const tToBinRequired = computed(() => tToWarehouse.value?.binManaged === true)
+const tBatchManaged = computed(() => tSelectedMaterial.value?.batchManaged === true)
+const tBatchRequired = computed(() => tBatchManaged.value || transferBatchOptions.value.length > 0)
+const tSelectedBatchQty = computed(() => {
+  const b = transferBatchOptions.value.find((x: any) => x.batchNo === transferForm.batchNo)
+  return b ? Number(b.quantity) : 0
+})
+const tUnitOptions = computed<string[]>(() => {
+  const m = tSelectedMaterial.value
+  const set = new Set<string>(['个', '件', '套', '台', '只', '箱', '包'])
+  if (m?.units) for (const u of m.units) set.add(u)
+  if (transferForm.unit) set.add(transferForm.unit)
+  return [...set]
+})
+
+function registerTransferMaterials(items: any[]) {
+  for (const m of items) if (m?.id) transferMaterialMap.set(m.id, m)
+  const selected = transferForm.materialId ? transferMaterialMap.get(transferForm.materialId) : null
+  const seen = new Set<number>()
+  transferMaterials.value = [...items, ...(selected ? [selected] : [])].filter((m: any) => {
+    if (!m?.id || seen.has(m.id)) return false
+    seen.add(m.id)
+    return true
+  })
+}
+
+async function searchTransferMaterials(keyword: string) {
+  transferMaterialLoading.value = true
+  try {
+    const res: any = await materialApi.options({ keyword, limit: 50 })
+    registerTransferMaterials(res.data || [])
+  } catch {
+    /* ignore */
+  } finally {
+    transferMaterialLoading.value = false
+  }
+}
+
+async function loadTransferBatches() {
+  transferForm.batchNo = ''
+  transferBatchOptions.value = []
+  if (!transferForm.materialId || !transferForm.fromWarehouseId) return
+  transferBatchLoading.value = true
+  try {
+    const res: any = await stockApi.batches({ materialId: transferForm.materialId, warehouseId: transferForm.fromWarehouseId, binId: transferForm.fromBinId || undefined, pageSize: 200 })
+    transferBatchOptions.value = res.data.items || []
+  } catch {
+    transferBatchOptions.value = []
+  } finally {
+    transferBatchLoading.value = false
+  }
+}
+
+async function loadFromBins() {
+  transferForm.fromBinId = null
+  fromBins.value = []
+  const wh = tFromWarehouse.value
+  if (wh?.binManaged) {
+    const res: any = await warehouseBinApi.list({ warehouseId: wh.id, status: 1, pageSize: 200 })
+    fromBins.value = res.data.items
+  }
+  loadTransferBatches()
+}
+
+async function loadToBins() {
+  transferForm.toBinId = null
+  toBins.value = []
+  const wh = tToWarehouse.value
+  if (wh?.binManaged) {
+    const res: any = await warehouseBinApi.list({ warehouseId: wh.id, status: 1, pageSize: 200 })
+    toBins.value = res.data.items
+  }
+}
+
+function onTransferMaterialChange() {
+  transferForm.unit = tSelectedMaterial.value?.unit || ''
+  loadTransferBatches()
+}
+
+function openTransfer() {
+  Object.assign(transferForm, {
+    materialId: null, unit: '', quantity: 1,
+    fromWarehouseId: null, fromBinId: null,
+    toWarehouseId: null, toBinId: null,
+    batchNo: '', effectiveDate: todayStr(), documentNo: '', remark: '',
+  })
+  fromBins.value = []
+  toBins.value = []
+  transferBatchOptions.value = []
+  transferInitial.value = { ...transferForm }
+  transferVisible.value = true
+}
+
+function isTransferDirty() {
+  return JSON.stringify(transferForm) !== JSON.stringify(transferInitial.value)
+}
+
+function validateTransfer(): boolean {
+  if (!transferForm.materialId) { ElMessage.warning('请选择物料'); return false }
+  if (!transferForm.fromWarehouseId) { ElMessage.warning('请选择源仓库'); return false }
+  if (tFromBinRequired.value && !transferForm.fromBinId) { ElMessage.warning('源仓库启用货位管理，请选择源货位'); return false }
+  if (!transferForm.toWarehouseId) { ElMessage.warning('请选择目标仓库'); return false }
+  if (tToBinRequired.value && !transferForm.toBinId) { ElMessage.warning('目标仓库启用货位管理，请选择目标货位'); return false }
+  if (transferForm.fromWarehouseId === transferForm.toWarehouseId && (transferForm.fromBinId || null) === (transferForm.toBinId || null)) {
+    ElMessage.warning('源与目标不能相同')
+    return false
+  }
+  if (!(transferForm.quantity > 0)) { ElMessage.warning('移库数量必须大于0'); return false }
+  if (tBatchRequired.value && !transferForm.batchNo) { ElMessage.warning('该物料或源货位存在批次库存，请选择批号'); return false }
+  if (transferForm.batchNo && transferForm.quantity > tSelectedBatchQty.value) {
+    ElMessage.warning(`移库数量不能超过该批余量 ${tSelectedBatchQty.value}`)
+    return false
+  }
+  return true
+}
+
+async function doTransfer(): Promise<boolean> {
+  transferring.value = true
+  try {
+    await stockApi.transfer({
+      materialId: transferForm.materialId,
+      unit: transferForm.unit || undefined,
+      quantity: transferForm.quantity,
+      fromWarehouseId: transferForm.fromWarehouseId,
+      fromBinId: tFromBinRequired.value ? transferForm.fromBinId : undefined,
+      toWarehouseId: transferForm.toWarehouseId,
+      toBinId: tToBinRequired.value ? transferForm.toBinId : undefined,
+      batchNo: transferForm.batchNo || undefined,
+      effectiveDate: transferForm.effectiveDate || todayStr(),
+      documentNo: transferForm.documentNo || undefined,
+      remark: transferForm.remark || undefined,
+    })
+    ElMessage.success('移库成功')
+    loadData()
+    return true
+  } catch {
+    return false
+  } finally {
+    transferring.value = false
+  }
+}
+
+async function handleTransferSubmit(): Promise<boolean> {
+  if (!validateTransfer()) return false
+  return doTransfer()
+}
+
+async function confirmTransfer() {
+  if (!validateTransfer()) return
+  try {
+    await ElMessageBox.confirm('确定提交该移库操作吗？', '确认提交', {
+      confirmButtonText: '确定',
+      cancelButtonText: '取消',
+      type: 'warning',
+    })
+  } catch {
+    return
+  }
+  if (await doTransfer()) transferVisible.value = false
+}
+
+function confirmTransferLeave(done?: () => void) {
+  const close = () => {
+    if (done) done()
+    else transferVisible.value = false
+  }
+  if (!isTransferDirty()) {
+    close()
+    return
+  }
+  ElMessageBox.confirm('当前移库尚未保存，是否保存后关闭？', '未保存的修改', {
+    confirmButtonText: '保存',
+    cancelButtonText: '不保存',
+    distinguishCancelAndClose: true,
+    type: 'warning',
+  })
+    .then(async () => {
+      if (await handleTransferSubmit()) close()
     })
     .catch((action: string) => {
       if (action === 'cancel') close()
@@ -229,6 +482,7 @@ onMounted(async () => {
     <div class="page-card">
       <div class="search-bar">
         <el-button type="success" plain class="btn-add" @click="openDialog()"><el-icon><Plus /></el-icon>增加</el-button>
+        <el-button type="warning" plain @click="openTransfer()"><el-icon><Switch /></el-icon>移库</el-button>
         <el-input v-model="query.documentNo" placeholder="单号" clearable style="width: 150px" />
         <el-input v-model="query.materialKeyword" placeholder="物料编码/名称" clearable style="width: 180px" />
         <el-select v-model="query.warehouseId" placeholder="仓库" clearable style="width: 150px">
@@ -244,51 +498,54 @@ onMounted(async () => {
       </div>
 
       <el-table :data="list" v-loading="loading" stripe max-height="calc(100vh - 260px)">
-        <el-table-column label="生效日期" width="120">
+        <el-table-column label="生效日期" width="100">
           <template #default="{ row }">{{ row.effectiveDate?.slice(0, 10) || '-' }}</template>
         </el-table-column>
-        <el-table-column label="单号" width="150">
+        <el-table-column label="单号" width="140" show-overflow-tooltip>
           <template #default="{ row }">{{ row.documentNo || '-' }}</template>
         </el-table-column>
-        <el-table-column label="行号" width="70">
+        <el-table-column label="行号" width="56" align="center">
           <template #default="{ row }">{{ row.lineNo ?? '-' }}</template>
         </el-table-column>
-        <el-table-column label="事务类型" width="170">
+        <el-table-column label="事务类型" width="130" show-overflow-tooltip>
           <template #default="{ row }">
             <span v-if="row.transactionType">{{ row.transactionType.description }}</span>
             <span v-else>-</span>
           </template>
         </el-table-column>
-        <el-table-column label="物料编码" width="110">
+        <el-table-column label="物料编码" width="100" show-overflow-tooltip>
           <template #default="{ row }">{{ row.material?.code }}</template>
         </el-table-column>
-        <el-table-column label="物料名称" min-width="140">
+        <el-table-column label="物料名称" min-width="120" show-overflow-tooltip>
           <template #default="{ row }">{{ row.material?.name }}</template>
         </el-table-column>
-        <el-table-column label="型号规格" min-width="130">
+        <el-table-column label="型号规格" min-width="120" show-overflow-tooltip>
           <template #default="{ row }">{{ row.material?.specification }}</template>
         </el-table-column>
-        <el-table-column label="库位" width="120">
+        <el-table-column label="库位" width="100" show-overflow-tooltip>
           <template #default="{ row }">{{ row.warehouse?.name }}</template>
         </el-table-column>
-        <el-table-column prop="batchNo" label="批号" width="150" />
-        <el-table-column label="数量" width="100">
+        <el-table-column label="货位" width="110" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.bin?.name || '-' }}</template>
+        </el-table-column>
+        <el-table-column prop="batchNo" label="批号" width="130" show-overflow-tooltip />
+        <el-table-column label="数量" width="80" align="right">
           <template #default="{ row }">
             <span :style="{ color: row.type === 'out' ? 'var(--el-color-danger)' : 'var(--el-color-success)', fontWeight: 600 }">
               {{ signedQty(row) }}
             </span>
           </template>
         </el-table-column>
-        <el-table-column label="余额" width="90">
+        <el-table-column label="余额" width="80" align="right">
           <template #default="{ row }">{{ row.balanceAfter }}</template>
         </el-table-column>
-        <el-table-column label="操作员" width="100">
+        <el-table-column label="操作员" width="90" show-overflow-tooltip>
           <template #default="{ row }">{{ row.operator?.realName || '-' }}</template>
         </el-table-column>
-        <el-table-column prop="remark" label="备注" min-width="140">
+        <el-table-column prop="remark" label="备注" min-width="110" show-overflow-tooltip>
           <template #default="{ row }">{{ row.remark || '-' }}</template>
         </el-table-column>
-        <el-table-column label="时间" width="170">
+        <el-table-column label="时间" width="160" show-overflow-tooltip>
           <template #default="{ row }">{{ row.createdAt }}</template>
         </el-table-column>
       </el-table>
@@ -315,8 +572,13 @@ onMounted(async () => {
           </el-select>
         </el-form-item>
         <el-form-item label="仓库" required>
-          <el-select v-model="form.warehouseId" placeholder="选择仓库" style="width: 100%" @change="loadBatchOptions">
+          <el-select v-model="form.warehouseId" placeholder="选择仓库" style="width: 100%" @change="onWarehouseChange">
             <el-option v-for="w in warehouses" :key="w.id" :label="`${w.code} - ${w.name}`" :value="w.id" />
+          </el-select>
+        </el-form-item>
+        <el-form-item v-if="binRequired" label="货位" required>
+          <el-select v-model="form.binId" placeholder="选择货位" filterable :loading="binLoading" style="width: 100%" @change="loadBatchOptions">
+            <el-option v-for="b in bins" :key="b.id" :label="`${b.code} - ${b.name}`" :value="b.id" />
           </el-select>
         </el-form-item>
         <el-form-item label="批号" :required="batchRequired">
@@ -358,7 +620,70 @@ onMounted(async () => {
       </el-form>
       <template #footer>
         <el-button @click="confirmLeave()">取消</el-button>
-        <el-button type="primary" :loading="submitting" @click="confirmSubmit">确定</el-button>
+        <el-button type="primary" :loading="submitting" @click="confirmSubmit">提交</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 移库 -->
+    <el-dialog v-model="transferVisible" title="库存移库" width="560px" destroy-on-close :close-on-click-modal="false" :close-on-press-escape="false" :before-close="confirmTransferLeave">
+      <el-form :model="transferForm" label-width="100px">
+        <el-form-item label="物料" required>
+          <el-select v-model="transferForm.materialId" filterable remote reserve-keyword :remote-method="searchTransferMaterials" :loading="transferMaterialLoading" placeholder="输入编码/名称搜索物料" style="width: 100%" @change="onTransferMaterialChange">
+            <el-option v-for="m in transferMaterials" :key="m.id" :label="`${m.code} - ${m.name}${m.specification ? ' / ' + m.specification : ''}`" :value="m.id" />
+          </el-select>
+        </el-form-item>
+
+        <el-divider content-position="left">源</el-divider>
+        <el-form-item label="源仓库" required>
+          <el-select v-model="transferForm.fromWarehouseId" placeholder="选择源仓库" style="width: 100%" @change="loadFromBins">
+            <el-option v-for="w in warehouses" :key="w.id" :label="`${w.code} - ${w.name}`" :value="w.id" />
+          </el-select>
+        </el-form-item>
+        <el-form-item v-if="tFromBinRequired" label="源货位" required>
+          <el-select v-model="transferForm.fromBinId" placeholder="选择源货位" filterable style="width: 100%" @change="loadTransferBatches">
+            <el-option v-for="b in fromBins" :key="b.id" :label="`${b.code} - ${b.name}`" :value="b.id" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="批号" :required="tBatchRequired">
+          <el-select v-model="transferForm.batchNo" filterable clearable :loading="transferBatchLoading" :placeholder="tBatchRequired ? '选择源批次（必选）' : '可选：选择源批次'" style="width: 100%">
+            <el-option v-for="b in transferBatchOptions" :key="b.batchNo" :label="`${b.batchNo}（余 ${b.quantity}）`" :value="b.batchNo" />
+          </el-select>
+        </el-form-item>
+
+        <el-divider content-position="left">目标</el-divider>
+        <el-form-item label="目标仓库" required>
+          <el-select v-model="transferForm.toWarehouseId" placeholder="选择目标仓库" style="width: 100%" @change="loadToBins">
+            <el-option v-for="w in warehouses" :key="w.id" :label="`${w.code} - ${w.name}`" :value="w.id" />
+          </el-select>
+        </el-form-item>
+        <el-form-item v-if="tToBinRequired" label="目标货位" required>
+          <el-select v-model="transferForm.toBinId" placeholder="选择目标货位" filterable style="width: 100%">
+            <el-option v-for="b in toBins" :key="b.id" :label="`${b.code} - ${b.name}`" :value="b.id" />
+          </el-select>
+        </el-form-item>
+
+        <el-form-item label="数量" required>
+          <el-input-number v-model="transferForm.quantity" :min="0.01" :max="transferForm.batchNo ? tSelectedBatchQty : undefined" :controls="false" style="width: 100%" />
+          <div v-if="transferForm.batchNo" class="unit-hint">该批余量 {{ tSelectedBatchQty }}</div>
+        </el-form-item>
+        <el-form-item label="计量单位">
+          <el-select v-model="transferForm.unit" filterable allow-create default-first-option clearable placeholder="默认基本单位" style="width: 100%">
+            <el-option v-for="u in tUnitOptions" :key="u" :label="u" :value="u" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="生效日期">
+          <el-input v-model="transferForm.effectiveDate" type="date" style="width: 100%" />
+        </el-form-item>
+        <el-form-item label="单号">
+          <el-input v-model="transferForm.documentNo" placeholder="留空自动生成" clearable />
+        </el-form-item>
+        <el-form-item label="备注">
+          <el-input v-model="transferForm.remark" type="textarea" :rows="2" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="confirmTransferLeave()">取消</el-button>
+        <el-button type="primary" :loading="transferring" @click="confirmTransfer">提交</el-button>
       </template>
     </el-dialog>
   </div>

@@ -2,7 +2,7 @@ import prisma from "../config/prisma";
 import { Prisma } from "@prisma/client";
 import { localDateCompact } from "../utils/date";
 import { retryOnDuplicate, lockOrderNo, ORDER_NO_LOCK } from "../utils/retry";
-import { generateStockDocNo, applyBatchIn, applyBatchOut } from "./stock.service";
+import { generateStockDocNo, applyBatchIn, applyBatchOut, addStock, resolveBinId } from "./stock.service";
 import { resolveUnitRate, toBaseQty } from "../utils/unit";
 
 // ===== 生产订单 =====
@@ -763,7 +763,7 @@ async function attachUnitInfo(materials: any[]) {
 export async function issueBatchMaterials(
   batchId: number,
   warehouseId: number,
-  items: { batchMaterialId: number; quantity: number; unit?: string; location?: string; batchNo?: string }[],
+  items: { batchMaterialId: number; quantity: number; unit?: string; location?: string; binId?: number | null; batchNo?: string }[],
   userId: number,
   effectiveDate?: string
 ) {
@@ -810,8 +810,15 @@ export async function issueBatchMaterials(
         continue;
       }
 
-      // 1) 库存预检（只读，未通过则跳过该行，无副作用）
-      const stock = await tx.stock.findFirst({ where: { materialId: row.materialId, warehouseId } });
+      // 1) 校验货位并预检库存（只读，未通过则跳过该行，无副作用）
+      let binId: number | null;
+      try {
+        binId = await resolveBinId(tx, warehouse, it.binId);
+      } catch (e: any) {
+        skipped.push({ ...base, reason: e.message });
+        continue;
+      }
+      const stock = await tx.stock.findFirst({ where: { materialId: row.materialId, warehouseId, binId } });
       if (!stock || stock.quantity < baseQty) {
         skipped.push({ ...base, reason: `库存不足（当前 ${stock?.quantity ?? 0}）` });
         continue;
@@ -843,11 +850,12 @@ export async function issueBatchMaterials(
         throw new Error(`物料 ${row.material.code} 库存不足（当前 ${freshStock?.quantity ?? 0}）`);
       }
 
-      const resolvedBatchNo = await applyBatchOut(tx, row.material, warehouseId, it.batchNo, baseQty);
+      const resolvedBatchNo = await applyBatchOut(tx, row.material, warehouseId, binId, it.batchNo, baseQty);
       await tx.stockRecord.create({
         data: {
           materialId: row.materialId,
           warehouseId,
+          binId,
           type: "out",
           quantity: baseQty,
           batchNo: resolvedBatchNo,
@@ -1116,7 +1124,8 @@ export async function receiveBatchProduct(
   warehouseId: number,
   userId: number,
   batchNo?: string,
-  unit?: string
+  unit?: string,
+  binId?: number | null
 ) {
   if (!Number.isFinite(quantity) || quantity <= 0) throw new Error("入库数量必须大于0");
   if (!warehouseId) throw new Error("请选择入库仓库");
@@ -1150,17 +1159,15 @@ export async function receiveBatchProduct(
     const after = await tx.productionBatch.findUnique({ where: { id: batch.id }, select: { receivedQty: true } });
     const newReceived = after?.receivedQty ?? batch.receivedQty + baseQty;
 
-    // 2) 库存 upsert + 原子累加
-    await tx.stock.upsert({
-      where: { materialId_warehouseId: { materialId: material.id, warehouseId } },
-      create: { materialId: material.id, warehouseId, quantity: baseQty, lastInDate: new Date() },
-      update: { quantity: { increment: baseQty }, lastInDate: new Date() },
-    });
-    const resolvedBatchNo = await applyBatchIn(tx, material, warehouseId, batchNo, baseQty);
+    // 2) 校验货位 + 库存 upsert + 原子累加
+    const resolvedBinId = await resolveBinId(tx, warehouse, binId);
+    await addStock(tx, material.id, warehouseId, resolvedBinId, baseQty);
+    const resolvedBatchNo = await applyBatchIn(tx, material, warehouseId, resolvedBinId, batchNo, baseQty);
     await tx.stockRecord.create({
       data: {
         materialId: material.id,
         warehouseId,
+        binId: resolvedBinId,
         type: "in",
         quantity: baseQty,
         batchNo: resolvedBatchNo,

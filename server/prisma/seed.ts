@@ -302,14 +302,9 @@ async function main() {
 
   // ===== 仓库 =====
   const whMain = await prisma.warehouse.upsert({
-    where: { code: "WH-01" },
+    where: { code: "A01" },
     update: {},
-    create: { code: "WH-01", name: "原料仓库" },
-  });
-  const whRaw = await prisma.warehouse.upsert({
-    where: { code: "WH-02" },
-    update: {},
-    create: { code: "WH-02", name: "成品仓库" },
+    create: { code: "A01", name: "材料仓" },
   });
 
   // ===== 库存事务类型 =====
@@ -319,6 +314,8 @@ async function main() {
     { code: "PUR-IN", description: "采购入库", direction: "in" },
     { code: "SALE-OUT", description: "销售出库", direction: "out" },
     { code: "SCRAP", description: "报废出库", direction: "out" },
+    { code: "MOVE-OUT", description: "移库出库", direction: "out" },
+    { code: "MOVE-IN", description: "移库入库", direction: "in" },
   ];
   for (const t of txnTypes) {
     await prisma.stockTransactionType.upsert({ where: { code: t.code }, update: {}, create: t });
@@ -523,8 +520,8 @@ async function main() {
     { code: "M-200", qty: 15 },
   ]) {
     const mat = materials.get(m.code)!;
-    const existingStock = await prisma.stock.findUnique({
-      where: { materialId_warehouseId: { materialId: mat.id, warehouseId: whMain.id } },
+    const existingStock = await prisma.stock.findFirst({
+      where: { materialId: mat.id, warehouseId: whMain.id },
     });
     if (!existingStock) {
       await prisma.stock.create({
