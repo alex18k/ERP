@@ -11,7 +11,7 @@ const query = reactive({ page: 1, pageSize: 20, keyword: '' })
 const dialogVisible = ref(false)
 const isEdit = ref(false)
 const formRef = ref()
-const form = reactive<any>({ id: null, code: '', description: '', direction: 'in', status: 1 })
+const form = reactive<any>({ id: null, code: '', description: '', documentPrefix: '', direction: 'in', status: 1 })
 
 const rules = {
   code: [{ required: true, message: '请输入事务代码', trigger: 'blur' }],
@@ -33,6 +33,7 @@ function openDialog(row?: any) {
   isEdit.value = !!row
   if (row) Object.assign(form, row)
   else Object.keys(form).forEach((k) => { form[k] = null })
+  form.documentPrefix = form.documentPrefix || ''
   form.direction = form.direction || 'in'
   form.status = form.status ?? 1
   dialogVisible.value = true
@@ -40,7 +41,7 @@ function openDialog(row?: any) {
 
 async function handleSave() {
   try { await formRef.value.validate() } catch { return }
-  const payload = { code: form.code, description: form.description, direction: form.direction, status: form.status ?? 1 }
+  const payload = { code: form.code, description: form.description, documentPrefix: form.documentPrefix || null, direction: form.direction, status: form.status ?? 1 }
   if (isEdit.value) {
     await stockTransactionTypeApi.update(form.id, payload)
     ElMessage.success('更新成功')
@@ -75,6 +76,9 @@ onMounted(loadData)
 
       <el-table :data="list" v-loading="loading" stripe max-height="calc(100vh - 260px)">
         <el-table-column prop="code" label="事务代码" width="150" />
+        <el-table-column label="单据" width="100">
+          <template #default="{ row }">{{ row.documentPrefix || '-' }}</template>
+        </el-table-column>
         <el-table-column prop="description" label="描述" min-width="200" />
         <el-table-column label="增减" width="100">
           <template #default="{ row }">
@@ -113,6 +117,14 @@ onMounted(loadData)
         </el-form-item>
         <el-form-item label="描述" prop="description">
           <el-input v-model="form.description" placeholder="如 盘盈入库" />
+        </el-form-item>
+        <el-form-item label="单据">
+          <div style="width: 100%">
+            <el-input v-model="form.documentPrefix" placeholder="单据号前缀，如 RC" maxlength="10" show-word-limit />
+            <div style="font-size: 12px; color: var(--el-text-color-secondary); line-height: 1.4; margin-top: 2px">
+              单据号前缀；留空时采购收货默认 RC，其它默认 ST
+            </div>
+          </div>
         </el-form-item>
         <el-form-item label="增减">
           <el-radio-group v-model="form.direction">

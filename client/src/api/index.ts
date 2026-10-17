@@ -191,6 +191,7 @@ export const stockApi = {
   detail: (params: PageParams) => request.get('/stocks/detail', { params }),
   summary: (params: PageParams) => request.get('/stocks/summary', { params }),
   records: (params: PageParams) => request.get('/stocks/records', { params }),
+  recordsByDocument: (documentNo: string) => request.get('/stocks/records/by-document', { params: { documentNo } }),
   in: (data: any) => request.post('/stocks/in', data),
   out: (data: any) => request.post('/stocks/out', data),
   transfer: (data: any) => request.post('/stocks/transfer', data),

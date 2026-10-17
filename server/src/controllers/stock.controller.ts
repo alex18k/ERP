@@ -50,6 +50,15 @@ export async function recordsHandler(req: Request, res: Response) {
   }
 }
 
+export async function recordsByDocumentHandler(req: Request, res: Response) {
+  try {
+    const data = await stockService.listStockRecordsByDocument(String(req.query.documentNo ?? ""));
+    return success(res, data);
+  } catch (error: any) {
+    return fail(res, 400, error.message);
+  }
+}
+
 export async function batchesHandler(req: Request, res: Response) {
   try {
     const data = await stockService.listBatches(req.query as any);

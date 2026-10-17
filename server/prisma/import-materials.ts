@@ -73,7 +73,8 @@ async function main() {
     const unit = clean(r[idx["pt_um"]]) || "PCS";
 
     const isGeneric = GENERIC_LABELS.has(desc1) || desc1 === partType;
-    const name = isGeneric && desc2 ? desc2 : desc1 || code;
+    // 物料名称统一取 pt_desc1（主数据口径）
+    const name = desc1 || code;
     const remaining = [isGeneric ? "" : desc2, desc3, desc4].filter(Boolean);
     const spec = remaining.join(" ") || null;
 

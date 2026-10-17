@@ -242,6 +242,15 @@ export const workstationService = {
 };
 
 // ===== 库存事务类型 =====
+// 单据前缀：可空；统一大写，只允许字母/数字，长度 1-10
+function normalizeDocumentPrefix(value: any): string | null | undefined {
+  if (value === undefined) return undefined;
+  const prefix = String(value ?? "").trim().toUpperCase();
+  if (!prefix) return null;
+  if (!/^[A-Z0-9]{1,10}$/.test(prefix)) throw new Error("单据前缀只能包含字母和数字，长度不超过10");
+  return prefix;
+}
+
 export const stockTransactionTypeService = {
   list: async (where: any) => {
     const { page = 1, pageSize = 20, keyword } = where;
@@ -250,6 +259,7 @@ export const stockTransactionTypeService = {
       filters.OR = [
         { code: { contains: keyword } },
         { description: { contains: keyword } },
+        { documentPrefix: { contains: keyword } },
       ];
     }
     const [total, items] = await Promise.all([
@@ -272,6 +282,7 @@ export const stockTransactionTypeService = {
       data: {
         code: data.code,
         description: data.description ?? "",
+        documentPrefix: normalizeDocumentPrefix(data.documentPrefix) ?? null,
         direction: data.direction || "in",
         status: data.status ?? 1,
       },
@@ -289,6 +300,7 @@ export const stockTransactionTypeService = {
       data: {
         code: data.code,
         description: data.description,
+        documentPrefix: normalizeDocumentPrefix(data.documentPrefix),
         direction: data.direction,
         status: data.status,
       },
@@ -297,9 +309,10 @@ export const stockTransactionTypeService = {
   remove: async (id: number) => {
     const exists = await prisma.stockTransactionType.findUnique({ where: { id } });
     if (!exists) throw new Error("事务类型不存在");
+    // 有库存流水引用时保留，保证历史记录可追溯；无引用则物理删除，避免“删了还在列表里”
     const count = await prisma.stockRecord.count({ where: { transactionTypeId: id } });
-    if (count > 0) throw new Error("事务类型已被库存记录使用，无法删除");
-    await prisma.stockTransactionType.update({ where: { id }, data: { status: 0 } });
+    if (count > 0) throw new Error(`事务类型已被 ${count} 条库存记录使用，无法删除`);
+    await prisma.stockTransactionType.delete({ where: { id } });
     return true;
   },
 };

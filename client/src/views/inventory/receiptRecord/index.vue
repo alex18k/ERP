@@ -8,7 +8,7 @@ const loading = ref(false)
 const list = ref<any[]>([])
 const total = ref(0)
 const currentRow = ref<any>(null)
-const query = reactive({ page: 1, pageSize: 20, orderNo: '', materialKeyword: '', startDate: '', endDate: '' })
+const query = reactive({ page: 1, pageSize: 20, receiptNo: '', orderNo: '', materialKeyword: '', startDate: '', endDate: '' })
 
 async function loadData() {
   loading.value = true
@@ -26,8 +26,9 @@ function dateOnly(v: string | null | undefined) {
 }
 
 function handlePrint() {
-  if (!currentRow.value?.relatedId) return
-  router.push(`/purchase/receipt-print?id=${currentRow.value.relatedId}`)
+  const receiptNo = currentRow.value?.receiptNo || currentRow.value?.documentNo
+  if (!receiptNo) return
+  router.push(`/purchase/receipt-print?receiptNo=${encodeURIComponent(receiptNo)}`)
 }
 
 onMounted(loadData)
@@ -37,21 +38,27 @@ onMounted(loadData)
   <div class="page-container">
     <div class="page-card">
       <div class="search-bar">
+        <el-input v-model="query.receiptNo" placeholder="收货单号" clearable style="width: 170px" />
         <el-input v-model="query.orderNo" placeholder="采购单号" clearable style="width: 160px" />
         <el-input v-model="query.materialKeyword" placeholder="物料编码/名称/规格" clearable style="width: 200px" />
         <el-input v-model="query.startDate" type="date" placeholder="开始" clearable style="width: 150px" />
         <el-input v-model="query.endDate" type="date" placeholder="结束" clearable style="width: 150px" />
         <el-button type="primary" @click="query.page = 1, loadData()"><el-icon><Search /></el-icon>查询</el-button>
-        <el-button @click="Object.assign(query, { orderNo: '', materialKeyword: '', startDate: '', endDate: '', page: 1 }), loadData()">重置</el-button>
+        <el-button @click="Object.assign(query, { receiptNo: '', orderNo: '', materialKeyword: '', startDate: '', endDate: '', page: 1 }), loadData()">重置</el-button>
         <div style="flex: 1" />
-        <el-button type="primary" plain :disabled="!currentRow?.relatedId" @click="handlePrint"><el-icon><Printer /></el-icon>打印收货单</el-button>
+        <el-button type="primary" plain :disabled="!currentRow?.receiptNo && !currentRow?.documentNo" @click="handlePrint"><el-icon><Printer /></el-icon>打印收货单</el-button>
       </div>
 
       <el-table :data="list" v-loading="loading" stripe highlight-current-row max-height="calc(100vh - 260px)" @row-click="(row: any) => (currentRow = row)">
         <el-table-column label="收货日期" width="120">
           <template #default="{ row }">{{ dateOnly(row.effectiveDate || row.createdAt) }}</template>
         </el-table-column>
-        <el-table-column prop="documentNo" label="采购单号" width="160" />
+        <el-table-column label="收货单号" width="160">
+          <template #default="{ row }">{{ row.receiptNo || row.documentNo }}</template>
+        </el-table-column>
+        <el-table-column prop="orderNo" label="采购单号" width="160">
+          <template #default="{ row }">{{ row.orderNo || '-' }}</template>
+        </el-table-column>
         <el-table-column prop="supplierName" label="供应商" min-width="140">
           <template #default="{ row }">{{ row.supplierName || '未指定' }}</template>
         </el-table-column>

@@ -4,20 +4,35 @@ import { localDateCompact, parseLocalDateStart, parseLocalDateEnd } from "../uti
 import { resolveUnitRate, toBaseQty } from "../utils/unit";
 import { lockOrderNo, ORDER_NO_LOCK } from "../utils/retry";
 
-// 生成库存事务单号：ST+日期+序号（在事务内配合 advisory lock 生成，避免并发重复）
-export async function generateStockDocNo(client: any = prisma): Promise<string> {
+// 生成单据号：前缀+日期+序号（调用方需先持有库存单据号的 advisory lock，避免并发重复）
+export async function generateDocNo(client: any = prisma, prefix = "ST"): Promise<string> {
   const dateStr = localDateCompact();
-  const prefix = `ST${dateStr}`;
+  const fullPrefix = `${String(prefix || "ST").trim().toUpperCase()}${dateStr}`;
   const existing = await client.stockRecord.findMany({
-    where: { documentNo: { startsWith: prefix } },
+    where: { documentNo: { startsWith: fullPrefix } },
     select: { documentNo: true },
   });
   let max = 0;
   for (const e of existing) {
-    const n = parseInt((e.documentNo ?? "").slice(prefix.length), 10);
+    const n = parseInt((e.documentNo ?? "").slice(fullPrefix.length), 10);
     if (!isNaN(n) && n > max) max = n;
   }
-  return `${prefix}${String(max + 1).padStart(4, "0")}`;
+  return `${fullPrefix}${String(max + 1).padStart(4, "0")}`;
+}
+
+export async function generateStockDocNo(client: any = prisma): Promise<string> {
+  return generateDocNo(client, "ST");
+}
+
+// 取事务类型配置的单据前缀；未配置时回退默认值（如手工出入库/移库用 ST）
+export async function resolveDocPrefix(client: any, transactionTypeId?: number | null, fallback = "ST"): Promise<string> {
+  if (!transactionTypeId) return fallback;
+  const type = await client.stockTransactionType.findUnique({
+    where: { id: Number(transactionTypeId) },
+    select: { documentPrefix: true },
+  });
+  const prefix = String(type?.documentPrefix ?? "").trim().toUpperCase();
+  return prefix || fallback;
 }
 
 function buildStockFilters(where: any) {
@@ -219,7 +234,9 @@ export async function listStockRecords(where: any) {
   if (warehouseId) filters.warehouseId = Number(warehouseId);
   if (type) filters.type = type;
   if (transactionTypeId) filters.transactionTypeId = Number(transactionTypeId);
-  if (documentNo) filters.documentNo = { contains: documentNo };
+  if (documentNo) {
+    filters.OR = [{ documentNo: { contains: documentNo } }, { orderNo: { contains: documentNo } }];
+  }
   if (startDate || endDate) {
     filters.createdAt = {
       gte: startDate ? parseLocalDateStart(startDate) : undefined,
@@ -247,14 +264,33 @@ export async function listStockRecords(where: any) {
   return { total, page: Number(page), pageSize: Number(pageSize), items };
 }
 
-// ===== 货位辅助 =====
-// 校验货位：启用货位管理的仓库必须指定有效货位；未启用则不允许指定货位。
-// 返回规范化后的 binId（number 或 null）。
+// 按单号取整张库存事务单据（精确匹配），供打印使用
+export async function listStockRecordsByDocument(documentNo: string) {
+  const no = String(documentNo ?? "").trim();
+  if (!no) throw new Error("请提供单号");
+  const items = await prisma.stockRecord.findMany({
+    where: { documentNo: no },
+    include: {
+      material: { select: { id: true, code: true, name: true, specification: true, unit: true } },
+      warehouse: { select: { id: true, code: true, name: true } },
+      bin: { select: { id: true, code: true, name: true } },
+      operator: { select: { id: true, realName: true, username: true } },
+      transactionType: { select: { id: true, code: true, description: true, direction: true } },
+    },
+    orderBy: [{ lineNo: "asc" }, { id: "asc" }],
+  });
+  return { documentNo: no, items };
+}
+
+// ===== 仓库/货位辅助 =====
+// 校验仓库与货位：仓库必须存在且启用；启用货位管理的仓库必须指定有效货位，未启用则不允许指定货位。
+// 返回规范化后的 binId（number 或 null）。所有库存事务入口都应经过这里。
 export async function resolveBinId(
   tx: any,
-  warehouse: { id: number; name: string; binManaged: boolean },
+  warehouse: { id: number; name: string; binManaged: boolean; status: number },
   binId?: number | string | null
 ): Promise<number | null> {
+  if (warehouse.status !== 1) throw new Error(`仓库「${warehouse.name}」已停用，不能进行库存事务`);
   const bid = binId === undefined || binId === null || binId === "" ? null : Number(binId);
   if (warehouse.binManaged) {
     if (!bid) throw new Error(`仓库「${warehouse.name}」启用货位管理，请选择货位`);
@@ -378,7 +414,7 @@ export async function listBatches(where: any) {
   return { total, page: Number(page), pageSize: Number(pageSize), items };
 }
 
-export async function stockIn(data: { materialId: number; quantity: number; unit?: string; warehouseId: number; binId?: number | null; batchNo?: string; relatedType?: string; relatedId?: number; transactionTypeId?: number; effectiveDate?: string; documentNo?: string; lineNo?: number; remark?: string }, userId: number) {
+export async function stockIn(data: { materialId: number; quantity: number; unit?: string; warehouseId: number; binId?: number | null; batchNo?: string; relatedType?: string; relatedId?: number; transactionTypeId?: number; effectiveDate?: string; orderNo?: string; lineNo?: number; remark?: string }, userId: number) {
   if (data.quantity <= 0) throw new Error("入库数量必须大于0");
 
   const material = await prisma.material.findUnique({ where: { id: data.materialId } });
@@ -392,9 +428,10 @@ export async function stockIn(data: { materialId: number; quantity: number; unit
   const baseQty = toBaseQty(data.quantity, rate);
 
   return prisma.$transaction(async (tx) => {
-    // 单号串行生成，避免并发产生重复 ST 号
+    // 单号串行生成，避免并发产生重复单号；前缀取事务类型配置，未配置用 ST
     await lockOrderNo(tx, ORDER_NO_LOCK.ST);
-    const docNo = data.documentNo || (await generateStockDocNo(tx));
+    const prefix = await resolveDocPrefix(tx, data.transactionTypeId, "ST");
+    const docNo = await generateDocNo(tx, prefix);
 
     // 校验货位（启用货位管理的仓库必须指定货位）
     const binId = await resolveBinId(tx, warehouse, data.binId);
@@ -416,6 +453,7 @@ export async function stockIn(data: { materialId: number; quantity: number; unit
         relatedId: data.relatedId,
         transactionTypeId: data.transactionTypeId,
         documentNo: docNo,
+        orderNo: data.orderNo || null,
         lineNo: data.lineNo ?? 1,
         effectiveDate: data.effectiveDate ? new Date(data.effectiveDate) : new Date(),
         operatorId: userId,
@@ -427,7 +465,7 @@ export async function stockIn(data: { materialId: number; quantity: number; unit
   });
 }
 
-export async function stockOut(data: { materialId: number; quantity: number; unit?: string; warehouseId: number; binId?: number | null; batchNo?: string; relatedType?: string; relatedId?: number; transactionTypeId?: number; effectiveDate?: string; documentNo?: string; lineNo?: number; remark?: string }, userId: number) {
+export async function stockOut(data: { materialId: number; quantity: number; unit?: string; warehouseId: number; binId?: number | null; batchNo?: string; relatedType?: string; relatedId?: number; transactionTypeId?: number; effectiveDate?: string; orderNo?: string; lineNo?: number; remark?: string }, userId: number) {
   if (data.quantity <= 0) throw new Error("出库数量必须大于0");
 
   const material = await prisma.material.findUnique({ where: { id: data.materialId } });
@@ -453,7 +491,8 @@ export async function stockOut(data: { materialId: number; quantity: number; uni
 
   return prisma.$transaction(async (tx) => {
     await lockOrderNo(tx, ORDER_NO_LOCK.ST);
-    const docNo = data.documentNo || (await generateStockDocNo(tx));
+    const prefix = await resolveDocPrefix(tx, data.transactionTypeId, "ST");
+    const docNo = await generateDocNo(tx, prefix);
 
     const binId = await resolveBinId(tx, warehouse, data.binId);
 
@@ -481,6 +520,7 @@ export async function stockOut(data: { materialId: number; quantity: number; uni
         relatedId: data.relatedId,
         transactionTypeId: data.transactionTypeId,
         documentNo: docNo,
+        orderNo: data.orderNo || null,
         lineNo: data.lineNo ?? 1,
         effectiveDate: data.effectiveDate ? new Date(data.effectiveDate) : new Date(),
         operatorId: userId,
@@ -504,7 +544,7 @@ export async function transferStock(data: {
   toBinId?: number | null;
   batchNo?: string;
   effectiveDate?: string;
-  documentNo?: string;
+  orderNo?: string;
   remark?: string;
 }, userId: number) {
   if (!data.fromWarehouseId || !data.toWarehouseId) throw new Error("请选择源仓库和目标仓库");
@@ -515,8 +555,10 @@ export async function transferStock(data: {
 
   const fromWarehouse = await prisma.warehouse.findUnique({ where: { id: data.fromWarehouseId } });
   if (!fromWarehouse) throw new Error("源仓库不存在");
+  if (fromWarehouse.status !== 1) throw new Error(`源仓库「${fromWarehouse.name}」已停用，不能移库`);
   const toWarehouse = await prisma.warehouse.findUnique({ where: { id: data.toWarehouseId } });
   if (!toWarehouse) throw new Error("目标仓库不存在");
+  if (toWarehouse.status !== 1) throw new Error(`目标仓库「${toWarehouse.name}」已停用，不能移库`);
 
   const { rate } = await resolveUnitRate(data.materialId, data.unit);
   const baseQty = toBaseQty(data.quantity, rate);
@@ -536,12 +578,17 @@ export async function transferStock(data: {
     throw new Error(`库存不足，当前库存 ${stock?.quantity ?? 0}`);
   }
 
-  const outType = await prisma.stockTransactionType.findUnique({ where: { code: "MOVE-OUT" } });
-  const inType = await prisma.stockTransactionType.findUnique({ where: { code: "MOVE-IN" } });
+  // 移库使用 ISS-TR/RCT-TR；旧环境若尚未导入，则回退到历史 MOVE-OUT/MOVE-IN
+  const outType =
+    (await prisma.stockTransactionType.findUnique({ where: { code: "ISS-TR" } })) ??
+    (await prisma.stockTransactionType.findUnique({ where: { code: "MOVE-OUT" } }));
+  const inType =
+    (await prisma.stockTransactionType.findUnique({ where: { code: "RCT-TR" } })) ??
+    (await prisma.stockTransactionType.findUnique({ where: { code: "MOVE-IN" } }));
 
   return prisma.$transaction(async (tx) => {
     await lockOrderNo(tx, ORDER_NO_LOCK.ST);
-    const docNo = data.documentNo || (await generateStockDocNo(tx));
+    const docNo = await generateDocNo(tx, outType?.documentPrefix || inType?.documentPrefix || "ST");
 
     const fromBinId = await resolveBinId(tx, fromWarehouse, data.fromBinId);
     const toBinId = await resolveBinId(tx, toWarehouse, data.toBinId);
@@ -577,6 +624,7 @@ export async function transferStock(data: {
         batchNo: resolvedBatchNo,
         transactionTypeId: outType?.id,
         documentNo: docNo,
+        orderNo: data.orderNo || null,
         lineNo: 1,
         effectiveDate: effDate,
         operatorId: userId,
@@ -593,6 +641,7 @@ export async function transferStock(data: {
         batchNo: resolvedBatchNo,
         transactionTypeId: inType?.id,
         documentNo: docNo,
+        orderNo: data.orderNo || null,
         lineNo: 1,
         effectiveDate: effDate,
         operatorId: userId,
