@@ -62,7 +62,7 @@ onMounted(async () => {
         <span class="toolbar-title">库存明细台账</span>
         <div style="flex: 1" />
         <el-button @click="loadData"><el-icon><Refresh /></el-icon>刷新</el-button>
-        <el-button @click="stockApi.exportCsv()"><el-icon><Download /></el-icon>导出</el-button>
+        <el-button @click="stockApi.exportCsv(query)"><el-icon><Download /></el-icon>导出</el-button>
       </div>
 
       <el-table :data="list" v-loading="loading" stripe max-height="calc(100vh - 260px)">

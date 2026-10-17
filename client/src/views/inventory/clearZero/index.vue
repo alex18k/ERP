@@ -40,7 +40,7 @@ async function handleClear() {
   } catch { return }
   clearing.value = true
   try {
-    const res: any = await stockApi.clearZero()
+    const res: any = await stockApi.clearZero(query)
     ElMessage.success(`已清除 0 库存记录 ${res.data.deletedStock + res.data.deletedBatch} 条`)
     query.page = 1
     await loadData()

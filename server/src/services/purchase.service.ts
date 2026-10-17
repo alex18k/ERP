@@ -464,6 +464,7 @@ export async function receivePurchaseOrder(
   const receiptsByItem = new Map<number, { quantity: number; batchNo?: string }>();
   if (receipts && receipts.length > 0) {
     for (const r of receipts) {
+      if (!Number.isFinite(r.quantity)) throw new Error("收货数量无效");
       if (r.quantity <= 0) continue;
       const target = po.items.find((it) => it.id === r.itemId);
       if (!target) throw new Error(`收货明细 ${r.itemId} 不属于该采购单`);
@@ -640,11 +641,15 @@ export async function listPurchaseReceipts(where: any) {
     };
   }
   if (startDate || endDate) {
-    filters.createdAt = {
+    const range = {
       gte: startDate ? parseLocalDateStart(startDate) : undefined,
       lte: endDate ? parseLocalDateEnd(endDate) : undefined,
     };
+    // 收货记录展示生效日期，优先按生效日期筛选；历史流水回退创建时间
+    filters.OR = [{ effectiveDate: range }, { effectiveDate: null, createdAt: range }];
   }
+  const pageNum = Math.max(1, Number(page) || 1);
+  const sizeNum = Math.min(1000, Math.max(1, Number(pageSize) || 20));
 
   const [total, items] = await Promise.all([
     prisma.stockRecord.count({ where: filters }),
@@ -657,8 +662,8 @@ export async function listPurchaseReceipts(where: any) {
         operator: { select: { id: true, realName: true, username: true } },
       },
       orderBy: { createdAt: "desc" },
-      skip: (Number(page) - 1) * Number(pageSize),
-      take: Number(pageSize),
+      skip: (pageNum - 1) * sizeNum,
+      take: sizeNum,
     }),
   ]);
 
@@ -673,8 +678,8 @@ export async function listPurchaseReceipts(where: any) {
 
   return {
     total,
-    page: Number(page),
-    pageSize: Number(pageSize),
+    page: pageNum,
+    pageSize: sizeNum,
     items: items.map((i) => ({
       ...i,
       receiptNo: i.documentNo,

@@ -446,13 +446,16 @@ export async function shipOrder(id: number, userId: number) {
   return prisma.$transaction(async (tx) => {
     await lockOrderNo(tx, ORDER_NO_LOCK.ST);
     const docNo = await generateDocNo(tx, shipType?.documentPrefix || "ISSSO");
+    const activeItems = order.items.filter((it) => it.status !== "cancelled");
+    if (activeItems.length === 0) throw new Error("订单没有可发货的明细");
     for (const [idx, item] of order.items.entries()) {
+      if (item.status === "cancelled") continue;
       await tx.salesOrderItem.update({
         where: { id: item.id },
         data: { status: "shipped", deliveredQty: item.quantity },
       });
 
-      // 制造类成品发货自动出库（有库存则扣减）
+      // 制造类成品发货自动出库（必须库存充足；不足时提示改用销售发运按仓库出库）
       if (item.material.category === "manufacture") {
         const shipBase = item.baseQty && item.baseQty > 0 ? item.baseQty : item.quantity;
         // 自动发货只允许从启用仓库的有效货位出库，跳过停用仓库/停用货位上的历史库存
@@ -469,8 +472,11 @@ export async function shipOrder(id: number, userId: number) {
           if (s.warehouse.binManaged) return !!s.bin && s.bin.status === 1 && s.bin.warehouseId === s.warehouseId;
           return s.binId === null;
         });
+        if (!stock || stock.quantity < shipBase - 1e-6) {
+          throw new Error(`物料 ${item.material?.code ?? item.materialId} 库存不足（可用 ${stock?.quantity ?? 0}），请使用销售发运按仓库分批出库`);
+        }
         if (stock && stock.quantity > 0) {
-          const deduct = Math.min(shipBase, stock.quantity);
+          const deduct = shipBase;
           const stockUpd = await tx.stock.updateMany({
             where: { id: stock.id, quantity: { gte: deduct } },
             data: { quantity: { decrement: deduct }, lastOutDate: new Date() },
@@ -484,6 +490,10 @@ export async function shipOrder(id: number, userId: number) {
               where: { materialId: item.materialId, warehouseId: stock.warehouseId, binId: stock.binId, quantity: { gt: 0 } },
               orderBy: { createdAt: "asc" },
             });
+            const batchTotal = batches.reduce((sum, b) => sum + Number(b.quantity || 0), 0);
+            if (batchTotal < deduct - 1e-6) {
+              throw new Error(`物料 ${item.material?.code ?? item.materialId} 批次库存不足（可用 ${batchTotal}），请使用销售发运处理`);
+            }
             let remaining = deduct;
             for (const b of batches) {
               if (remaining <= 0) break;
@@ -515,6 +525,7 @@ export async function shipOrder(id: number, userId: number) {
               });
               remaining -= use;
             }
+            if (remaining > 1e-6) throw new Error(`物料 ${item.material?.code ?? item.materialId} 批次库存分配异常`);
           } else {
             await tx.stockRecord.create({
               data: {
@@ -556,8 +567,9 @@ export async function shipOrderItems(
     include: { items: { include: { material: true } } },
   });
   if (!order) throw new Error("订单不存在");
-  if (order.status === "cancelled") throw new Error("已取消订单不能发运");
-  if (order.status === "shipped") throw new Error("订单已全部发运");
+  if (!["confirmed", "in_production", "completed"].includes(order.status)) {
+    throw new Error("当前订单状态不能发运");
+  }
 
   const shipType = await prisma.stockTransactionType.findUnique({ where: { code: "ISS-SO" } });
 
@@ -566,7 +578,8 @@ export async function shipOrderItems(
   for (const line of data.items) {
     const item = itemMap.get(line.itemId);
     if (!item) throw new Error("发运明细不属于该订单");
-    if (line.quantity <= 0) throw new Error("发运数量必须大于0");
+    if (item.status === "cancelled") throw new Error(`${item.material?.code ?? item.materialId} 明细已取消，不能发运`);
+    if (!Number.isFinite(line.quantity) || line.quantity <= 0) throw new Error("发运数量必须大于0");
     const remaining = item.quantity - (item.deliveredQty ?? 0);
     if (line.quantity > remaining + 1e-6) throw new Error(`${item.material?.code} 发运数量超过未发数量 ${remaining}`);
   }

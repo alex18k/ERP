@@ -565,6 +565,7 @@ model Stock {
   updatedAt   DateTime  @updatedAt
 
   @@unique([materialId, warehouseId, binId])
+  @@index([warehouseId])
 }
 
 model StockRecord {
@@ -595,6 +596,9 @@ model StockRecord {
   @@index([materialId])
   @@index([warehouseId])
   @@index([orderNo])
+  @@index([documentNo])
+  @@index([relatedType, relatedId])
+  @@index([createdAt])
   @@index([type, createdAt])
 }
 
@@ -614,6 +618,7 @@ model MaterialBatch {
 
   @@unique([materialId, warehouseId, binId, batchNo])
   @@index([materialId])
+  @@index([warehouseId])
 }
 
 // 库存事务类型（记录库存调整的业务类型）

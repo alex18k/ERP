@@ -1,6 +1,7 @@
 import { Router } from "express";
 import * as orderController from "../controllers/salesOrder.controller";
 import { authMiddleware, requirePermission } from "../middleware/auth";
+import { operationLog } from "../middleware/log";
 
 const router = Router();
 
@@ -18,7 +19,7 @@ router.post("/", requirePermission("order:create"), orderController.createHandle
 router.put("/:id", requirePermission("order:edit"), orderController.updateHandler);
 router.put("/:id/confirm", requirePermission("order:confirm"), orderController.confirmHandler);
 router.put("/:id/cancel", requirePermission("order:edit"), orderController.cancelHandler);
-router.put("/:id/ship", requirePermission("order:ship"), orderController.shipHandler);
-router.put("/:id/shipping", requirePermission("order:ship"), orderController.shippingHandler);
+router.put("/:id/ship", requirePermission("order:ship"), operationLog("stock", "ship"), orderController.shipHandler);
+router.put("/:id/shipping", requirePermission("order:ship"), operationLog("stock", "shipping"), orderController.shippingHandler);
 
 export default router;

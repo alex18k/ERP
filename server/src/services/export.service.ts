@@ -52,21 +52,71 @@ export async function orderExport() {
 }
 
 // ===== 库存现况 =====
-export async function stockExport() {
+// 与库存明细查询保持一致：支持筛选、按批号平铺、显示货位，低库存按物料全仓（启用仓库）合计
+export async function stockExport(where: any = {}) {
+  const filters: any = { quantity: { gt: 0 } };
+  if (where.materialCode || where.materialName) {
+    filters.material = {
+      ...(where.materialCode && { code: { contains: where.materialCode } }),
+      ...(where.materialName && { OR: [{ name: { contains: where.materialName } }, { specification: { contains: where.materialName } }] }),
+    };
+  }
+  if (where.warehouseId) filters.warehouseId = Number(where.warehouseId);
+  if (where.binId !== undefined && where.binId !== "" && where.binId !== null) filters.binId = Number(where.binId);
+
   const list = await prisma.stock.findMany({
+    where: filters,
     include: {
-      material: { select: { code: true, name: true, category: true, unit: true, safetyStock: true } },
-      warehouse: { select: { code: true, name: true } },
+      material: { select: { id: true, code: true, name: true, specification: true, category: true, unit: true, safetyStock: true } },
+      warehouse: { select: { id: true, code: true, name: true } },
+      bin: { select: { id: true, code: true, name: true } },
     },
-    orderBy: { material: { code: "asc" } },
+    orderBy: [{ material: { code: "asc" } }, { warehouseId: "asc" }, { binId: "asc" }],
   });
-  const headers = ["物料编码", "物料名称", "类别", "仓库", "现存量", "单位", "预占", "可用量", "安全库存", "是否预警"];
-  const rows = list.map((s) => [
-    s.material.code, s.material.name, categoryLabel[s.material.category] ?? s.material.category,
-    s.warehouse?.name ?? "", s.quantity, s.material.unit ?? "", s.reservedQty, s.quantity - s.reservedQty,
-    s.material.safetyStock,
-    s.material.safetyStock > 0 && s.quantity <= s.material.safetyStock ? "低库存" : "正常",
-  ]);
+
+  const materialIds = [...new Set(list.map((s) => s.materialId))];
+  const batchRows = materialIds.length
+    ? await prisma.materialBatch.findMany({
+        where: { materialId: { in: materialIds }, warehouseId: { in: [...new Set(list.map((s) => s.warehouseId))] } },
+        orderBy: { batchNo: "asc" },
+      })
+    : [];
+  const batchByKey = new Map<string, { batchNo: string; quantity: number }[]>();
+  for (const b of batchRows) {
+    const key = `${b.materialId}|${b.warehouseId}|${b.binId ?? ""}`;
+    if (!batchByKey.has(key)) batchByKey.set(key, []);
+    batchByKey.get(key)!.push({ batchNo: b.batchNo, quantity: b.quantity });
+  }
+  const totalRows = materialIds.length
+    ? await prisma.stock.groupBy({
+        by: ["materialId"],
+        where: { materialId: { in: materialIds }, warehouse: { status: 1 } },
+        _sum: { quantity: true },
+      })
+    : [];
+  const totalByMaterial = new Map(totalRows.map((g) => [g.materialId, g._sum.quantity ?? 0]));
+
+  const headers = ["物料编码", "物料名称", "规格型号", "类别", "仓库", "货位", "批号", "批内数量", "现存量", "单位", "预占", "可用量", "安全库存", "是否预警"];
+  const rows: any[][] = [];
+  for (const s of list) {
+    const batches = (batchByKey.get(`${s.materialId}|${s.warehouseId}|${s.binId ?? ""}`) ?? []).filter((b) => Number(b.quantity) > 0);
+    let batchSum = 0;
+    const totalQty = totalByMaterial.get(s.materialId) ?? 0;
+    const isLow = s.material.safetyStock > 0 && totalQty <= s.material.safetyStock;
+    const base = [
+      s.material.code, s.material.name, s.material.specification ?? "",
+      categoryLabel[s.material.category] ?? s.material.category,
+      s.warehouse?.name ?? "", s.bin ? `${s.bin.code} - ${s.bin.name}` : "",
+    ];
+    for (const b of batches) {
+      batchSum += Number(b.quantity) || 0;
+      rows.push([...base, b.batchNo, b.quantity, s.quantity, s.material.unit ?? "", s.reservedQty, s.quantity - s.reservedQty, s.material.safetyStock, isLow ? "低库存" : "正常"]);
+    }
+    const remainder = Number(s.quantity || 0) - batchSum;
+    if (batches.length === 0 || remainder > 1e-6) {
+      rows.push([...base, "", remainder, s.quantity, s.material.unit ?? "", s.reservedQty, s.quantity - s.reservedQty, s.material.safetyStock, isLow ? "低库存" : "正常"]);
+    }
+  }
   return { filename: `库存现况_${today()}.csv`, csv: toCsv(headers, rows) };
 }
 
