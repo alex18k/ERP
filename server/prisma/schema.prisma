@@ -578,7 +578,8 @@ model StockRecord {
   type              String // in, out, transfer, adjust
   transactionTypeId Int?
   transactionType   StockTransactionType? @relation(fields: [transactionTypeId], references: [id])
-  documentNo        String? // 单号（来源单据号）
+  documentNo        String? // 系统自动生成的单据号
+  orderNo           String? // 手工/原单号（新增库存事务页面录入）
   lineNo            Int? // 行号
   location          String? // 库位
   effectiveDate     DateTime? // 生效日期
@@ -593,6 +594,7 @@ model StockRecord {
 
   @@index([materialId])
   @@index([warehouseId])
+  @@index([orderNo])
   @@index([type, createdAt])
 }
 
@@ -616,13 +618,14 @@ model MaterialBatch {
 
 // 库存事务类型（记录库存调整的业务类型）
 model StockTransactionType {
-  id          Int           @id @default(autoincrement())
-  code        String        @unique
-  description String
-  direction   String        @default("in") // in=增, out=减
-  status      Int           @default(1)
-  createdAt   DateTime      @default(now())
-  stockRecords StockRecord[]
+  id             Int           @id @default(autoincrement())
+  code           String        @unique
+  description    String
+  documentPrefix String?       // 单据前缀，如采购收货 RC
+  direction      String        @default("in") // in=增, out=减
+  status         Int           @default(1)
+  createdAt      DateTime      @default(now())
+  stockRecords   StockRecord[]
 }
 
 // ========== MRP ==========

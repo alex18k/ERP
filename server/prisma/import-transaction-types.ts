@@ -39,6 +39,14 @@ function clean(v: string | undefined): string {
   return (v ?? "").replace(/^[\s\uFEFF]+|[\s\uFEFF]+$/g, "").replace(/\s+/g, " ");
 }
 
+// 现有单据的默认前缀（重置库后保持收货单号仍以 RC 开头）
+const DEFAULT_PREFIXES: Record<string, string> = {
+  "RCT-PO": "RC",
+  "ISS-SO": "ISSSO",
+  "ISS-TR": "TR",
+  "RCT-TR": "TR",
+};
+
 async function main() {
   const rows = parseCsv(readFileSync(csvPath, "utf-8"));
   const header = rows[0];
@@ -53,10 +61,17 @@ async function main() {
     const dir = clean(r[idx["type_dir"]]) === "+" ? "in" : "out";
     const existing = await prisma.stockTransactionType.findUnique({ where: { code } });
     if (existing) {
-      await prisma.stockTransactionType.update({ where: { code }, data: { description, direction: dir } });
+      await prisma.stockTransactionType.update({
+        where: { code },
+        data: {
+          description,
+          direction: dir,
+          ...(existing.documentPrefix == null && DEFAULT_PREFIXES[code] ? { documentPrefix: DEFAULT_PREFIXES[code] } : {}),
+        },
+      });
       updated++;
     } else {
-      await prisma.stockTransactionType.create({ data: { code, description, direction: dir, status: 1 } });
+      await prisma.stockTransactionType.create({ data: { code, description, direction: dir, status: 1, documentPrefix: DEFAULT_PREFIXES[code] ?? null } });
       created++;
     }
   }

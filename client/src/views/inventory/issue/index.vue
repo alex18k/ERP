@@ -26,6 +26,7 @@ const locationOptions = ref<{ code: string; name: string }[]>([])
 const form = reactive<any>({ batchId: null, warehouseId: null, issueQty: 0, effectiveDate: '' })
 
 const bins = ref<any[]>([])
+const activeWarehouses = computed(() => warehouses.value.filter((w: any) => w.status === 1))
 const selectedWarehouse = computed(() => warehouses.value.find((w: any) => w.id === form.warehouseId) || null)
 const binRequired = computed(() => selectedWarehouse.value?.binManaged === true)
 
@@ -88,7 +89,7 @@ async function openDialog(order: any) {
     return
   }
   form.batchId = batches[0].id
-  form.warehouseId = warehouseIdByLocation(warehouses.value, order.material?.location) || warehouses.value[0]?.id || null
+  form.warehouseId = warehouseIdByLocation(activeWarehouses.value, order.material?.location) || activeWarehouses.value[0]?.id || null
   form.effectiveDate = todayStr()
   dialogVisible.value = true
   await onBatchChange()
@@ -252,7 +253,7 @@ onMounted(async () => {
         </el-form-item>
         <el-form-item label="库位">
           <el-select v-model="form.warehouseId" style="width: 220px" placeholder="选择库位" @change="onWarehouseChange">
-            <el-option v-for="w in warehouses" :key="w.id" :label="`${w.code} - ${w.name}`" :value="w.id" />
+            <el-option v-for="w in activeWarehouses" :key="w.id" :label="`${w.code} - ${w.name}`" :value="w.id" />
           </el-select>
         </el-form-item>
         <el-form-item label="生效日期">

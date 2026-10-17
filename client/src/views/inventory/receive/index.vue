@@ -113,7 +113,8 @@ function openReceive(row: any) {
       batchNo: '',
     }))
   receiveForm.effectiveDate = todayStr()
-  const locs = new Set<string>((row.items || []).map((it: any) => it.location || it.material?.location).filter(Boolean))
+  const activeCodes = new Set(warehouses.value.filter((w: any) => w.status === 1).map((w: any) => w.code))
+  const locs = new Set<string>((row.items || []).map((it: any) => it.location || it.material?.location).filter((c: string) => c && activeCodes.has(c)))
   receiveForm.location = locs.size === 1 ? [...locs][0] : ''
   loadBins()
   receiveVisible.value = true
@@ -144,13 +145,14 @@ async function submitReceive(): Promise<boolean> {
   }
   receiving.value = true
   try {
-    await purchaseApi.receive(currentOrder.value.id, {
+    const res: any = await purchaseApi.receive(currentOrder.value.id, {
       items,
       effectiveDate: receiveForm.effectiveDate || undefined,
       location: receiveForm.location || undefined,
       binId: binRequired.value ? receiveForm.binId : undefined,
     })
-    ElMessage.success('收货完成')
+    const receiptNo = res.data?.receiptNo
+    ElMessage.success(receiptNo ? `收货完成，收货单号 ${receiptNo}` : '收货完成')
     loadData()
     return true
   } catch {
@@ -193,7 +195,7 @@ function confirmLeave(done?: () => void) {
 onMounted(async () => {
   const wRes: any = await warehouseApi.list({ pageSize: 200 })
   warehouses.value = wRes.data.items
-  locationOptions.value = warehouses.value.map((w: any) => ({ code: w.code, name: w.name }))
+  locationOptions.value = warehouses.value.filter((w: any) => w.status === 1).map((w: any) => ({ code: w.code, name: w.name }))
   await loadData()
 })
 </script>
@@ -257,7 +259,7 @@ onMounted(async () => {
           <el-date-picker v-model="receiveForm.effectiveDate" type="date" value-format="YYYY-MM-DD" size="small" style="width: 150px" />
         </el-descriptions-item>
         <el-descriptions-item label="库位">
-          <el-select v-model="receiveForm.location" filterable allow-create default-first-option clearable placeholder="选择或输入库位" size="small" style="width: 160px" @change="loadBins">
+          <el-select v-model="receiveForm.location" filterable clearable placeholder="选择库位" size="small" style="width: 160px" @change="loadBins">
             <el-option v-for="l in locationOptions" :key="l.code" :label="l.name ? `${l.code} - ${l.name}` : l.code" :value="l.code" />
           </el-select>
         </el-descriptions-item>

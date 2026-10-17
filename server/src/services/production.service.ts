@@ -2,7 +2,7 @@ import prisma from "../config/prisma";
 import { Prisma } from "@prisma/client";
 import { localDateCompact } from "../utils/date";
 import { retryOnDuplicate, lockOrderNo, ORDER_NO_LOCK } from "../utils/retry";
-import { generateStockDocNo, applyBatchIn, applyBatchOut, addStock, resolveBinId } from "./stock.service";
+import { generateDocNo, applyBatchIn, applyBatchOut, addStock, resolveBinId } from "./stock.service";
 import { resolveUnitRate, toBaseQty } from "../utils/unit";
 
 // ===== 生产订单 =====
@@ -788,7 +788,7 @@ export async function issueBatchMaterials(
   let docNo = "";
   await prisma.$transaction(async (tx) => {
     await lockOrderNo(tx, ORDER_NO_LOCK.ST);
-    docNo = await generateStockDocNo(tx);
+    docNo = await generateDocNo(tx, issueType?.documentPrefix || "ST");
     let lineNo = 1;
     for (const it of items) {
       const row = map.get(it.batchMaterialId);
@@ -1149,7 +1149,7 @@ export async function receiveBatchProduct(
 
   return prisma.$transaction(async (tx) => {
     await lockOrderNo(tx, ORDER_NO_LOCK.ST);
-    const docNo = await generateStockDocNo(tx);
+    const docNo = await generateDocNo(tx, receiveType?.documentPrefix || "ST");
 
     // 1) 原子累加入库量（写入时校验不超批次数量），防止并发超收
     const recvUpd = await tx.productionBatch.updateMany({

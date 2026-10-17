@@ -2,7 +2,7 @@ import prisma from "../config/prisma";
 import { Prisma } from "@prisma/client";
 import { localDateCompact } from "../utils/date";
 import { retryOnDuplicate, lockOrderNo, ORDER_NO_LOCK } from "../utils/retry";
-import { applyBatchOut, resolveBinId } from "./stock.service";
+import { applyBatchOut, resolveBinId, generateDocNo } from "./stock.service";
 import { resolveUnitRateMap, toBaseQty } from "../utils/unit";
 
 export interface SalesOrderCreateInput {
@@ -444,6 +444,8 @@ export async function shipOrder(id: number, userId: number) {
   const shipType = await prisma.stockTransactionType.findUnique({ where: { code: "ISS-SO" } });
 
   return prisma.$transaction(async (tx) => {
+    await lockOrderNo(tx, ORDER_NO_LOCK.ST);
+    const docNo = await generateDocNo(tx, shipType?.documentPrefix || "ISSSO");
     for (const [idx, item] of order.items.entries()) {
       await tx.salesOrderItem.update({
         where: { id: item.id },
@@ -453,7 +455,20 @@ export async function shipOrder(id: number, userId: number) {
       // 制造类成品发货自动出库（有库存则扣减）
       if (item.material.category === "manufacture") {
         const shipBase = item.baseQty && item.baseQty > 0 ? item.baseQty : item.quantity;
-        const stock = await tx.stock.findFirst({ where: { materialId: item.materialId, quantity: { gt: 0 } }, orderBy: { quantity: "desc" } });
+        // 自动发货只允许从启用仓库的有效货位出库，跳过停用仓库/停用货位上的历史库存
+        const stockRows = await tx.stock.findMany({
+          where: { materialId: item.materialId, quantity: { gt: 0 } },
+          include: {
+            warehouse: { select: { id: true, status: true, binManaged: true } },
+            bin: { select: { id: true, warehouseId: true, status: true } },
+          },
+          orderBy: { quantity: "desc" },
+        });
+        const stock = stockRows.find((s: any) => {
+          if (s.warehouse.status !== 1) return false;
+          if (s.warehouse.binManaged) return !!s.bin && s.bin.status === 1 && s.bin.warehouseId === s.warehouseId;
+          return s.binId === null;
+        });
         if (stock && stock.quantity > 0) {
           const deduct = Math.min(shipBase, stock.quantity);
           const stockUpd = await tx.stock.updateMany({
@@ -491,7 +506,8 @@ export async function shipOrder(id: number, userId: number) {
                   relatedType: "sales-order",
                   relatedId: id,
                   transactionTypeId: shipType?.id,
-                  documentNo: order.orderNo,
+                  documentNo: docNo,
+                  orderNo: order.orderNo,
                   lineNo: idx + 1,
                   operatorId: userId,
                   remark: "销售订单发货出库",
@@ -510,7 +526,8 @@ export async function shipOrder(id: number, userId: number) {
                 relatedType: "sales-order",
                 relatedId: id,
                 transactionTypeId: shipType?.id,
-                documentNo: order.orderNo,
+                documentNo: docNo,
+                orderNo: order.orderNo,
                 lineNo: idx + 1,
                 operatorId: userId,
                 remark: "销售订单发货出库",
@@ -555,6 +572,8 @@ export async function shipOrderItems(
   }
 
   return prisma.$transaction(async (tx) => {
+    await lockOrderNo(tx, ORDER_NO_LOCK.ST);
+    const docNo = await generateDocNo(tx, shipType?.documentPrefix || "ISSSO");
     const shippedItems: { itemId: number; deliveredQty: number }[] = [];
     for (const [idx, line] of data.items.entries()) {
       const item = itemMap.get(line.itemId)!;
@@ -592,7 +611,8 @@ export async function shipOrderItems(
           relatedType: "sales-order",
           relatedId: id,
           transactionTypeId: shipType?.id,
-          documentNo: order.orderNo,
+          documentNo: docNo,
+          orderNo: order.orderNo,
           lineNo: idx + 1,
           effectiveDate: data.effectiveDate ? new Date(data.effectiveDate) : null,
           operatorId: userId,

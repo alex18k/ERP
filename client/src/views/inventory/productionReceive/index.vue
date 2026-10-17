@@ -16,6 +16,7 @@ const submitting = ref(false)
 const current = ref<any>(null)
 const form = reactive<any>({ quantity: 0, unit: '', warehouseId: null, binId: null, batchNo: '' })
 
+const activeWarehouses = computed(() => warehouses.value.filter((w: any) => w.status === 1))
 const selectedWarehouse = computed(() => warehouses.value.find((w: any) => w.id === form.warehouseId) || null)
 const binRequired = computed(() => selectedWarehouse.value?.binManaged === true)
 
@@ -78,7 +79,7 @@ function openDialog(row: any) {
   form.quantity = remaining(row)
   form.unit = row.productionOrder?.material?.unit || ''
   form.batchNo = row.batchNo != null ? String(row.batchNo) : ''
-  form.warehouseId = warehouseIdByLocation(warehouses.value, row.productionOrder?.material?.location) || warehouses.value[0]?.id || null
+  form.warehouseId = warehouseIdByLocation(activeWarehouses.value, row.productionOrder?.material?.location) || activeWarehouses.value[0]?.id || null
   dialogVisible.value = true
   loadBins()
 }
@@ -191,7 +192,7 @@ onMounted(async () => {
         </el-form-item>
         <el-form-item label="入库仓库" required>
           <el-select v-model="form.warehouseId" placeholder="选择仓库" style="width: 100%" @change="loadBins">
-            <el-option v-for="w in warehouses" :key="w.id" :label="`${w.code} - ${w.name}`" :value="w.id" />
+            <el-option v-for="w in activeWarehouses" :key="w.id" :label="`${w.code} - ${w.name}`" :value="w.id" />
           </el-select>
         </el-form-item>
         <el-form-item v-if="binRequired" label="货位" required>

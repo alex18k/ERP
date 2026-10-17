@@ -1,11 +1,15 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { stockApi, warehouseApi, materialApi, stockTransactionTypeApi, warehouseBinApi } from '../../../api'
 
+const router = useRouter()
 const loading = ref(false)
 const list = ref<any[]>([])
 const total = ref(0)
+const currentRow = ref<any>(null)
+const tableRef = ref()
 const warehouses = ref<any[]>([])
 const query = reactive({ page: 1, pageSize: 20, materialKeyword: '', warehouseId: '', transactionTypeId: '', startDate: '', endDate: '', documentNo: '' })
 
@@ -17,11 +21,12 @@ const materials = ref<any[]>([])
 const materialLoading = ref(false)
 const materialMap = new Map<number, any>()
 const transactionTypes = ref<any[]>([])
-const form = reactive<any>({ materialId: null, warehouseId: null, binId: null, batchNo: '', quantity: 1, unit: '', transactionTypeId: null, effectiveDate: todayStr(), documentNo: '', lineNo: null, remark: '' })
+const form = reactive<any>({ materialId: null, warehouseId: null, binId: null, batchNo: '', quantity: 1, unit: '', transactionTypeId: null, effectiveDate: todayStr(), orderNo: '', lineNo: null, remark: '' })
 
 // 货位：仅当所选仓库启用货位管理时才需要/允许填写
 const bins = ref<any[]>([])
 const binLoading = ref(false)
+const activeWarehouses = computed(() => warehouses.value.filter((w: any) => w.status === 1))
 const selectedWarehouse = computed(() => warehouses.value.find((w: any) => w.id === form.warehouseId) || null)
 const binRequired = computed(() => selectedWarehouse.value?.binManaged === true)
 
@@ -146,7 +151,7 @@ async function loadOptions() {
 }
 
 function openDialog() {
-  Object.assign(form, { materialId: null, warehouseId: null, binId: null, batchNo: '', quantity: 1, unit: '', transactionTypeId: null, effectiveDate: todayStr(), documentNo: '', lineNo: null, remark: '' })
+  Object.assign(form, { materialId: null, warehouseId: null, binId: null, batchNo: '', quantity: 1, unit: '', transactionTypeId: null, effectiveDate: todayStr(), orderNo: '', lineNo: null, remark: '' })
   batchOptions.value = []
   bins.value = []
   initialForm.value = { ...form }
@@ -182,7 +187,7 @@ async function submitForm(): Promise<boolean> {
     unit: form.unit || undefined,
     transactionTypeId: form.transactionTypeId,
     effectiveDate: form.effectiveDate,
-    documentNo: form.documentNo || undefined,
+    orderNo: form.orderNo || undefined,
     lineNo: form.lineNo ?? undefined,
     remark: form.remark,
   }
@@ -263,7 +268,7 @@ const transferForm = reactive<any>({
   materialId: null, unit: '', quantity: 1,
   fromWarehouseId: null, fromBinId: null,
   toWarehouseId: null, toBinId: null,
-  batchNo: '', effectiveDate: todayStr(), documentNo: '', remark: '',
+  batchNo: '', effectiveDate: todayStr(), orderNo: '', remark: '',
 })
 
 const tSelectedMaterial = computed(() => (transferForm.materialId ? transferMaterialMap.get(transferForm.materialId) : null))
@@ -354,7 +359,7 @@ function openTransfer() {
     materialId: null, unit: '', quantity: 1,
     fromWarehouseId: null, fromBinId: null,
     toWarehouseId: null, toBinId: null,
-    batchNo: '', effectiveDate: todayStr(), documentNo: '', remark: '',
+    batchNo: '', effectiveDate: todayStr(), orderNo: '', remark: '',
   })
   fromBins.value = []
   toBins.value = []
@@ -399,7 +404,7 @@ async function doTransfer(): Promise<boolean> {
       toBinId: tToBinRequired.value ? transferForm.toBinId : undefined,
       batchNo: transferForm.batchNo || undefined,
       effectiveDate: transferForm.effectiveDate || todayStr(),
-      documentNo: transferForm.documentNo || undefined,
+      orderNo: transferForm.orderNo || undefined,
       remark: transferForm.remark || undefined,
     })
     ElMessage.success('移库成功')
@@ -466,7 +471,18 @@ async function loadData() {
     const res: any = await stockApi.records(query)
     list.value = res.data.items
     total.value = res.data.total
+    currentRow.value = null
+    tableRef.value?.setCurrentRow()
   } finally { loading.value = false }
+}
+
+function printSelected() {
+  const row = currentRow.value
+  if (!row?.documentNo) return
+  router.push({
+    path: '/inventory/record-print',
+    query: { documentNo: row.documentNo, ...(row.transactionTypeId ? { typeId: String(row.transactionTypeId) } : {}) },
+  })
 }
 
 onMounted(async () => {
@@ -481,9 +497,7 @@ onMounted(async () => {
   <div class="page-container">
     <div class="page-card">
       <div class="search-bar">
-        <el-button type="success" plain class="btn-add" @click="openDialog()"><el-icon><Plus /></el-icon>增加</el-button>
-        <el-button type="warning" plain @click="openTransfer()"><el-icon><Switch /></el-icon>移库</el-button>
-        <el-input v-model="query.documentNo" placeholder="单号" clearable style="width: 150px" />
+        <el-input v-model="query.documentNo" placeholder="事务单号/源单号" clearable style="width: 160px" />
         <el-input v-model="query.materialKeyword" placeholder="物料编码/名称" clearable style="width: 180px" />
         <el-select v-model="query.warehouseId" placeholder="仓库" clearable style="width: 150px">
           <el-option v-for="w in warehouses" :key="w.id" :label="w.name" :value="w.id" />
@@ -495,14 +509,22 @@ onMounted(async () => {
         <el-input v-model="query.endDate" type="date" placeholder="结束" clearable style="width: 150px" />
         <el-button type="primary" @click="query.page = 1, loadData()"><el-icon><Search /></el-icon>查询</el-button>
         <el-button @click="Object.assign(query, { materialKeyword: '', warehouseId: '', transactionTypeId: '', startDate: '', endDate: '', documentNo: '', page: 1 }), loadData()">重置</el-button>
+        <div class="row-actions">
+          <el-button type="success" plain class="btn-add" @click="openDialog()"><el-icon><Plus /></el-icon>增加</el-button>
+          <el-button type="warning" plain @click="openTransfer()"><el-icon><Switch /></el-icon>移库</el-button>
+          <el-button type="primary" plain :disabled="!currentRow?.documentNo" title="先点击列表中的行，再打印该单号" @click="printSelected"><el-icon><Printer /></el-icon>打印</el-button>
+        </div>
       </div>
 
-      <el-table :data="list" v-loading="loading" stripe max-height="calc(100vh - 260px)">
+      <el-table ref="tableRef" :data="list" v-loading="loading" stripe highlight-current-row max-height="calc(100vh - 260px)" @row-click="(row: any) => (currentRow = row)">
         <el-table-column label="生效日期" width="100">
           <template #default="{ row }">{{ row.effectiveDate?.slice(0, 10) || '-' }}</template>
         </el-table-column>
-        <el-table-column label="单号" width="140" show-overflow-tooltip>
+        <el-table-column label="事务单号" width="140" show-overflow-tooltip>
           <template #default="{ row }">{{ row.documentNo || '-' }}</template>
+        </el-table-column>
+        <el-table-column label="源单号" width="140" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.orderNo || '-' }}</template>
         </el-table-column>
         <el-table-column label="行号" width="56" align="center">
           <template #default="{ row }">{{ row.lineNo ?? '-' }}</template>
@@ -573,7 +595,7 @@ onMounted(async () => {
         </el-form-item>
         <el-form-item label="仓库" required>
           <el-select v-model="form.warehouseId" placeholder="选择仓库" style="width: 100%" @change="onWarehouseChange">
-            <el-option v-for="w in warehouses" :key="w.id" :label="`${w.code} - ${w.name}`" :value="w.id" />
+            <el-option v-for="w in activeWarehouses" :key="w.id" :label="`${w.code} - ${w.name}`" :value="w.id" />
           </el-select>
         </el-form-item>
         <el-form-item v-if="binRequired" label="货位" required>
@@ -609,7 +631,7 @@ onMounted(async () => {
           <el-input v-model="form.effectiveDate" type="date" style="width: 100%" />
         </el-form-item>
         <el-form-item label="单号">
-          <el-input v-model="form.documentNo" placeholder="留空自动生成" clearable />
+          <el-input v-model="form.orderNo" placeholder="手工单号（可选，系统单号自动生成）" clearable />
         </el-form-item>
         <el-form-item label="行号">
           <el-input-number v-model="form.lineNo" :min="1" :controls="false" placeholder="默认1" style="width: 100%" />
@@ -636,7 +658,7 @@ onMounted(async () => {
         <el-divider content-position="left">源</el-divider>
         <el-form-item label="源仓库" required>
           <el-select v-model="transferForm.fromWarehouseId" placeholder="选择源仓库" style="width: 100%" @change="loadFromBins">
-            <el-option v-for="w in warehouses" :key="w.id" :label="`${w.code} - ${w.name}`" :value="w.id" />
+            <el-option v-for="w in activeWarehouses" :key="w.id" :label="`${w.code} - ${w.name}`" :value="w.id" />
           </el-select>
         </el-form-item>
         <el-form-item v-if="tFromBinRequired" label="源货位" required>
@@ -653,7 +675,7 @@ onMounted(async () => {
         <el-divider content-position="left">目标</el-divider>
         <el-form-item label="目标仓库" required>
           <el-select v-model="transferForm.toWarehouseId" placeholder="选择目标仓库" style="width: 100%" @change="loadToBins">
-            <el-option v-for="w in warehouses" :key="w.id" :label="`${w.code} - ${w.name}`" :value="w.id" />
+            <el-option v-for="w in activeWarehouses" :key="w.id" :label="`${w.code} - ${w.name}`" :value="w.id" />
           </el-select>
         </el-form-item>
         <el-form-item v-if="tToBinRequired" label="目标货位" required>
@@ -675,7 +697,7 @@ onMounted(async () => {
           <el-input v-model="transferForm.effectiveDate" type="date" style="width: 100%" />
         </el-form-item>
         <el-form-item label="单号">
-          <el-input v-model="transferForm.documentNo" placeholder="留空自动生成" clearable />
+          <el-input v-model="transferForm.orderNo" placeholder="手工单号（可选，系统单号自动生成）" clearable />
         </el-form-item>
         <el-form-item label="备注">
           <el-input v-model="transferForm.remark" type="textarea" :rows="2" />
@@ -690,6 +712,11 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+.row-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
 .unit-hint {
   font-size: 12px;
   color: var(--el-text-color-secondary);

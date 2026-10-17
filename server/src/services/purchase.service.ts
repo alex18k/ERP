@@ -2,7 +2,7 @@ import prisma from "../config/prisma";
 import { Prisma } from "@prisma/client";
 import { localDateCompact, parseLocalDateStart, parseLocalDateEnd, startOfLocalDay } from "../utils/date";
 import { retryOnDuplicate, lockOrderNo, ORDER_NO_LOCK } from "../utils/retry";
-import { applyBatchIn, addStock, resolveBinId } from "./stock.service";
+import { applyBatchIn, addStock, resolveBinId, generateDocNo } from "./stock.service";
 import { resolveUnitRateMap, toBaseQty } from "../utils/unit";
 
 export async function generatePurchaseOrderNo(): Promise<string> {
@@ -487,8 +487,16 @@ export async function receivePurchaseOrder(
   const locationWarehouse = options?.location
     ? await prisma.warehouse.findUnique({ where: { code: options.location } })
     : null;
+  if (options?.location) {
+    if (!locationWarehouse) throw new Error(`库位「${options.location}」不存在`);
+    if (locationWarehouse.status !== 1) throw new Error(`库位「${options.location}」已停用，不能收货`);
+  }
 
   return prisma.$transaction(async (tx) => {
+    // 收货单号串行生成：同一次收货的多条流水共用一个号；前缀取事务类型“单据”配置，未配置回退 RC
+    await lockOrderNo(tx, ORDER_NO_LOCK.ST);
+    const receiptNo = await generateDocNo(tx, receiptType?.documentPrefix || "RC");
+
     for (const [idx, item] of po.items.entries()) {
       const qty = receiveMap.get(item.id) ?? 0;
       if (qty <= 0) continue;
@@ -523,11 +531,16 @@ export async function receivePurchaseOrder(
       // 更新库存：优先用本次收货指定的库位（整单覆盖）；否则按明细库位；再回退已有库存仓库/首个启用仓
       let warehouseId = locationWarehouse?.id ?? null;
       if (!warehouseId && item.location) {
-        const byLocation = await tx.warehouse.findUnique({ where: { code: item.location } });
+        // 明细库位只在启用仓库中匹配；失效/停用库位回退到已有库存仓库或首个启用仓
+        const byLocation = await tx.warehouse.findFirst({ where: { code: item.location, status: 1 } });
         warehouseId = byLocation?.id ?? null;
       }
       if (!warehouseId) {
-        const anyStock = await tx.stock.findFirst({ where: { materialId: item.materialId } });
+        // 回退仓库只能选启用仓库，避免把库存收进停用仓库
+        const anyStock = await tx.stock.findFirst({
+          where: { materialId: item.materialId, quantity: { gt: 0 }, warehouse: { status: 1 } },
+          orderBy: { quantity: "desc" },
+        });
         warehouseId = anyStock?.warehouseId ?? (await tx.warehouse.findFirst({ where: { status: 1 } }))?.id ?? null;
       }
       if (!warehouseId) throw new Error("没有可用的仓库，无法入库");
@@ -551,7 +564,8 @@ export async function receivePurchaseOrder(
           relatedType: "PurchaseOrder",
           relatedId: po.id,
           transactionTypeId: receiptType?.id,
-          documentNo: po.orderNo,
+          documentNo: receiptNo,
+          orderNo: po.orderNo,
           lineNo: item.line ?? idx + 1,
           location: options?.location || item.location || null,
           effectiveDate: options?.effectiveDate ? new Date(options.effectiveDate) : new Date(),
@@ -561,7 +575,8 @@ export async function receivePurchaseOrder(
     }
 
     // 主表状态不随收货自动更新，仅明细状态反映收货进度
-    return tx.purchaseOrder.findUnique({ where: { id }, include: { items: true } });
+    const order = await tx.purchaseOrder.findUnique({ where: { id }, include: { items: true } });
+    return { ...order, receiptNo };
   });
 }
 
@@ -606,10 +621,15 @@ export async function listBuyers() {
 
 // ===== 采购收货记录（来源：采购单收货写入的库存流水）=====
 export async function listPurchaseReceipts(where: any) {
-  const { orderNo, materialKeyword, startDate, endDate, page = 1, pageSize = 20 } = where;
+  const { orderNo, receiptNo, materialKeyword, startDate, endDate, page = 1, pageSize = 20 } = where;
 
   const filters: Prisma.StockRecordWhereInput = { relatedType: "PurchaseOrder", type: "in" };
-  if (orderNo) filters.documentNo = { contains: orderNo };
+  // 收货单号就是库存流水的 documentNo（历史数据可能是采购单号）
+  if (receiptNo) filters.documentNo = { contains: receiptNo };
+  if (orderNo) {
+    const matched = await prisma.purchaseOrder.findMany({ where: { orderNo: { contains: orderNo } }, select: { id: true } });
+    filters.relatedId = { in: matched.map((o) => o.id) };
+  }
   if (materialKeyword) {
     filters.material = {
       OR: [
@@ -646,7 +666,7 @@ export async function listPurchaseReceipts(where: any) {
   const orders = orderIds.length
     ? await prisma.purchaseOrder.findMany({
         where: { id: { in: orderIds } },
-        select: { id: true, status: true, supplier: { select: { name: true } } },
+        select: { id: true, orderNo: true, status: true, supplier: { select: { name: true } } },
       })
     : [];
   const orderMap = new Map(orders.map((o) => [o.id, o]));
@@ -657,6 +677,8 @@ export async function listPurchaseReceipts(where: any) {
     pageSize: Number(pageSize),
     items: items.map((i) => ({
       ...i,
+      receiptNo: i.documentNo,
+      orderNo: i.relatedId ? orderMap.get(i.relatedId)?.orderNo ?? null : null,
       supplierName: i.relatedId ? orderMap.get(i.relatedId)?.supplier?.name ?? null : null,
       orderStatus: i.relatedId ? orderMap.get(i.relatedId)?.status ?? null : null,
     })),

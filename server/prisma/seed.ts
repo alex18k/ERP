@@ -314,8 +314,8 @@ async function main() {
     { code: "PUR-IN", description: "采购入库", direction: "in" },
     { code: "SALE-OUT", description: "销售出库", direction: "out" },
     { code: "SCRAP", description: "报废出库", direction: "out" },
-    { code: "MOVE-OUT", description: "移库出库", direction: "out" },
-    { code: "MOVE-IN", description: "移库入库", direction: "in" },
+    { code: "ISS-TR", description: "移库出库", direction: "out" },
+    { code: "RCT-TR", description: "移库入库", direction: "in" },
   ];
   for (const t of txnTypes) {
     await prisma.stockTransactionType.upsert({ where: { code: t.code }, update: {}, create: t });

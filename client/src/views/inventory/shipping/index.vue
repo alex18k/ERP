@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { orderApi, warehouseApi, warehouseBinApi } from '../../../api'
+import { warehouseIdByLocation } from '../../../utils/location'
 
 const loading = ref(false)
 const list = ref<any[]>([])
@@ -42,6 +43,8 @@ async function loadWarehouses() {
   warehouses.value = res.data.items
 }
 
+const activeWarehouses = computed(() => warehouses.value.filter((w: any) => w.status === 1))
+
 function warehouseBinManaged(warehouseId: number) {
   return warehouses.value.find((w: any) => w.id === warehouseId)?.binManaged === true
 }
@@ -58,7 +61,7 @@ async function onLineWarehouseChange(row: any) {
   }
 }
 
-function openDialog(row: any) {
+async function openDialog(row: any) {
   currentOrder.value = row
   form.effectiveDate = todayStr()
   detail.value = (row.items || []).map((it: any) => ({
@@ -71,13 +74,15 @@ function openDialog(row: any) {
     deliveredQty: it.deliveredQty ?? 0,
     remaining: it.remaining ?? (it.quantity - (it.deliveredQty ?? 0)),
     location: it.material?.location || '',
-    warehouseId: null,
+    warehouseId: warehouseIdByLocation(activeWarehouses.value, it.material?.location) || null,
     binId: null,
     shipQty: 0,
     batchNo: '',
     remark: '',
   }))
   dialogVisible.value = true
+  // 默认库位对应的仓库启用货位管理时，提前加载货位选项
+  await Promise.all(detail.value.map((l) => onLineWarehouseChange(l)))
 }
 
 async function submit() {
@@ -134,7 +139,7 @@ async function submit() {
 function fillAll() {
   for (const l of detail.value) {
     l.shipQty = l.remaining
-    l.warehouseId = l.warehouseId || warehouses.value[0]?.id || null
+    l.warehouseId = l.warehouseId || warehouseIdByLocation(activeWarehouses.value, l.location) || activeWarehouses.value[0]?.id || null
     onLineWarehouseChange(l)
   }
 }
@@ -221,7 +226,7 @@ onMounted(async () => {
         <el-table-column label="出库仓库" width="170">
           <template #default="{ row }">
             <el-select v-model="row.warehouseId" size="small" placeholder="选择仓库" style="width: 100%" @change="onLineWarehouseChange(row)">
-              <el-option v-for="w in warehouses" :key="w.id" :label="`${w.code} - ${w.name}`" :value="w.id" />
+              <el-option v-for="w in activeWarehouses" :key="w.id" :label="`${w.code} - ${w.name}`" :value="w.id" />
             </el-select>
           </template>
         </el-table-column>

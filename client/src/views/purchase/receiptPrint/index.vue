@@ -38,15 +38,29 @@ function doPrint() {
   window.print()
 }
 
-onMounted(async () => {
-  const id = Number(route.query.id)
-  if (!id) return
+async function loadByOrderId(id: number) {
   const res: any = await purchaseApi.get(id)
   order.value = res.data
   if (order.value?.orderNo) {
     const r: any = await purchaseApi.receipts({ orderNo: order.value.orderNo, pageSize: 1000 })
     receipts.value = r.data.items || []
   }
+}
+
+onMounted(async () => {
+  const receiptNo = String(route.query.receiptNo || '').trim()
+  if (receiptNo) {
+    const r: any = await purchaseApi.receipts({ receiptNo, pageSize: 1000 })
+    receipts.value = (r.data.items || []).filter((it: any) => (it.receiptNo || it.documentNo) === receiptNo)
+    const orderId = Number(receipts.value[0]?.relatedId)
+    if (orderId) {
+      const res: any = await purchaseApi.get(orderId)
+      order.value = res.data
+    }
+    return
+  }
+  const id = Number(route.query.id)
+  if (id) await loadByOrderId(id)
 })
 </script>
 
@@ -65,6 +79,7 @@ onMounted(async () => {
           <div class="brand-sub">{{ COMPANY_CONTACT }}</div>
         </div>
         <div class="docno">
+          <div class="docno-row"><span>收货单号</span><b>{{ receipts[0]?.receiptNo || receipts[0]?.documentNo || '-' }}</b></div>
           <div class="docno-row"><span>采购单号</span><b>{{ order.orderNo }}</b></div>
           <div class="docno-row"><span>订货日期</span><b>{{ fmt(order.orderDate) }}</b></div>
           <div class="docno-row"><span>收货日期</span><b>{{ receiptDates }}</b></div>
