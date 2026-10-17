@@ -156,8 +156,8 @@ function onMaterialChange(row: any, materialId: number) {
   if (!m) return
   if (m.unit) row.unit = m.unit
   row.location = m.location || headerLocation.value || ''
-  row.unitPrice = m.cost ?? 0
-  row.unitPriceText = m.cost ? String(m.cost) : ''
+  row.unitPrice = m.price ?? m.cost ?? 0
+  row.unitPriceText = row.unitPrice ? String(row.unitPrice) : ''
 }
 // 名称/型号规格列只读展示：优先取缓存，其次行上加载时带出的 material
 function rowMaterialName(row: any): string {

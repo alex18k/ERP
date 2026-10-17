@@ -95,6 +95,7 @@ async function main() {
       materialType: partType || null,
       minOrderQty: toNum(r[idx["pt_ord_min"]]),
       cost: toNum(r[idx["pt_price"]]),
+      price: toNum(r[idx["pt_price"]]),
       status: clean(r[idx["pt_status"]]) === "无效" ? 0 : 1,
       remark,
     });
