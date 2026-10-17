@@ -498,6 +498,19 @@ export async function receivePurchaseOrder(
     await lockOrderNo(tx, ORDER_NO_LOCK.ST);
     const receiptNo = await generateDocNo(tx, receiptType?.documentPrefix || "RC");
 
+    // 移动加权平均基准：收货前该物料全部仓库的库存合计（qty）与当前平均成本（cost）
+    const receiveMaterialIds = [...new Set(po.items.map((it) => it.materialId))];
+    const stockRows = await tx.stock.findMany({
+      where: { materialId: { in: receiveMaterialIds } },
+      select: { materialId: true, quantity: true },
+    });
+    const avgQty = new Map<number, number>();
+    for (const r of stockRows) avgQty.set(r.materialId, (avgQty.get(r.materialId) ?? 0) + r.quantity);
+    const avgCost = new Map<number, number>();
+    for (const it of po.items) {
+      if (!avgCost.has(it.materialId)) avgCost.set(it.materialId, it.material.cost ?? 0);
+    }
+
     for (const [idx, item] of po.items.entries()) {
       const qty = receiveMap.get(item.id) ?? 0;
       if (qty <= 0) continue;
@@ -522,11 +535,22 @@ export async function receivePurchaseOrder(
         throw new Error(`收货数量不能超过未收数量（${item.quantity - item.receivedQty}）或明细状态已变更`);
       }
 
-      // 采购件成本：按最近一次采购单价回写物料成本（折算为基本单位成本，避免录入单位≠基本单位时被放大）
+      // 采购价格与成本：
+      //  - price = 最近一次采购单价（基本单位，覆盖写）
+      //  - cost  = 移动加权平均成本（按收货前库存结存加权）
       if (item.unitPrice != null && item.unitPrice > 0) {
         const rate = item.conversionRate || 1;
-        const baseCost = rate > 0 ? item.unitPrice / rate : item.unitPrice;
-        await tx.material.update({ where: { id: item.materialId }, data: { cost: baseCost } });
+        const basePrice = rate > 0 ? item.unitPrice / rate : item.unitPrice;
+        const prevQty = avgQty.get(item.materialId) ?? 0;
+        const prevCost = avgCost.get(item.materialId) ?? (item.material.cost ?? 0);
+        const denom = prevQty + baseQty;
+        const newCost = denom > 0 ? (prevQty * prevCost + baseQty * basePrice) / denom : basePrice;
+        avgQty.set(item.materialId, denom);
+        avgCost.set(item.materialId, newCost);
+        await tx.material.update({
+          where: { id: item.materialId },
+          data: { price: basePrice, cost: Math.round(newCost * 10000) / 10000 },
+        });
       }
 
       // 更新库存：优先用本次收货指定的库位（整单覆盖）；否则按明细库位；再回退已有库存仓库/首个启用仓

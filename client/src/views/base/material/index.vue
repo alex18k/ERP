@@ -78,6 +78,7 @@ const form = reactive<any>({
   orderCycleDays: 30,
   minOrderQty: 0,
   cost: 0,
+  price: 0,
   processRouteId: null,
   supplierId: null,
   batchManaged: false,
@@ -109,6 +110,7 @@ async function openDialog(row?: any) {
     form.orderCycleDays = 30
     form.minOrderQty = 0
     form.cost = 0
+    form.price = 0
     form.processRouteId = null
     form.location = ''
     form.batchManaged = false
@@ -252,7 +254,8 @@ onMounted(() => {
         <el-table-column prop="manufactureLeadTime" label="制造提前期" width="110" />
         <el-table-column prop="orderCycleDays" label="订货周期(天)" width="110" />
         <el-table-column prop="minOrderQty" label="最小订量" width="90" />
-        <el-table-column prop="cost" label="成本" width="80" />
+        <el-table-column prop="cost" label="成本(加权平均)" width="120" />
+        <el-table-column prop="price" label="最近采购价" width="100" />
         <el-table-column label="当前库存" width="100">
           <template #default="{ row }">
             <span :class="{ 'text-overdue': row.stock && row.safetyStock > 0 && row.stock.quantity <= row.safetyStock }">
@@ -361,9 +364,14 @@ onMounted(() => {
               <el-input-number v-model="form.orderCycleDays" :min="0" style="width: 100%" />
             </el-form-item>
           </el-col>
-          <el-col :span="12">
-            <el-form-item label="成本">
+          <el-col :span="6">
+            <el-form-item label="成本(加权平均)">
               <el-input-number v-model="form.cost" :min="0" :precision="2" style="width: 100%" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="6">
+            <el-form-item label="最近采购价">
+              <el-input-number v-model="form.price" :min="0" :precision="2" style="width: 100%" />
             </el-form-item>
           </el-col>
         </el-row>

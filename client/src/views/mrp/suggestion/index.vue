@@ -164,6 +164,9 @@ onMounted(loadData)
           <template #default="{ row }">{{ row.source === 'safety' ? '安全库存' : 'MRP需求' }}</template>
         </el-table-column>
         <el-table-column prop="suggestedQty" label="建议采购量" width="110" />
+        <el-table-column label="建议单价" width="100">
+          <template #default="{ row }">{{ row.unitPrice ?? '-' }}</template>
+        </el-table-column>
         <el-table-column label="建议下单日期" width="120">
           <template #default="{ row }">{{ row.orderDate?.slice?.(0, 10) || '-' }}</template>
         </el-table-column>

@@ -111,7 +111,8 @@ model Material {
   orderCycleDays      Int                  @default(30) // 订货周期（天数）：MRP 按此周期合并需求，超出则分开下单
   materialType        String? // 物料类别（自由填写，如五金件/电子件/包装材料）
   minOrderQty         Float                @default(0) // 最小订量
-  cost                Float                @default(0) // 成本（替代原单价，收货时按最近采购价回写）
+  cost                Float                @default(0) // 成本（移动加权平均价，用于 BOM 成本）
+  price               Float                @default(0) // 最近采购价（基本单位，采购收货回写；MRP/采购单建议单价）
   location            String? // 库位（与仓库编码对应）
   supplierId          Int?
   supplier            Supplier?            @relation(fields: [supplierId], references: [id])

@@ -91,6 +91,7 @@ interface SuggestionItem {
   materialName: string;
   specification: string | null;
   suggestedQty: number;
+  unitPrice: number; // 建议采购单价（物料最近采购价 price，回退加权平均成本 cost）
   supplierId: number | null;
   leadTime: number;
   needDate: Date;
@@ -194,6 +195,18 @@ async function expandDemand(
   }
   visited.add(materialId);
 
+  // 子件需求日期 = 父件需求日期 − 父件生产提前期（父件为制造件时）。
+  // 源单为上层生产/加工单：采购件需求日期 = 上层加工单需求日期 − 上层生产提前期；逐层向下累加。
+  const parentMaterial = materialMap.get(materialId);
+  const parentOffsetDays =
+    parentMaterial?.category === "manufacture"
+      ? (parentMaterial.manufactureLeadTime ?? parentMaterial.leadTime ?? 0)
+      : 0;
+  const childNeedDate =
+    needDate && parentOffsetDays > 0
+      ? new Date(needDate.getTime() - parentOffsetDays * 24 * 60 * 60 * 1000)
+      : needDate;
+
   for (const item of bom.items) {
     const totalQty = quantity * item.quantity * (1 + (item.lossRate ?? 0));
     const itemMaterial = materialMap.get(item.materialId);
@@ -202,11 +215,11 @@ async function expandDemand(
     const hasSubBom = bomMap.has(item.materialId);
 
     if (hasSubBom) {
-      results.push({ materialId: item.materialId, quantity: totalQty, orderId, orderNo, needDate, isSemiProduct: true });
-      const sub = await expandDemand(item.materialId, totalQty, orderId, orderNo, needDate, cache, visited, depth + 1);
+      results.push({ materialId: item.materialId, quantity: totalQty, orderId, orderNo, needDate: childNeedDate, isSemiProduct: true });
+      const sub = await expandDemand(item.materialId, totalQty, orderId, orderNo, childNeedDate, cache, visited, depth + 1);
       results.push(...sub);
     } else {
-      results.push({ materialId: item.materialId, quantity: totalQty, orderId, orderNo, needDate, isSemiProduct: false });
+      results.push({ materialId: item.materialId, quantity: totalQty, orderId, orderNo, needDate: childNeedDate, isSemiProduct: false });
     }
   }
 
@@ -419,6 +432,7 @@ export async function runMrp(params: MrpParams = {}, userId?: number, existingRu
         materialName: s.materialName,
         specification: material.specification,
         suggestedQty: Math.ceil(s.netDemand * 100) / 100,
+        unitPrice: material.price || material.cost || 0,
         supplierId: material.supplierId,
         leadTime: material.leadTime,
         needDate,
@@ -552,6 +566,7 @@ export async function runMrp(params: MrpParams = {}, userId?: number, existingRu
           runId: run.id,
           materialId: s.materialId,
           suggestedQty: s.suggestedQty,
+          unitPrice: s.unitPrice,
           supplierId: s.supplierId,
           leadTime: s.leadTime,
           needDate: s.needDate,
@@ -668,7 +683,8 @@ export async function getMrpRun(id: number) {
     const dayMs = 24 * 60 * 60 * 1000;
     result.productionOrders = prodOrders.map((p: any) => {
       const order = orderMap.get(p.relatedOrderId);
-      const resolvedNeedDate = order?.deliveryDate ? new Date(order.deliveryDate) : (p.needDate ? new Date(p.needDate) : null);
+      // 优先用存储的 needDate（含上层制造提前期偏移）；旧运行无该值时回退销售订单交货期
+      const resolvedNeedDate = p.needDate ? new Date(p.needDate) : order?.deliveryDate ? new Date(order.deliveryDate) : null;
       const resolvedOrderDate = p.orderDate
         ? new Date(p.orderDate)
         : resolvedNeedDate
@@ -781,7 +797,7 @@ export async function listShortages() {
   const extraSuggestions = await prisma.purchaseSuggestion.findMany({
     where: { status: "pending", id: { notIn: [...jsonIds] } },
     include: {
-      material: { select: { id: true, code: true, name: true, specification: true, unit: true, supplierId: true, leadTime: true, cost: true } },
+      material: { select: { id: true, code: true, name: true, specification: true, unit: true, supplierId: true, leadTime: true, cost: true, price: true } },
     },
   });
   for (const s of extraSuggestions) {
@@ -792,6 +808,7 @@ export async function listShortages() {
       materialName: s.material.name,
       specification: s.material.specification,
       suggestedQty: s.suggestedQty,
+      unitPrice: s.unitPrice || s.material.price || s.material.cost || 0,
       supplierId: s.supplierId ?? s.material.supplierId,
       leadTime: s.leadTime ?? s.material.leadTime,
       needDate: s.needDate,
@@ -892,7 +909,7 @@ export async function generatePurchaseOrders(
   const createdOrders = [];
   for (const { supplierId, items } of byGroup.values()) {
     // 单价：建议自带的有效单价优先（0/空视为未设，回退物料主文件成本）
-    const priceOf = (s: (typeof items)[number]) => s.unitPrice || s.material.cost || 0;
+    const priceOf = (s: (typeof items)[number]) => s.unitPrice || s.material.price || s.material.cost || 0;
     const totalAmount = items.reduce((sum, s) => sum + s.suggestedQty * priceOf(s), 0);
     const tax = supplierId != null ? supplierTax.get(supplierId) : undefined;
 
@@ -1012,7 +1029,7 @@ export async function createSafetyStockSuggestions() {
         runId: latestRun.id,
         materialId: m.id,
         suggestedQty: Math.ceil(shortage * 100) / 100,
-        unitPrice: m.cost ?? 0,
+        unitPrice: m.price || m.cost || 0,
         supplierId: m.supplierId,
         leadTime: m.leadTime,
         needDate,

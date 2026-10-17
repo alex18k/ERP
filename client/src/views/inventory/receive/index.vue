@@ -164,6 +164,21 @@ async function submitReceive(): Promise<boolean> {
 }
 
 async function confirmReceive() {
+  const items = receiveItems.value.filter((it) => (it.receiveQty || 0) > 0)
+  if (items.length === 0) {
+    ElMessage.warning('请填写收货数量')
+    return
+  }
+  const totalQty = items.reduce((sum, it) => sum + (it.receiveQty || 0), 0)
+  try {
+    await ElMessageBox.confirm(
+      `本次将提交 ${items.length} 个物料收货，合计数量 ${totalQty}，提交后库存将增加且不可撤销，是否继续？`,
+      '提交收货',
+      { type: 'warning', confirmButtonText: '提交', cancelButtonText: '取消' },
+    )
+  } catch {
+    return
+  }
   if (await submitReceive()) receiveVisible.value = false
 }
 
@@ -293,7 +308,7 @@ onMounted(async () => {
       </el-table>
       <template #footer>
         <el-button @click="confirmLeave()">关闭</el-button>
-        <el-button type="primary" :loading="receiving" @click="confirmReceive">确认收货</el-button>
+        <el-button type="primary" :loading="receiving" @click="confirmReceive">提交</el-button>
       </template>
     </el-dialog>
   </div>

@@ -41,6 +41,9 @@
       <el-table-column label="参考成本" width="90" align="right">
         <template #default="{ row }">{{ row.cost ?? '-' }}</template>
       </el-table-column>
+      <el-table-column label="最近采购价" width="100" align="right">
+        <template #default="{ row }">{{ row.price ?? '-' }}</template>
+      </el-table-column>
       <el-table-column prop="materialType" label="物料类别" width="120" show-overflow-tooltip />
     </el-table>
 

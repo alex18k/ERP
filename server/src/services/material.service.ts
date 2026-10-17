@@ -16,6 +16,7 @@ export interface MaterialCreateInput {
   materialType?: string;
   minOrderQty?: number;
   cost?: number;
+  price?: number;
   processRouteId?: number;
   location?: string;
   supplierId?: number;
@@ -150,7 +151,7 @@ export async function listMaterialOptions(where: MaterialOptionWhere) {
   }
   const materials = await prisma.material.findMany({
     where: filters,
-    select: { id: true, code: true, name: true, specification: true, unit: true, location: true, cost: true, category: true, processRouteId: true, batchManaged: true },
+    select: { id: true, code: true, name: true, specification: true, unit: true, location: true, cost: true, price: true, category: true, processRouteId: true, batchManaged: true },
     orderBy: { code: "asc" },
     take: Math.min(Number(limit) || 50, 500),
   });
@@ -191,6 +192,7 @@ export async function createMaterial(data: MaterialCreateInput) {
       manufactureLeadTime: data.manufactureLeadTime ?? 0,
       minOrderQty: data.minOrderQty ?? 0,
       cost: data.cost ?? 0,
+      price: data.price ?? 0,
     },
   });
 }
