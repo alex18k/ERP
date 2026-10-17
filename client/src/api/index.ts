@@ -67,6 +67,14 @@ export const warehouseApi = {
   remove: (id: number) => request.delete(`/warehouses/${id}`),
 }
 
+// ===== 货位（仓库下的存放位置）=====
+export const warehouseBinApi = {
+  list: (params: PageParams) => request.get('/warehouse-bins', { params }),
+  create: (data: any) => request.post('/warehouse-bins', data),
+  update: (id: number, data: any) => request.put(`/warehouse-bins/${id}`, data),
+  remove: (id: number) => request.delete(`/warehouse-bins/${id}`),
+}
+
 export const customerApi = {
   list: (params: PageParams) => request.get('/customers', { params }),
   create: (data: any) => request.post('/customers', data),

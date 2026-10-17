@@ -34,6 +34,7 @@ const routes = [
       { path: 'base/material-category', name: 'MaterialCategory', component: () => import('../views/base/materialCategory/index.vue'), meta: { title: '物料类别维护' } },
       { path: 'base/supplier', name: 'Supplier', component: () => import('../views/base/supplier/index.vue'), meta: { title: '供应商管理' } },
       { path: 'base/warehouse', name: 'Warehouse', component: () => import('../views/base/warehouse/index.vue'), meta: { title: '仓库管理' } },
+      { path: 'base/bin', name: 'WarehouseBin', component: () => import('../views/base/bin/index.vue'), meta: { title: '货位管理' } },
       { path: 'base/customer', name: 'Customer', component: () => import('../views/base/customer/index.vue'), meta: { title: '客户管理' } },
       { path: 'base/workshop', name: 'Workshop', component: () => import('../views/base/workshop/index.vue'), meta: { title: '车间管理' } },
       { path: 'base/workstation', name: 'Workstation', component: () => import('../views/base/workstation/index.vue'), meta: { title: '工位管理' } },

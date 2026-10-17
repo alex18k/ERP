@@ -113,7 +113,8 @@ export async function listStockRecords(where: any) {
 }
 
 // ===== 批号管理辅助 =====
-// 入库：批号管理物料必须带批号（调用方未提供则自动生成），累加批号库存；非批号管理物料直接返回传入批号（通常为空）
+// 入库：只要提供了批号就写入批次台账（非批号管理物料可选用批号，同样走批号管控逻辑）；
+// 批号管理物料未提供批号则自动生成，非批号管理物料未提供批号则不记批次明细。
 export async function applyBatchIn(
   tx: any,
   material: { id: number; code: string; batchManaged?: boolean },
@@ -121,7 +122,7 @@ export async function applyBatchIn(
   batchNo: string | undefined,
   quantity: number
 ): Promise<string | null> {
-  // 未启用批号管理且未提供批号：不记批号明细
+  // 未提供批号且非批号管理物料：不记批次明细
   if (!material.batchManaged && !batchNo?.trim()) return null;
   const resolved = batchNo?.trim() ? batchNo.trim() : await generateBatchNo(tx, material);
   // upsert + 原子累加：并发下走数据库 ON CONFLICT，避免“读-改-写”丢失更新
@@ -133,7 +134,8 @@ export async function applyBatchIn(
   return resolved;
 }
 
-// 出库：批号管理物料必须指定批号且该批库存充足；非批号管理物料直接返回传入批号
+// 出库：提供了批号即按批次台账扣减并校验批次余量；批号管理物料必须指定批号，
+// 非批号管理物料默认可选，但若该物料×仓库仍存在批次库存，则也必须指定批号（保证批次台账与现存量一致）。
 export async function applyBatchOut(
   tx: any,
   material: { id: number; code: string; batchManaged?: boolean },
@@ -141,8 +143,15 @@ export async function applyBatchOut(
   batchNo: string | undefined,
   quantity: number
 ): Promise<string | null> {
-  // 未启用批号管理且未提供批号：不校验批号明细
-  if (!material.batchManaged && !batchNo?.trim()) return null;
+  // 非批号管理物料且未提供批号：仅当该仓库已无批次库存时才允许不记批次
+  if (!material.batchManaged && !batchNo?.trim()) {
+    const batchStock = await tx.materialBatch.findFirst({
+      where: { materialId: material.id, warehouseId, quantity: { gt: 0 } },
+      select: { batchNo: true },
+    });
+    if (batchStock) throw new Error(`物料 ${material.code} 该仓库存在批次库存，出库必须指定批号`);
+    return null;
+  }
   if (!batchNo?.trim()) throw new Error(`物料 ${material.code} 启用批号管理，出库必须指定批号`);
   const resolved = batchNo.trim();
   const existing = await tx.materialBatch.findUnique({

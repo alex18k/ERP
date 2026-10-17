@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { stockApi, warehouseApi, materialApi, stockTransactionTypeApi } from '../../../api'
 
 const loading = ref(false)
@@ -11,6 +11,8 @@ const query = reactive({ page: 1, pageSize: 20, materialKeyword: '', warehouseId
 
 // ===== 增加库存事务 =====
 const dialogVisible = ref(false)
+const submitting = ref(false)
+const initialForm = ref<any>({})
 const materials = ref<any[]>([])
 const materialLoading = ref(false)
 const materialMap = new Map<number, any>()
@@ -19,6 +21,50 @@ const form = reactive<any>({ materialId: null, warehouseId: null, batchNo: '', q
 
 // 选定物料的可用计量单位（基本单位 + 转换单位）
 const selectedMaterial = computed(() => (form.materialId ? materialMap.get(form.materialId) : null))
+const selectedTransactionType = computed(() => transactionTypes.value.find((t) => t.id === form.transactionTypeId) || null)
+// 事务类型方向决定增/减：in=入库，out=出库
+const isOutbound = computed(() => (selectedTransactionType.value?.direction || 'in') === 'out')
+// 批号字段对所有物料展示：非批号管理物料可选填批号，填了同样走批号管控（记批次行）
+// 出库必须指定批次的情形：批号管理物料，或该物料×仓库已存在批次库存；入库留空由后端自动生成
+const batchManaged = computed(() => selectedMaterial.value?.batchManaged === true)
+
+// 批号候选：该物料×仓库尚有结存的批次（出库选择 / 入库选择或新建）
+const batchOptions = ref<any[]>([])
+const batchLoading = ref(false)
+const batchRequired = computed(() => isOutbound.value && (batchManaged.value || batchOptions.value.length > 0))
+const batchPlaceholder = computed(() => {
+  if (isOutbound.value) return batchRequired.value ? '选择该仓库现有批次（出库必选）' : '可选：选择该仓库现有批次'
+  return batchManaged.value ? '留空自动生成，或选择/输入已有批号' : '可选：输入或选择批号（留空不记批次）'
+})
+
+// 当前所选批号的剩余量（用于出库数量管控）
+const selectedBatchQty = computed(() => {
+  const b = batchOptions.value.find((x: any) => x.batchNo === form.batchNo)
+  return b ? Number(b.quantity) : 0
+})
+
+async function loadBatchOptions() {
+  form.batchNo = ''
+  if (!form.materialId || !form.warehouseId) {
+    batchOptions.value = []
+    return
+  }
+  batchLoading.value = true
+  try {
+    const res: any = await stockApi.batches({ materialId: form.materialId, warehouseId: form.warehouseId, pageSize: 200 })
+    batchOptions.value = res.data.items || []
+  } catch {
+    batchOptions.value = []
+  } finally {
+    batchLoading.value = false
+  }
+}
+
+// 选择物料后自动带出默认计量单位（基本单位）
+function onMaterialChange() {
+  form.unit = selectedMaterial.value?.unit || ''
+  loadBatchOptions()
+}
 const unitOptions = computed<string[]>(() => {
   const m = selectedMaterial.value
   const set = new Set<string>(['个', '件', '套', '台', '只', '箱', '包'])
@@ -75,16 +121,27 @@ async function loadOptions() {
 
 function openDialog() {
   Object.assign(form, { materialId: null, warehouseId: null, batchNo: '', quantity: 1, unit: '', transactionTypeId: null, effectiveDate: todayStr(), documentNo: '', lineNo: null, remark: '' })
+  batchOptions.value = []
+  initialForm.value = { ...form }
   dialogVisible.value = true
 }
 
-async function handleSubmit() {
-  if (!form.transactionTypeId) { ElMessage.warning('请选择事务类型'); return }
-  if (!form.materialId) { ElMessage.warning('请选择物料'); return }
-  if (!form.warehouseId) { ElMessage.warning('请选择仓库'); return }
-  if (form.quantity <= 0) { ElMessage.warning('数量必须大于0'); return }
+// 表单是否有未保存的修改
+function isDirty() {
+  return JSON.stringify(form) !== JSON.stringify(initialForm.value)
+}
 
-  const tt = transactionTypes.value.find((t) => t.id === form.transactionTypeId)
+async function handleSubmit(): Promise<boolean> {
+  if (!form.transactionTypeId) { ElMessage.warning('请选择事务类型'); return false }
+  if (!form.materialId) { ElMessage.warning('请选择物料'); return false }
+  if (!form.warehouseId) { ElMessage.warning('请选择仓库'); return false }
+  if (form.quantity <= 0) { ElMessage.warning('数量必须大于0'); return false }
+  if (batchRequired.value && !form.batchNo) { ElMessage.warning('出库需选择批号（该物料或仓库存在批次库存）'); return false }
+  if (isOutbound.value && form.batchNo && form.quantity > selectedBatchQty.value) {
+    ElMessage.warning(`出库数量不能超过该批余量 ${selectedBatchQty.value}`)
+    return false
+  }
+
   const payload = {
     materialId: form.materialId,
     warehouseId: form.warehouseId,
@@ -98,17 +155,50 @@ async function handleSubmit() {
     remark: form.remark,
   }
 
+  submitting.value = true
   try {
-    if ((tt?.direction || 'in') === 'in') {
-      await stockApi.in(payload)
-      ElMessage.success('入库成功')
-    } else {
+    if (isOutbound.value) {
       await stockApi.out(payload)
       ElMessage.success('出库成功')
+    } else {
+      await stockApi.in(payload)
+      ElMessage.success('入库成功')
     }
-    dialogVisible.value = false
     loadData()
-  } catch { /* error shown by interceptor */ }
+    return true
+  } catch {
+    return false
+  } finally {
+    submitting.value = false
+  }
+}
+
+async function confirmSubmit() {
+  if (await handleSubmit()) dialogVisible.value = false
+}
+
+// 关闭前检查是否有未保存的修改：有则询问是否保存
+function confirmLeave(done?: () => void) {
+  const close = () => {
+    if (done) done()
+    else dialogVisible.value = false
+  }
+  if (!isDirty()) {
+    close()
+    return
+  }
+  ElMessageBox.confirm('当前库存事务尚未保存，是否保存后关闭？', '未保存的修改', {
+    confirmButtonText: '保存',
+    cancelButtonText: '不保存',
+    distinguishCancelAndClose: true,
+    type: 'warning',
+  })
+    .then(async () => {
+      if (await handleSubmit()) close()
+    })
+    .catch((action: string) => {
+      if (action === 'cancel') close()
+    })
 }
 
 function signedQty(row: any) {
@@ -209,10 +299,10 @@ onMounted(async () => {
     </div>
 
     <!-- 增加库存事务 -->
-    <el-dialog v-model="dialogVisible" title="库存事务" width="480px" destroy-on-close>
+    <el-dialog v-model="dialogVisible" title="库存事务" width="480px" destroy-on-close :close-on-click-modal="false" :close-on-press-escape="false" :before-close="confirmLeave">
       <el-form :model="form" label-width="100px">
         <el-form-item label="事务类型" required>
-          <el-select v-model="form.transactionTypeId" filterable placeholder="选择事务类型（决定增/减）" style="width: 100%">
+          <el-select v-model="form.transactionTypeId" filterable placeholder="选择事务类型（决定增/减）" style="width: 100%" @change="loadBatchOptions">
             <el-option v-for="t in transactionTypes" :key="t.id" :label="t.description" :value="t.id">
               <span>{{ t.description }}</span>
               <el-tag size="small" :type="t.direction === 'in' ? 'success' : 'danger'" style="float: right; margin-top: 5px">{{ t.direction === 'in' ? '增' : '减' }}</el-tag>
@@ -220,21 +310,33 @@ onMounted(async () => {
           </el-select>
         </el-form-item>
         <el-form-item label="物料" required>
-          <el-select v-model="form.materialId" filterable remote reserve-keyword :remote-method="searchMaterials" :loading="materialLoading" placeholder="输入编码/名称搜索物料" style="width: 100%">
+          <el-select v-model="form.materialId" filterable remote reserve-keyword :remote-method="searchMaterials" :loading="materialLoading" placeholder="输入编码/名称搜索物料" style="width: 100%" @change="onMaterialChange">
             <el-option v-for="m in materials" :key="m.id" :label="`${m.code} - ${m.name}${m.specification ? ' / ' + m.specification : ''}`" :value="m.id" />
           </el-select>
         </el-form-item>
         <el-form-item label="仓库" required>
-          <el-select v-model="form.warehouseId" placeholder="选择仓库" style="width: 100%">
+          <el-select v-model="form.warehouseId" placeholder="选择仓库" style="width: 100%" @change="loadBatchOptions">
             <el-option v-for="w in warehouses" :key="w.id" :label="`${w.code} - ${w.name}`" :value="w.id" />
           </el-select>
         </el-form-item>
-        <el-form-item label="批号">
-          <el-input v-model="form.batchNo" placeholder="启用批号管理的物料必填/出库必填；入库不填自动生成" />
+        <el-form-item label="批号" :required="batchRequired">
+          <el-select
+            v-model="form.batchNo"
+            filterable
+            :allow-create="!isOutbound"
+            :default-first-option="!isOutbound"
+            clearable
+            :loading="batchLoading"
+            :placeholder="batchPlaceholder"
+            style="width: 100%"
+          >
+            <el-option v-for="b in batchOptions" :key="b.batchNo" :label="`${b.batchNo}（余 ${b.quantity}）`" :value="b.batchNo" />
+          </el-select>
         </el-form-item>
         <el-form-item label="数量" required>
-          <el-input-number v-model="form.quantity" :min="1" style="width: 100%" />
+          <el-input-number v-model="form.quantity" :min="1" :max="isOutbound && form.batchNo ? selectedBatchQty : undefined" style="width: 100%" />
           <div v-if="baseHint" class="unit-hint">{{ baseHint }}</div>
+          <div v-if="isOutbound && form.batchNo" class="unit-hint">该批余量 {{ selectedBatchQty }}</div>
         </el-form-item>
         <el-form-item label="计量单位">
           <el-select v-model="form.unit" filterable allow-create default-first-option clearable placeholder="默认基本单位" style="width: 100%">
@@ -255,8 +357,8 @@ onMounted(async () => {
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="handleSubmit">确定</el-button>
+        <el-button @click="confirmLeave()">取消</el-button>
+        <el-button type="primary" :loading="submitting" @click="confirmSubmit">确定</el-button>
       </template>
     </el-dialog>
   </div>

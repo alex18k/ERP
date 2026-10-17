@@ -150,7 +150,7 @@ export async function listMaterialOptions(where: MaterialOptionWhere) {
   }
   const materials = await prisma.material.findMany({
     where: filters,
-    select: { id: true, code: true, name: true, specification: true, unit: true, location: true, cost: true, category: true, processRouteId: true },
+    select: { id: true, code: true, name: true, specification: true, unit: true, location: true, cost: true, category: true, processRouteId: true, batchManaged: true },
     orderBy: { code: "asc" },
     take: Math.min(Number(limit) || 50, 500),
   });

@@ -1,4 +1,5 @@
 // 从 StockRecord 流水回填 MaterialBatch（按 物料×仓库×批号 汇总 in-out）
+// 包含非批号管理物料：这些物料若在出入库时录入了批号，也会走批号管控并记批次行
 // 用法: npx tsx prisma/backfill-batches.ts
 import prisma from "../src/config/prisma";
 

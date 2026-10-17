@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { supplierController, warehouseController, customerController, workshopController, workstationController, stockTransactionTypeController, unitConversionController, materialCategoryController } from "../controllers/base.controller";
+import { supplierController, warehouseController, warehouseBinController, customerController, workshopController, workstationController, stockTransactionTypeController, unitConversionController, materialCategoryController } from "../controllers/base.controller";
 import { authMiddleware, requirePermission } from "../middleware/auth";
 
 function crudRoutes(controller: any, perm: string, forbidGet?: boolean) {
@@ -16,6 +16,15 @@ function crudRoutes(controller: any, perm: string, forbidGet?: boolean) {
 export const supplierRoutes = crudRoutes(supplierController, "purchase");
 export const customerRoutes = crudRoutes(customerController, "order");
 export const warehouseRoutes = crudRoutes(warehouseController, "stock");
+
+// 货位（仓库下的存放位置）：查看 stock:view，维护 stock:edit
+export const warehouseBinRoutes = Router();
+warehouseBinRoutes.use(authMiddleware);
+warehouseBinRoutes.get("/", requirePermission("stock:view"), warehouseBinController.list);
+warehouseBinRoutes.get("/:id", requirePermission("stock:view"), warehouseBinController.get);
+warehouseBinRoutes.post("/", requirePermission("stock:edit"), warehouseBinController.create);
+warehouseBinRoutes.put("/:id", requirePermission("stock:edit"), warehouseBinController.update);
+warehouseBinRoutes.delete("/:id", requirePermission("stock:edit"), warehouseBinController.remove);
 
 export const workshopRoutes = Router();
 workshopRoutes.use(authMiddleware);

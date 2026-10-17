@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { purchaseApi } from '../../../api'
 import { BASE_LOCATIONS } from '../../../utils/location'
 
@@ -105,18 +105,24 @@ function openReceive(row: any) {
   receiveVisible.value = true
 }
 
-async function submitReceive() {
+function clearReceiveQty() {
+  receiveItems.value.forEach((it) => {
+    it.receiveQty = 0
+  })
+}
+
+async function submitReceive(): Promise<boolean> {
   const items = receiveItems.value
     .filter((it) => it.receiveQty > 0)
     .map((it) => ({ itemId: it.itemId, quantity: it.receiveQty, batchNo: it.batchNo || undefined }))
   if (items.length === 0) {
     ElMessage.warning('请填写收货数量')
-    return
+    return false
   }
   const over = receiveItems.value.find((it) => it.receiveQty > it.remaining)
   if (over) {
     ElMessage.warning(`${over.materialCode} 收货数量不能超过未收数量 ${over.remaining}`)
-    return
+    return false
   }
   receiving.value = true
   try {
@@ -126,13 +132,43 @@ async function submitReceive() {
       location: receiveForm.location || undefined,
     })
     ElMessage.success('收货完成')
-    receiveVisible.value = false
     loadData()
+    return true
   } catch {
     /* error shown */
+    return false
   } finally {
     receiving.value = false
   }
+}
+
+async function confirmReceive() {
+  if (await submitReceive()) receiveVisible.value = false
+}
+
+// 离开前检查是否有未保存的收货数量：有则询问是否保存
+function confirmLeave(done?: () => void) {
+  const close = () => {
+    if (done) done()
+    else receiveVisible.value = false
+  }
+  const hasQty = receiveItems.value.some((it) => (it.receiveQty || 0) > 0)
+  if (!hasQty) {
+    close()
+    return
+  }
+  ElMessageBox.confirm('当前已填写收货数量，是否保存后关闭？', '未保存的收货', {
+    confirmButtonText: '保存',
+    cancelButtonText: '不保存',
+    distinguishCancelAndClose: true,
+    type: 'warning',
+  })
+    .then(async () => {
+      if (await submitReceive()) close()
+    })
+    .catch((action: string) => {
+      if (action === 'cancel') close()
+    })
 }
 
 onMounted(loadData)
@@ -190,7 +226,7 @@ onMounted(loadData)
     </div>
 
     <!-- 收货弹窗 -->
-    <el-dialog v-model="receiveVisible" :title="`采购收货 - ${currentOrder?.orderNo || ''}`" width="720px" destroy-on-close>
+    <el-dialog v-model="receiveVisible" :title="`采购收货 - ${currentOrder?.orderNo || ''}`" width="960px" destroy-on-close :close-on-click-modal="false" :close-on-press-escape="false" :before-close="confirmLeave">
       <el-descriptions :column="3" border size="small" style="margin-bottom: 12px">
         <el-descriptions-item label="供应商">{{ currentOrder?.supplier?.name || '未指定' }}</el-descriptions-item>
         <el-descriptions-item label="生效日期">
@@ -202,7 +238,10 @@ onMounted(loadData)
           </el-select>
         </el-descriptions-item>
       </el-descriptions>
-      <el-table :data="receiveItems" size="small" stripe>
+      <div style="display: flex; justify-content: flex-end; margin-bottom: 8px">
+        <el-button size="small" @click="clearReceiveQty">清空数量</el-button>
+      </div>
+      <el-table :data="receiveItems" size="small" stripe max-height="356px">
         <el-table-column label="物料" min-width="180">
           <template #default="{ row }">{{ row.materialCode }} - {{ row.materialName }}</template>
         </el-table-column>
@@ -212,7 +251,7 @@ onMounted(loadData)
         <el-table-column prop="remaining" label="未收" width="80" />
         <el-table-column label="本次收货" width="140">
           <template #default="{ row }">
-            <el-input-number v-model="row.receiveQty" :min="0" :max="row.remaining" :precision="2" size="small" style="width: 100%" />
+            <el-input-number v-model="row.receiveQty" :min="0" :max="row.remaining" :precision="2" size="small" style="width: 100%" @dblclick="row.receiveQty = row.remaining" />
           </template>
         </el-table-column>
         <el-table-column label="批号" width="170">
@@ -222,8 +261,8 @@ onMounted(loadData)
         </el-table-column>
       </el-table>
       <template #footer>
-        <el-button @click="receiveVisible = false">取消</el-button>
-        <el-button type="primary" :loading="receiving" @click="submitReceive">确认收货</el-button>
+        <el-button @click="confirmLeave()">关闭</el-button>
+        <el-button type="primary" :loading="receiving" @click="confirmReceive">确认收货</el-button>
       </template>
     </el-dialog>
   </div>

@@ -591,7 +591,7 @@ async function copyOrderNo() {
         <div style="width: 100%">
             <el-button size="small" type="primary" plain @click="addItem"><el-icon><Plus /></el-icon>添加明细</el-button>
             <el-button size="small" type="primary" plain style="margin-left: 8px" :disabled="!currentRow" @click="removeSelected">删除选中</el-button>
-            <el-table ref="itemsTableRef" class="items-editor" :data="form.items" size="small" border style="margin-top: 8px; width: 100%" highlight-current-row @current-change="onCurrentChange" @click.capture="onTableClickCapture">
+            <el-table ref="itemsTableRef" class="items-editor" :data="form.items" size="small" border max-height="calc(100vh - 320px)" style="margin-top: 8px; width: 100%" highlight-current-row @current-change="onCurrentChange" @click.capture="onTableClickCapture">
               <el-table-column label="行" width="52" align="center">
                 <template #default="{ row }">
                   <el-input-number v-model="row.line" :min="1" :step="1" :precision="0" :controls="false" size="small" style="width: 100%" />

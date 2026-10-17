@@ -111,6 +111,7 @@ const menuItems: MenuNode[] = [
       { path: '/system/role', title: '角色管理', icon: 'Key' },
       { path: '/system/log', title: '操作日志', icon: 'Document' },
       { path: '/base/warehouse', title: '仓库管理', icon: 'OfficeBuilding' },
+      { path: '/base/bin', title: '货位管理', icon: 'Grid' },
       { path: '/base/workshop', title: '车间管理', icon: 'OfficeBuilding' },
       { path: '/base/workstation', title: '工位管理', icon: 'Monitor' },
       { path: '/inventory/batch', title: '批号库存', icon: 'List' },

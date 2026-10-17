@@ -280,6 +280,23 @@ model Warehouse {
   stocks       Stock[]
   stockRecords StockRecord[] @relation("StockRecordWarehouse")
   batches      MaterialBatch[]
+  bins         WarehouseBin[]
+}
+
+// 货位：仓库下的具体存放位置
+model WarehouseBin {
+  id          Int       @id @default(autoincrement())
+  warehouseId Int
+  warehouse   Warehouse @relation(fields: [warehouseId], references: [id])
+  code        String // 货位编码（仓库内唯一）
+  name        String // 货位名称
+  status      Int       @default(1) // 1=启用, 0=停用
+  remark      String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([warehouseId, code])
+  @@index([warehouseId])
 }
 
 model Customer {

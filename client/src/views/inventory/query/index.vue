@@ -9,14 +9,20 @@ const total = ref(0)
 const warehouses = ref<any[]>([])
 const query = reactive({ page: 1, pageSize: 20, materialCode: '', materialName: '', warehouseId: '' })
 
+// 平铺展示：把每个 物料×仓库 的库存拆成「各批号行 + 无批号（未分批）行」
 const flatList = computed(() => {
   const rows: any[] = []
   for (const s of list.value) {
-    const batches = s.batches || []
-    if (batches.length === 0) {
-      rows.push({ ...s, batchNo: '', batchQty: null })
-    } else {
-      for (const b of batches) rows.push({ ...s, batchNo: b.batchNo, batchQty: b.quantity })
+    const batches: any[] = (s.batches || []).filter((b: any) => Number(b.quantity) > 0)
+    let batchSum = 0
+    for (const b of batches) {
+      batchSum += Number(b.quantity) || 0
+      rows.push({ ...s, batchNo: b.batchNo, batchQty: b.quantity })
+    }
+    // 未纳入批号的库存（现存量 - 各批次之和）单独平铺一行
+    const remainder = Number(s.quantity || 0) - batchSum
+    if (batches.length === 0 || remainder > 1e-6) {
+      rows.push({ ...s, batchNo: '', batchQty: remainder })
     }
   }
   return rows

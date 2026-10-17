@@ -69,6 +69,79 @@ export const warehouseService = {
   },
 };
 
+// ===== 货位（仓库下的存放位置）=====
+export const warehouseBinService = {
+  list: async (where: any) => {
+    const { page = 1, pageSize = 20, keyword, warehouseId, status } = where;
+    const filters: Record<string, any> = {};
+    if (warehouseId) filters.warehouseId = Number(warehouseId);
+    if (status !== undefined && status !== "" && status !== null) filters.status = Number(status);
+    if (keyword) {
+      filters.OR = [
+        { code: { contains: keyword } },
+        { name: { contains: keyword } },
+      ];
+    }
+    const [total, items] = await Promise.all([
+      prisma.warehouseBin.count({ where: filters }),
+      prisma.warehouseBin.findMany({
+        where: filters,
+        include: { warehouse: { select: { id: true, code: true, name: true } } },
+        orderBy: [{ warehouseId: "asc" }, { code: "asc" }],
+        skip: (Number(page) - 1) * Number(pageSize),
+        take: Number(pageSize),
+      }),
+    ]);
+    return { total, page: Number(page), pageSize: Number(pageSize), items };
+  },
+  get: (id: number) =>
+    prisma.warehouseBin.findUnique({ where: { id }, include: { warehouse: { select: { id: true, code: true, name: true } } } }),
+  create: async (data: any) => {
+    const warehouseId = Number(data.warehouseId);
+    if (!warehouseId) throw new Error("请选择所属仓库");
+    const warehouse = await prisma.warehouse.findUnique({ where: { id: warehouseId } });
+    if (!warehouse) throw new Error("仓库不存在");
+    const code = String(data.code ?? "").trim();
+    const name = String(data.name ?? "").trim();
+    if (!code) throw new Error("请输入货位编码");
+    if (!name) throw new Error("请输入货位名称");
+    const dup = await prisma.warehouseBin.findFirst({ where: { warehouseId, code } });
+    if (dup) throw new Error("该仓库下货位编码已存在");
+    return prisma.warehouseBin.create({
+      data: { warehouseId, code, name, status: data.status ?? 1, remark: data.remark ?? null },
+    });
+  },
+  update: async (id: number, data: any) => {
+    const exists = await prisma.warehouseBin.findUnique({ where: { id } });
+    if (!exists) throw new Error("货位不存在");
+    const warehouseId = data.warehouseId ? Number(data.warehouseId) : exists.warehouseId;
+    const warehouse = await prisma.warehouse.findUnique({ where: { id: warehouseId } });
+    if (!warehouse) throw new Error("仓库不存在");
+    const code = data.code !== undefined ? String(data.code).trim() : exists.code;
+    const name = data.name !== undefined ? String(data.name).trim() : exists.name;
+    if (!code) throw new Error("请输入货位编码");
+    if (!name) throw new Error("请输入货位名称");
+    const dup = await prisma.warehouseBin.findFirst({ where: { warehouseId, code, NOT: { id } } });
+    if (dup) throw new Error("该仓库下货位编码已存在");
+    return prisma.warehouseBin.update({
+      where: { id },
+      data: {
+        warehouseId,
+        code,
+        name,
+        status: data.status ?? exists.status,
+        remark: data.remark !== undefined ? data.remark : exists.remark,
+      },
+    });
+  },
+  remove: async (id: number) => {
+    const exists = await prisma.warehouseBin.findUnique({ where: { id } });
+    if (!exists) throw new Error("货位不存在");
+    await prisma.warehouseBin.delete({ where: { id } });
+    return true;
+  },
+};
+
 // ===== 客户 =====
 export const customerService = {
   list: (where: any) =>
