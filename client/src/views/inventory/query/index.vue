@@ -10,29 +10,10 @@ const warehouses = ref<any[]>([])
 const bins = ref<any[]>([])
 const query = reactive({ page: 1, pageSize: 20, materialCode: '', materialName: '', warehouseId: '', binId: '' })
 
-// 平铺展示：把每个 物料×仓库 的库存拆成「各批号行 + 无批号（未分批）行」
-const flatList = computed(() => {
-  const rows: any[] = []
-  for (const s of list.value) {
-    const batches: any[] = (s.batches || []).filter((b: any) => Number(b.quantity) > 0)
-    let batchSum = 0
-    for (const b of batches) {
-      batchSum += Number(b.quantity) || 0
-      rows.push({ ...s, batchNo: b.batchNo, batchQty: b.quantity })
-    }
-    // 未纳入批号的库存（现存量 - 各批次之和）单独平铺一行
-    const remainder = Number(s.quantity || 0) - batchSum
-    if (batches.length === 0 || remainder > 1e-6) {
-      rows.push({ ...s, batchNo: '', batchQty: remainder })
-    }
-  }
-  return rows
-})
-
 async function loadData() {
   loading.value = true
   try {
-    const res: any = await stockApi.list(query)
+    const res: any = await stockApi.detail(query)
     list.value = res.data.items
     total.value = res.data.total
   } finally { loading.value = false }
@@ -84,7 +65,7 @@ onMounted(async () => {
         <el-button @click="stockApi.exportCsv()"><el-icon><Download /></el-icon>导出</el-button>
       </div>
 
-      <el-table :data="flatList" v-loading="loading" stripe max-height="calc(100vh - 260px)">
+      <el-table :data="list" v-loading="loading" stripe max-height="calc(100vh - 260px)">
         <el-table-column label="物料编码" width="110">
           <template #default="{ row }">{{ row.material?.code }}</template>
         </el-table-column>

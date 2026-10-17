@@ -1,13 +1,14 @@
 import prisma from "../config/prisma";
 import { Prisma } from "@prisma/client";
-import { localDateCompact } from "../utils/date";
+import { localDateCompact, parseLocalDateStart, parseLocalDateEnd } from "../utils/date";
 import { resolveUnitRate, toBaseQty } from "../utils/unit";
+import { lockOrderNo, ORDER_NO_LOCK } from "../utils/retry";
 
-// 生成库存事务单号：ST+日期+序号
-export async function generateStockDocNo(): Promise<string> {
+// 生成库存事务单号：ST+日期+序号（在事务内配合 advisory lock 生成，避免并发重复）
+export async function generateStockDocNo(client: any = prisma): Promise<string> {
   const dateStr = localDateCompact();
   const prefix = `ST${dateStr}`;
-  const existing = await prisma.stockRecord.findMany({
+  const existing = await client.stockRecord.findMany({
     where: { documentNo: { startsWith: prefix } },
     select: { documentNo: true },
   });
@@ -19,9 +20,8 @@ export async function generateStockDocNo(): Promise<string> {
   return `${prefix}${String(max + 1).padStart(4, "0")}`;
 }
 
-export async function listStocks(where: any) {
-  const { materialCode, materialName, warehouseId, binId, page = 1, pageSize = 20 } = where;
-
+function buildStockFilters(where: any) {
+  const { materialCode, materialName, warehouseId, binId } = where;
   const filters: any = { quantity: { gt: 0 } };
   if (materialCode || materialName) {
     filters.material = {
@@ -31,6 +31,137 @@ export async function listStocks(where: any) {
   }
   if (warehouseId) filters.warehouseId = Number(warehouseId);
   if (binId !== undefined && binId !== "" && binId !== null) filters.binId = Number(binId);
+  return filters;
+}
+
+// 物料全仓现存量合计：安全库存是物料级口径，判断“低于安全库存”必须跨仓库汇总，
+// 与 getStockAlerts 保持一致（不能拿单个仓库的数量去比全局安全库存）。
+async function materialStockTotals(materialIds: number[]) {
+  if (materialIds.length === 0) return new Map<number, number>();
+  const grouped = await prisma.stock.groupBy({
+    by: ["materialId"],
+    where: { materialId: { in: materialIds } },
+    _sum: { quantity: true },
+  });
+  return new Map(grouped.map((g) => [g.materialId, g._sum.quantity ?? 0]));
+}
+
+// 查询当前筛选条件下的全部库存行（含物料/仓库/货位/批次），供按批号平铺、按仓库×物料分组后分页。
+// 库存行数 = 物料×仓库×货位，量级远小于物料主数据；这里只在服务端汇总，避免把全量数据推给前端。
+async function loadStockRows(where: any) {
+  const items = await prisma.stock.findMany({
+    where: buildStockFilters(where),
+    include: {
+      material: { select: { id: true, code: true, name: true, specification: true, category: true, unit: true, safetyStock: true } },
+      warehouse: { select: { id: true, code: true, name: true, binManaged: true } },
+      bin: { select: { id: true, code: true, name: true } },
+    },
+    orderBy: [{ material: { code: "asc" } }, { warehouseId: "asc" }, { binId: "asc" }],
+  });
+
+  const batchRows = items.length > 0
+    ? await prisma.materialBatch.findMany({
+        where: { materialId: { in: [...new Set(items.map((s) => s.materialId))] }, warehouseId: { in: [...new Set(items.map((s) => s.warehouseId))] } },
+        orderBy: { batchNo: "asc" },
+      })
+    : [];
+  const batchByKey = new Map<string, { batchNo: string; quantity: number }[]>();
+  for (const b of batchRows) {
+    const key = `${b.materialId}|${b.warehouseId}|${b.binId ?? ""}`;
+    if (!batchByKey.has(key)) batchByKey.set(key, []);
+    batchByKey.get(key)!.push({ batchNo: b.batchNo, quantity: b.quantity });
+  }
+
+  const totals = await materialStockTotals([...new Set(items.map((s) => s.materialId))]);
+  return items.map((s) => ({
+    ...s,
+    availableQty: s.quantity - s.reservedQty,
+    isLow: s.material.safetyStock > 0 && (totals.get(s.materialId) ?? 0) <= s.material.safetyStock,
+    batches: batchByKey.get(`${s.materialId}|${s.warehouseId}|${s.binId ?? ""}`) ?? [],
+  }));
+}
+
+// 库存明细台账：按「批号行 + 未分批余量行」平铺后再分页，保证 total 与实际展示行数一致
+export async function listStockDetail(where: any) {
+  const { page = 1, pageSize = 20 } = where;
+  const rows = await loadStockRows(where);
+
+  const flat: any[] = [];
+  for (const s of rows) {
+    const batches = (s.batches || []).filter((b: any) => Number(b.quantity) > 0);
+    let batchSum = 0;
+    for (const b of batches) {
+      batchSum += Number(b.quantity) || 0;
+      flat.push({ ...s, batches: undefined, batchNo: b.batchNo, batchQty: b.quantity });
+    }
+    const remainder = Number(s.quantity || 0) - batchSum;
+    if (batches.length === 0 || remainder > 1e-6) {
+      flat.push({ ...s, batches: undefined, batchNo: "", batchQty: remainder });
+    }
+  }
+
+  const pageNum = Number(page);
+  const sizeNum = Number(pageSize);
+  return { total: flat.length, page: pageNum, pageSize: sizeNum, items: flat.slice((pageNum - 1) * sizeNum, pageNum * sizeNum) };
+}
+
+// 库存查询：按「仓库 × 物料」分组后分页，每组附带货位/批号明细
+export async function listStockSummary(where: any) {
+  const { page = 1, pageSize = 20 } = where;
+  const rows = await loadStockRows(where);
+
+  const map = new Map<string, any>();
+  for (const s of rows) {
+    const key = `${s.warehouseId}|${s.materialId}`;
+    let g = map.get(key);
+    if (!g) {
+      g = {
+        key,
+        material: s.material,
+        warehouse: s.warehouse,
+        quantity: 0,
+        availableQty: 0,
+        reservedQty: 0,
+        safetyStock: s.material.safetyStock ?? 0,
+        children: [] as any[],
+      };
+      map.set(key, g);
+    }
+    g.quantity += Number(s.quantity) || 0;
+    g.availableQty += Number(s.availableQty) || 0;
+    g.reservedQty += Number(s.reservedQty) || 0;
+    const batches = (s.batches || []).filter((b: any) => Number(b.quantity) > 0);
+    g.children.push({
+      index: 0,
+      binLabel: s.bin ? `${s.bin.code} - ${s.bin.name}` : "未分配货位",
+      batchLabel: batches.length ? batches.map((b: any) => `${b.batchNo}（${b.quantity}）`).join("，") : "-",
+      hasDetail: !!s.bin || batches.length > 0,
+      quantity: Number(s.quantity) || 0,
+      availableQty: Number(s.availableQty) || 0,
+    });
+  }
+
+  const totals = await materialStockTotals([...new Set(rows.map((s) => s.materialId))]);
+  const groups = [...map.values()];
+  for (const g of groups) {
+    g.isLow = g.safetyStock > 0 && (totals.get(g.material.id) ?? 0) <= g.safetyStock;
+    g.children.sort((a: any, b: any) => a.binLabel.localeCompare(b.binLabel));
+    g.children.forEach((c: any, i: number) => (c.index = i + 1));
+    if (!g.children.some((c: any) => c.hasDetail)) delete g.children;
+  }
+  groups.sort((a, b) => {
+    const c = String(a.warehouse?.name || "").localeCompare(String(b.warehouse?.name || ""));
+    return c !== 0 ? c : String(a.material?.code || "").localeCompare(String(b.material?.code || ""));
+  });
+
+  const pageNum = Number(page);
+  const sizeNum = Number(pageSize);
+  return { total: groups.length, page: pageNum, pageSize: sizeNum, items: groups.slice((pageNum - 1) * sizeNum, pageNum * sizeNum) };
+}
+
+export async function listStocks(where: any) {
+  const { page = 1, pageSize = 20 } = where;
+  const filters = buildStockFilters(where);
 
   const [total, items] = await Promise.all([
     prisma.stock.count({ where: filters }),
@@ -59,6 +190,7 @@ export async function listStocks(where: any) {
     if (!batchByKey.has(key)) batchByKey.set(key, []);
     batchByKey.get(key)!.push({ batchNo: b.batchNo, quantity: b.quantity });
   }
+  const totals = await materialStockTotals([...new Set(items.map((s) => s.materialId))]);
 
   return {
     total,
@@ -67,7 +199,7 @@ export async function listStocks(where: any) {
     items: items.map((s) => ({
       ...s,
       availableQty: s.quantity - s.reservedQty,
-      isLow: s.material.safetyStock > 0 && s.quantity <= s.material.safetyStock,
+      isLow: s.material.safetyStock > 0 && (totals.get(s.materialId) ?? 0) <= s.material.safetyStock,
       batches: batchByKey.get(`${s.materialId}|${s.warehouseId}|${s.binId ?? ""}`) ?? [],
     })),
   };
@@ -90,8 +222,8 @@ export async function listStockRecords(where: any) {
   if (documentNo) filters.documentNo = { contains: documentNo };
   if (startDate || endDate) {
     filters.createdAt = {
-      gte: startDate ? new Date(startDate) : undefined,
-      lte: endDate ? new Date(endDate) : undefined,
+      gte: startDate ? parseLocalDateStart(startDate) : undefined,
+      lte: endDate ? parseLocalDateEnd(endDate) : undefined,
     };
   }
 
@@ -259,9 +391,11 @@ export async function stockIn(data: { materialId: number; quantity: number; unit
   const { rate } = await resolveUnitRate(data.materialId, data.unit);
   const baseQty = toBaseQty(data.quantity, rate);
 
-  const docNo = data.documentNo || (await generateStockDocNo());
-
   return prisma.$transaction(async (tx) => {
+    // 单号串行生成，避免并发产生重复 ST 号
+    await lockOrderNo(tx, ORDER_NO_LOCK.ST);
+    const docNo = data.documentNo || (await generateStockDocNo(tx));
+
     // 校验货位（启用货位管理的仓库必须指定货位）
     const binId = await resolveBinId(tx, warehouse, data.binId);
 
@@ -283,7 +417,7 @@ export async function stockIn(data: { materialId: number; quantity: number; unit
         transactionTypeId: data.transactionTypeId,
         documentNo: docNo,
         lineNo: data.lineNo ?? 1,
-        effectiveDate: data.effectiveDate ? new Date(data.effectiveDate) : null,
+        effectiveDate: data.effectiveDate ? new Date(data.effectiveDate) : new Date(),
         operatorId: userId,
         remark: data.remark,
       },
@@ -317,9 +451,10 @@ export async function stockOut(data: { materialId: number; quantity: number; uni
     throw new Error(`库存不足，当前库存 ${stock?.quantity ?? 0}`);
   }
 
-  const docNo = data.documentNo || (await generateStockDocNo());
-
   return prisma.$transaction(async (tx) => {
+    await lockOrderNo(tx, ORDER_NO_LOCK.ST);
+    const docNo = data.documentNo || (await generateStockDocNo(tx));
+
     const binId = await resolveBinId(tx, warehouse, data.binId);
 
     // 条件递减：写入时原子校验库存充足，防止并发下扣成负数
@@ -347,7 +482,7 @@ export async function stockOut(data: { materialId: number; quantity: number; uni
         transactionTypeId: data.transactionTypeId,
         documentNo: docNo,
         lineNo: data.lineNo ?? 1,
-        effectiveDate: data.effectiveDate ? new Date(data.effectiveDate) : null,
+        effectiveDate: data.effectiveDate ? new Date(data.effectiveDate) : new Date(),
         operatorId: userId,
         remark: data.remark,
       },
@@ -401,11 +536,13 @@ export async function transferStock(data: {
     throw new Error(`库存不足，当前库存 ${stock?.quantity ?? 0}`);
   }
 
-  const docNo = data.documentNo || (await generateStockDocNo());
   const outType = await prisma.stockTransactionType.findUnique({ where: { code: "MOVE-OUT" } });
   const inType = await prisma.stockTransactionType.findUnique({ where: { code: "MOVE-IN" } });
 
   return prisma.$transaction(async (tx) => {
+    await lockOrderNo(tx, ORDER_NO_LOCK.ST);
+    const docNo = data.documentNo || (await generateStockDocNo(tx));
+
     const fromBinId = await resolveBinId(tx, fromWarehouse, data.fromBinId);
     const toBinId = await resolveBinId(tx, toWarehouse, data.toBinId);
     if (data.fromWarehouseId === data.toWarehouseId && fromBinId === toBinId) {
@@ -549,10 +686,20 @@ export async function getStockAlerts(where: any = {}) {
 
   const materials = await prisma.material.findMany({ where: filters });
 
+  // 一次性汇总各物料现存量，避免逐物料 aggregate 的 N+1 查询
+  const materialIds = materials.map((m) => m.id);
+  const grouped = materialIds.length
+    ? await prisma.stock.groupBy({
+        by: ["materialId"],
+        where: { materialId: { in: materialIds } },
+        _sum: { quantity: true },
+      })
+    : [];
+  const qtyByMaterial = new Map(grouped.map((g) => [g.materialId, g._sum.quantity ?? 0]));
+
   const alerts = [];
   for (const m of materials) {
-    const agg = await prisma.stock.aggregate({ where: { materialId: m.id }, _sum: { quantity: true } });
-    const currentQty = agg._sum.quantity ?? 0;
+    const currentQty = qtyByMaterial.get(m.id) ?? 0;
     if (currentQty <= m.safetyStock) {
       alerts.push({
         materialId: m.id,

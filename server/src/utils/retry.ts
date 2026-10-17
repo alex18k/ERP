@@ -22,7 +22,7 @@ export async function retryOnDuplicate<T>(fn: () => Promise<T>, times = 5): Prom
 
 // 单号串行锁（PostgreSQL advisory 事务锁）：同一前缀的“生成单号 → 插入”串行化，
 // 持有到事务提交为止。键为私有常量，任意取值即可。
-export const ORDER_NO_LOCK = { SO: 74000101, MO: 74000102, PO: 74000103 } as const;
+export const ORDER_NO_LOCK = { SO: 74000101, MO: 74000102, PO: 74000103, ST: 74000104 } as const;
 
 export async function lockOrderNo(tx: any, key: number): Promise<void> {
   await tx.$executeRawUnsafe(`SELECT pg_advisory_xact_lock(${key})`);

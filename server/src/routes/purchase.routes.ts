@@ -15,7 +15,7 @@ router.get("/export", requirePermission("purchase:view"), purchaseController.exp
 router.get("/", requirePermission("purchase:view"), purchaseController.listHandler);
 router.get("/:id", requirePermission("purchase:view"), purchaseController.getHandler);
 router.post("/", requirePermission("purchase:create"), operationLog("purchase", "create"), purchaseController.createHandler);
-router.put("/:id", requirePermission("purchase:create"), operationLog("purchase", "update"), purchaseController.updateHandler);
+router.put("/:id", requirePermission("purchase:edit"), operationLog("purchase", "update"), purchaseController.updateHandler);
 router.put("/:id/confirm", requirePermission("purchase:approve"), operationLog("purchase", "confirm"), purchaseController.confirmHandler);
 router.put("/:id/status", requirePermission("purchase:approve"), operationLog("purchase", "status"), purchaseController.updateStatusHandler);
 router.delete("/:id", requirePermission("purchase:delete"), operationLog("purchase", "delete"), purchaseController.deleteHandler);

@@ -1,6 +1,6 @@
 import prisma from "../config/prisma";
 import { Prisma } from "@prisma/client";
-import { localDateCompact } from "../utils/date";
+import { localDateCompact, parseLocalDateStart, parseLocalDateEnd, startOfLocalDay } from "../utils/date";
 import { retryOnDuplicate, lockOrderNo, ORDER_NO_LOCK } from "../utils/retry";
 import { applyBatchIn, addStock, resolveBinId } from "./stock.service";
 import { resolveUnitRateMap, toBaseQty } from "../utils/unit";
@@ -296,11 +296,20 @@ export async function updatePurchaseOrder(id: number, data: PurchaseOrderInput) 
       }
     }
 
-    // 已收货明细的数量不能再改小，否则会出现 已收 > 订购 的矛盾数据
-    data.items.forEach((item, idx) => {
-      const alreadyReceived = item.id ? (receivedById.get(item.id) ?? 0) : 0;
-      if (alreadyReceived > 1e-6 && item.quantity < alreadyReceived - 1e-6) {
-        throw new Error(`第 ${item.line ?? idx + 1} 行明细已收货 ${alreadyReceived}，数量不能小于已收量`);
+    // 已收货明细的数量不能再改小，且不能更换物料/计量单位（已收量按基本单位记账，换了会对错物料）
+    data.items.forEach((item) => {
+      const old = item.id ? existingById.get(item.id) : undefined;
+      const alreadyReceived = old?.receivedQty ?? 0;
+      if (alreadyReceived > 1e-6) {
+        if (old!.materialId !== item.materialId) {
+          throw new Error(`行号 ${old!.line} 的明细已收货 ${alreadyReceived}，不能更换物料`);
+        }
+        if ((old!.unit || "") !== (item.unit || "")) {
+          throw new Error(`行号 ${old!.line} 的明细已收货 ${alreadyReceived}，不能变更计量单位`);
+        }
+        if (item.quantity < alreadyReceived - 1e-6) {
+          throw new Error(`行号 ${old!.line} 的明细已收货 ${alreadyReceived}，数量不能小于已收量`);
+        }
       }
     });
 
@@ -326,6 +335,8 @@ export async function updatePurchaseOrder(id: number, data: PurchaseOrderInput) 
           status: item.status ?? "",
           remark: item.remark || null,
           sourceOrderNo: item.sourceOrderNo || null,
+          // 整单重建时保留 MRP 采购建议关联（明细 id 会变，但建议链接不能丢）
+          suggestionId: item.id ? (existingById.get(item.id)?.suggestionId ?? null) : null,
         },
       });
     }
@@ -351,21 +362,31 @@ export async function updatePurchaseOrder(id: number, data: PurchaseOrderInput) 
   });
 }
 
+// 确认前必填项校验（草稿保存与状态流转共用，避免绕过 /confirm 直接置为已确认）
+function assertConfirmable(po: {
+  supplierId: number | null;
+  orderDate: Date | null;
+  expectedDate: Date | null;
+  buyer: string | null;
+  items: { materialId: number; quantity: number }[];
+}) {
+  if (!po.supplierId) throw new Error("请先选择供应商");
+  if (!po.orderDate) throw new Error("请先选择订货日期");
+  if (!po.expectedDate) throw new Error("请先选择截止日期");
+  if (!po.buyer) throw new Error("请先填写采购员");
+  if (!po.items || po.items.length === 0) throw new Error("采购单至少需要一个明细");
+  for (const it of po.items) {
+    if (!it.materialId) throw new Error("采购明细缺少物料");
+    if (!it.quantity || it.quantity <= 0) throw new Error("采购明细数量必须大于0");
+  }
+}
+
 export async function confirmPurchaseOrder(id: number) {
   const exists = await prisma.purchaseOrder.findUnique({ where: { id }, include: { items: true } });
   if (!exists) throw new Error("采购单不存在");
   if (exists.status !== "draft") throw new Error("仅草稿状态可确认");
 
-  // 确认前校验必填项（与保存逻辑一致）
-  if (!exists.supplierId) throw new Error("请先选择供应商");
-  if (!exists.orderDate) throw new Error("请先选择订货日期");
-  if (!exists.expectedDate) throw new Error("请先选择截止日期");
-  if (!exists.buyer) throw new Error("请先填写采购员");
-  if (!exists.items || exists.items.length === 0) throw new Error("采购单至少需要一个明细");
-  for (const it of exists.items) {
-    if (!it.materialId) throw new Error("采购明细缺少物料");
-    if (!it.quantity || it.quantity <= 0) throw new Error("采购明细数量必须大于0");
-  }
+  assertConfirmable(exists);
 
   return prisma.purchaseOrder.update({ where: { id }, data: { status: "confirmed" } });
 }
@@ -377,9 +398,12 @@ export async function updatePurchaseOrderStatus(id: number, status: string) {
   if (!MAINTAINABLE_STATUSES.includes(status)) {
     throw new Error("仅支持草稿、已确认两种状态");
   }
-  const exists = await prisma.purchaseOrder.findUnique({ where: { id } });
+  const exists = await prisma.purchaseOrder.findUnique({ where: { id }, include: { items: true } });
   if (!exists) throw new Error("采购单不存在");
   if (exists.status === status) return exists;
+
+  // 置为已确认时同样校验必填项，避免绕过 /confirm 把 MRP 草稿直接确认
+  if (status === "confirmed") assertConfirmable(exists);
 
   // 已收货订单不能退回草稿：收货已入账库存、RCT-PO 流水、MRP 在途口径会与库存脱节
   if (status === "draft") {
@@ -442,7 +466,9 @@ export async function receivePurchaseOrder(
     for (const r of receipts) {
       if (r.quantity <= 0) continue;
       const target = po.items.find((it) => it.id === r.itemId);
-      if (target && NON_RECEIVABLE.includes(target.status)) {
+      if (!target) throw new Error(`收货明细 ${r.itemId} 不属于该采购单`);
+      if (receiptsByItem.has(r.itemId)) throw new Error(`收货明细 ${r.itemId} 重复`);
+      if (NON_RECEIVABLE.includes(target.status)) {
         throw new Error(`明细「${target.material?.name ?? target.id}」状态为「${target.status}」，不能收货`);
       }
       receiptsByItem.set(r.itemId, { quantity: r.quantity, batchNo: r.batchNo });
@@ -494,15 +520,21 @@ export async function receivePurchaseOrder(
         await tx.material.update({ where: { id: item.materialId }, data: { cost: baseCost } });
       }
 
-      // 更新库存：确定入库仓库（库位编码=仓库编码；否则用已有库存所在仓库；否则第一个启用仓库），再按货位入库
+      // 更新库存：优先用本次收货指定的库位（整单覆盖）；否则按明细库位；再回退已有库存仓库/首个启用仓
       let warehouseId = locationWarehouse?.id ?? null;
+      if (!warehouseId && item.location) {
+        const byLocation = await tx.warehouse.findUnique({ where: { code: item.location } });
+        warehouseId = byLocation?.id ?? null;
+      }
       if (!warehouseId) {
         const anyStock = await tx.stock.findFirst({ where: { materialId: item.materialId } });
-        warehouseId = anyStock?.warehouseId ?? (await tx.warehouse.findFirst({ where: { status: 1 } }))?.id ?? 1;
+        warehouseId = anyStock?.warehouseId ?? (await tx.warehouse.findFirst({ where: { status: 1 } }))?.id ?? null;
       }
+      if (!warehouseId) throw new Error("没有可用的仓库，无法入库");
       const warehouse = await tx.warehouse.findUnique({ where: { id: warehouseId } });
       if (!warehouse) throw new Error("仓库不存在");
-      const binId = await resolveBinId(tx, warehouse, options?.binId);
+      // 整单指定的货位只对同一仓库生效；明细按自身库位落到别的仓库时不套用
+      const binId = await resolveBinId(tx, warehouse, warehouseId === locationWarehouse?.id ? options?.binId : undefined);
       await addStock(tx, item.materialId, warehouseId, binId, baseQty);
 
       const resolvedBatchNo = await applyBatchIn(tx, item.material, warehouseId, binId, receiptsByItem.get(item.id)?.batchNo, baseQty);
@@ -520,9 +552,9 @@ export async function receivePurchaseOrder(
           relatedId: po.id,
           transactionTypeId: receiptType?.id,
           documentNo: po.orderNo,
-          lineNo: idx + 1,
-          location: options?.location || null,
-          effectiveDate: options?.effectiveDate ? new Date(options.effectiveDate) : null,
+          lineNo: item.line ?? idx + 1,
+          location: options?.location || item.location || null,
+          effectiveDate: options?.effectiveDate ? new Date(options.effectiveDate) : new Date(),
           operatorId: userId,
         },
       });
@@ -548,7 +580,7 @@ export async function getArrivalTracking() {
     orderBy: [{ expectedDate: "asc" }],
   });
 
-  const today = new Date();
+  const todayStart = startOfLocalDay();
   return items.map((item) => ({
     id: item.id,
     orderNo: item.order.orderNo,
@@ -560,7 +592,7 @@ export async function getArrivalTracking() {
     remainingQty: item.quantity - item.receivedQty,
     expectedDate: item.expectedDate,
     status: item.status,
-    isOverdue: item.expectedDate ? item.expectedDate < today : false,
+    isOverdue: item.expectedDate ? item.expectedDate < todayStart : false,
   }));
 }
 // 采购员下拉：采购人员角色的启用用户
@@ -589,8 +621,8 @@ export async function listPurchaseReceipts(where: any) {
   }
   if (startDate || endDate) {
     filters.createdAt = {
-      gte: startDate ? new Date(startDate) : undefined,
-      lte: endDate ? new Date(endDate + "T23:59:59.999") : undefined,
+      gte: startDate ? parseLocalDateStart(startDate) : undefined,
+      lte: endDate ? parseLocalDateEnd(endDate) : undefined,
     };
   }
 

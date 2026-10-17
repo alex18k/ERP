@@ -113,7 +113,7 @@ function openReceive(row: any) {
       batchNo: '',
     }))
   receiveForm.effectiveDate = todayStr()
-  const locs = new Set<string>((row.items || []).map((it: any) => it.material?.location).filter(Boolean))
+  const locs = new Set<string>((row.items || []).map((it: any) => it.location || it.material?.location).filter(Boolean))
   receiveForm.location = locs.size === 1 ? [...locs][0] : ''
   loadBins()
   receiveVisible.value = true

@@ -418,7 +418,8 @@ onBeforeUnmount(() => window.removeEventListener('beforeunload', handleBeforeUnl
 async function handleStatusChange(status: string) {
   if (status === form.status) return
   try {
-    await purchaseApi.updateStatus(form.id, status)
+    if (status === 'confirmed') await purchaseApi.confirm(form.id)
+    else await purchaseApi.updateStatus(form.id, status)
     ElMessage.success('状态已更新')
     loadOrderOptions()
     if (form.id) loadOrder(form.id)

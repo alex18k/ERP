@@ -781,12 +781,14 @@ export async function issueBatchMaterials(
   });
   const map = new Map(rows.map((r) => [r.id, r]));
   const issueType = await prisma.stockTransactionType.findUnique({ where: { code: "ISS-WO" } });
-  const docNo = await generateStockDocNo();
 
   const issued: { batchMaterialId: number; materialCode: string; materialName: string; quantity: number }[] = [];
   const skipped: { batchMaterialId: number; materialCode: string; materialName: string; quantity: number; reason: string }[] = [];
 
+  let docNo = "";
   await prisma.$transaction(async (tx) => {
+    await lockOrderNo(tx, ORDER_NO_LOCK.ST);
+    docNo = await generateStockDocNo(tx);
     let lineNo = 1;
     for (const it of items) {
       const row = map.get(it.batchMaterialId);
@@ -1144,9 +1146,11 @@ export async function receiveBatchProduct(
   const warehouse = await prisma.warehouse.findUnique({ where: { id: warehouseId } });
   if (!warehouse) throw new Error("仓库不存在");
   const receiveType = await prisma.stockTransactionType.findUnique({ where: { code: "RCT-WO" } });
-  const docNo = await generateStockDocNo();
 
   return prisma.$transaction(async (tx) => {
+    await lockOrderNo(tx, ORDER_NO_LOCK.ST);
+    const docNo = await generateStockDocNo(tx);
+
     // 1) 原子累加入库量（写入时校验不超批次数量），防止并发超收
     const recvUpd = await tx.productionBatch.updateMany({
       where: { id: batch.id, status: { not: "cancelled" }, receivedQty: { lte: batch.quantity - baseQty + 1e-6 } },

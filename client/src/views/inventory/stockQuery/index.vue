@@ -5,61 +5,17 @@ import { materialCategoryLabel } from '../../../utils/category'
 
 const loading = ref(false)
 const list = ref<any[]>([])
+const total = ref(0)
 const warehouses = ref<any[]>([])
 const bins = ref<any[]>([])
-const query = reactive({ materialCode: '', materialName: '', warehouseId: '', binId: '' })
-
-// 按「仓库 × 物料」汇总为父行，展开显示各货位明细
-const groups = computed(() => {
-  const map = new Map<string, any>()
-  for (const s of list.value) {
-    const key = `${s.warehouseId}|${s.materialId}`
-    let g = map.get(key)
-    if (!g) {
-      g = {
-        key,
-        material: s.material,
-        warehouse: s.warehouse,
-        quantity: 0,
-        availableQty: 0,
-        reservedQty: 0,
-        safetyStock: s.material?.safetyStock ?? 0,
-        children: [] as any[],
-      }
-      map.set(key, g)
-    }
-    g.quantity += Number(s.quantity) || 0
-    g.availableQty += Number(s.availableQty) || 0
-    g.reservedQty += Number(s.reservedQty) || 0
-    const batches: any[] = (s.batches || []).filter((b: any) => Number(b.quantity) > 0)
-    g.children.push({
-      index: 0,
-      binLabel: s.bin ? `${s.bin.code} - ${s.bin.name}` : '未分配货位',
-      batchLabel: batches.length ? batches.map((b: any) => `${b.batchNo}（${b.quantity}）`).join('，') : '-',
-      hasDetail: !!s.bin || batches.length > 0,
-      quantity: Number(s.quantity) || 0,
-      availableQty: Number(s.availableQty) || 0,
-    })
-  }
-  const arr = [...map.values()]
-  for (const g of arr) {
-    g.isLow = g.safetyStock > 0 && g.quantity <= g.safetyStock
-    g.children.sort((a: any, b: any) => a.binLabel.localeCompare(b.binLabel))
-    g.children.forEach((c: any, i: number) => (c.index = i + 1))
-    // 既无货位也无批号的单一明细无需展开：去掉子行，不显示 > 符号
-    if (!g.children.some((c: any) => c.hasDetail)) delete g.children
-  }
-  return arr.sort((a, b) => {
-    const c = String(a.warehouse?.name || '').localeCompare(String(b.warehouse?.name || ''))
-    return c !== 0 ? c : String(a.material?.code || '').localeCompare(String(b.material?.code || ''))
-  })
-})
+const query = reactive({ page: 1, pageSize: 20, materialCode: '', materialName: '', warehouseId: '', binId: '' })
 
 async function loadData() {
   loading.value = true
   try {
-    const res: any = await stockApi.list({ ...query, page: 1, pageSize: 100000 })
+    const res: any = await stockApi.summary(query)
     list.value = res.data.items
+    total.value = res.data.total
   } finally { loading.value = false }
 }
 
@@ -98,8 +54,8 @@ onMounted(async () => {
         <el-select v-if="selectedBinManaged" v-model="query.binId" placeholder="货位" clearable style="width: 140px">
           <el-option v-for="b in bins" :key="b.id" :label="`${b.code} - ${b.name}`" :value="b.id" />
         </el-select>
-        <el-button type="primary" @click="loadData()"><el-icon><Search /></el-icon>查询</el-button>
-        <el-button @click="Object.assign(query, { materialCode: '', materialName: '', warehouseId: '', binId: '' }), bins = [], loadData()">重置</el-button>
+        <el-button type="primary" @click="query.page = 1, loadData()"><el-icon><Search /></el-icon>查询</el-button>
+        <el-button @click="Object.assign(query, { materialCode: '', materialName: '', warehouseId: '', binId: '', page: 1 }), bins = [], loadData()">重置</el-button>
       </div>
 
       <div class="table-toolbar">
@@ -109,7 +65,7 @@ onMounted(async () => {
         <el-button @click="stockApi.exportCsv()"><el-icon><Download /></el-icon>导出</el-button>
       </div>
 
-      <el-table :data="groups" v-loading="loading" row-key="key" :tree-props="{ children: 'children' }" stripe max-height="calc(100vh - 260px)">
+      <el-table :data="list" v-loading="loading" row-key="key" :tree-props="{ children: 'children' }" stripe max-height="calc(100vh - 260px)">
         <el-table-column label="物料编码 / 序号" width="150">
           <template #default="{ row }">
             <span v-if="row.material">{{ row.material.code }}</span>
@@ -165,6 +121,10 @@ onMounted(async () => {
           </template>
         </el-table-column>
       </el-table>
+
+      <div class="pagination-wrap">
+        <el-pagination v-model:current-page="query.page" v-model:page-size="query.pageSize" :total="total" :page-sizes="[10, 20, 50]" layout="total, sizes, prev, pager, next" @change="loadData" />
+      </div>
     </div>
   </div>
 </template>
