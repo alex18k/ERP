@@ -9,6 +9,10 @@ router.use(authMiddleware);
 
 router.get("/arrival", requirePermission("purchase:view"), purchaseController.arrivalHandler);
 router.get("/receipts", requirePermission("purchase:view"), purchaseController.receiptsHandler);
+router.get("/receipt-keepers", requirePermission("purchase:view"), purchaseController.keepersHandler);
+router.post("/receipts/:id/return", requirePermission("stock:edit"), operationLog("purchase", "return"), purchaseController.returnReceiptHandler);
+router.get("/receipt-documents", requirePermission("purchase:view"), purchaseController.receiptDocumentsHandler);
+router.post("/receipt-documents/:documentNo/return", requirePermission("stock:edit"), operationLog("purchase", "return"), purchaseController.returnReceiptDocHandler);
 router.get("/buyers", requirePermission("purchase:view"), purchaseController.buyersHandler);
 router.get("/options", requirePermission("purchase:view"), purchaseController.optionsHandler);
 router.get("/export", requirePermission("purchase:view"), purchaseController.exportHandler);

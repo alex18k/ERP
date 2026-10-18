@@ -22,6 +22,10 @@ export interface MaterialCreateInput {
   supplierId?: number;
   batchManaged?: boolean;
   remark?: string;
+  desc1?: string;
+  desc2?: string;
+  desc3?: string;
+  desc4?: string;
 }
 
 export interface MaterialWhere {

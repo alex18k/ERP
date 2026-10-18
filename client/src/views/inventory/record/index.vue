@@ -2,7 +2,7 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { stockApi, warehouseApi, materialApi, stockTransactionTypeApi, warehouseBinApi } from '../../../api'
+import { stockApi, warehouseApi, materialApi, stockTransactionTypeApi, warehouseBinApi, workshopApi } from '../../../api'
 
 const router = useRouter()
 const loading = ref(false)
@@ -21,7 +21,9 @@ const materials = ref<any[]>([])
 const materialLoading = ref(false)
 const materialMap = new Map<number, any>()
 const transactionTypes = ref<any[]>([])
-const form = reactive<any>({ materialId: null, warehouseId: null, binId: null, batchNo: '', quantity: 1, unit: '', transactionTypeId: null, effectiveDate: todayStr(), orderNo: '', lineNo: null, remark: '' })
+const departments = ref<any[]>([])
+const handlerOptions = ref<string[]>([])
+const form = reactive<any>({ materialId: null, warehouseId: null, binId: null, batchNo: '', quantity: 1, unit: '', transactionTypeId: null, effectiveDate: todayStr(), orderNo: '', lineNo: null, departmentId: null, handler: '', remark: '' })
 
 // 货位：仅当所选仓库启用货位管理时才需要/允许填写
 const bins = ref<any[]>([])
@@ -141,19 +143,31 @@ async function searchMaterials(keyword: string) {
 }
 
 async function loadOptions() {
-  const [mRes, tRes]: any[] = await Promise.all([
+  const [mRes, tRes, dRes, hRes]: any[] = await Promise.all([
     materialApi.options({ limit: 50 }),
     stockTransactionTypeApi.list({ pageSize: 200 }),
+    workshopApi.list(),
+    stockApi.handlers(),
   ])
   registerMaterials(mRes.data || [])
   registerTransferMaterials(mRes.data || [])
   transactionTypes.value = (tRes.data.items || []).filter((t: any) => t.status === 1)
+  departments.value = (dRes.data || []).filter((d: any) => d.status === 1)
+  handlerOptions.value = hRes.data || []
 }
 
-function openDialog() {
-  Object.assign(form, { materialId: null, warehouseId: null, binId: null, batchNo: '', quantity: 1, unit: '', transactionTypeId: null, effectiveDate: todayStr(), orderNo: '', lineNo: null, remark: '' })
+async function loadHandlerOptions() {
+  try {
+    const res: any = await stockApi.handlers()
+    handlerOptions.value = res.data || []
+  } catch { /* ignore */ }
+}
+
+async function openDialog() {
+  Object.assign(form, { materialId: null, warehouseId: null, binId: null, batchNo: '', quantity: 1, unit: '', transactionTypeId: null, effectiveDate: todayStr(), orderNo: '', lineNo: null, departmentId: null, handler: '', remark: '' })
   batchOptions.value = []
   bins.value = []
+  await loadHandlerOptions()
   initialForm.value = { ...form }
   dialogVisible.value = true
 }
@@ -189,6 +203,8 @@ async function submitForm(): Promise<boolean> {
     effectiveDate: form.effectiveDate,
     orderNo: form.orderNo || undefined,
     lineNo: form.lineNo ?? undefined,
+    departmentId: form.departmentId || undefined,
+    handler: form.handler || undefined,
     remark: form.remark,
   }
 
@@ -561,6 +577,12 @@ onMounted(async () => {
         <el-table-column label="余额" width="80" align="right">
           <template #default="{ row }">{{ row.balanceAfter }}</template>
         </el-table-column>
+        <el-table-column label="部门" width="120" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.department?.name || '-' }}</template>
+        </el-table-column>
+        <el-table-column label="经手人" width="100" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.handler || '-' }}</template>
+        </el-table-column>
         <el-table-column label="操作员" width="90" show-overflow-tooltip>
           <template #default="{ row }">{{ row.operator?.realName || '-' }}</template>
         </el-table-column>
@@ -596,6 +618,16 @@ onMounted(async () => {
         <el-form-item label="仓库" required>
           <el-select v-model="form.warehouseId" placeholder="选择仓库" style="width: 100%" @change="onWarehouseChange">
             <el-option v-for="w in activeWarehouses" :key="w.id" :label="`${w.code} - ${w.name}`" :value="w.id" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="部门">
+          <el-select v-model="form.departmentId" filterable clearable placeholder="选择部门" style="width: 100%">
+            <el-option v-for="d in departments" :key="d.id" :label="`${d.code} - ${d.name}`" :value="d.id" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="经手人">
+          <el-select v-model="form.handler" filterable clearable allow-create default-first-option placeholder="选择或输入经手人" style="width: 100%">
+            <el-option v-for="h in handlerOptions" :key="h" :label="h" :value="h" />
           </el-select>
         </el-form-item>
         <el-form-item v-if="binRequired" label="货位" required>

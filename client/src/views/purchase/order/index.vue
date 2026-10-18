@@ -74,6 +74,8 @@ const rows = computed(() => {
         quantity: it.quantity,
         receivedQty: it.receivedQty ?? 0,
         unitPrice: it.unitPrice,
+        taxIncluded: it.taxIncluded ?? o.taxIncluded,
+        taxRate: it.taxRate ?? o.taxRate,
         amount: it.amount,
         expectedDate: it.expectedDate,
         sourceOrderNo: it.sourceOrderNo,
@@ -104,6 +106,15 @@ function handleToolbarPrint() {
 function fmtPrice(v: any) {
   const n = Number(v)
   return n ? String(n) : ''
+}
+
+function netPrice(row: any) {
+  if (row.unitPrice == null || row.unitPrice === '') return '-'
+  const price = Number(row.unitPrice)
+  if (!Number.isFinite(price)) return '-'
+  const rate = Number(row.taxRate) || 0
+  const net = row.taxIncluded && rate > 0 ? price / (1 + rate / 100) : price
+  return net.toFixed(6)
 }
 
 // 已收量配色：未收灰色、部分收货橙色、已收满绿色
@@ -163,6 +174,9 @@ onMounted(async () => {
         </el-table-column>
         <el-table-column label="单价" width="80">
           <template #default="{ row }">{{ fmtPrice(row.unitPrice) }}</template>
+        </el-table-column>
+        <el-table-column label="不含税单价" width="120">
+          <template #default="{ row }">{{ netPrice(row) }}</template>
         </el-table-column>
         <el-table-column label="金额" width="100">
           <template #default="{ row }">¥{{ (row.amount ?? (row.quantity * (row.unitPrice || 0))).toLocaleString() }}</template>

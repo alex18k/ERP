@@ -84,7 +84,12 @@ const form = reactive<any>({
   batchManaged: false,
   location: '',
   remark: '',
+  desc1: '',
+  desc2: '',
+  desc3: '',
+  desc4: '',
 })
+let initialSnapshot = ''
 
 const rules = {
   code: [{ required: true, message: '请输入物料编码', trigger: 'blur' }],
@@ -116,7 +121,23 @@ async function openDialog(row?: any) {
     form.batchManaged = false
     form.status = 1
   }
+  initialSnapshot = JSON.stringify(buildPayload())
   dialogVisible.value = true
+}
+
+function buildPayload() {
+  const payload: any = { ...form }
+  delete payload.id
+  delete payload.createdAt
+  delete payload.updatedAt
+  delete payload.supplier
+  delete payload.stock
+  delete payload.processRoute
+  return payload
+}
+
+function isDirty() {
+  return JSON.stringify(buildPayload()) !== initialSnapshot
 }
 
 async function loadOptions() {
@@ -149,19 +170,13 @@ async function loadTypeOptions() {
   } catch { /* ignore */ }
 }
 
-async function handleSave() {
+async function handleSave(): Promise<boolean> {
   try {
     await formRef.value.validate()
   } catch {
-    return
+    return false
   }
-  const payload = { ...form }
-  delete payload.id
-  delete payload.createdAt
-  delete payload.updatedAt
-  delete payload.supplier
-  delete payload.stock
-  delete payload.processRoute
+  const payload = buildPayload()
 
   if (isEdit.value) {
     await materialApi.update(form.id, payload)
@@ -172,6 +187,32 @@ async function handleSave() {
   }
   dialogVisible.value = false
   loadData()
+  return true
+}
+
+function confirmLeave(done?: () => void) {
+  const close = () => {
+    if (done) done()
+    else dialogVisible.value = false
+  }
+  if (!isDirty()) {
+    close()
+    return
+  }
+  ElMessageBox.confirm('当前物料尚未保存，是否保存后关闭？', '未保存的修改', {
+    confirmButtonText: '保存',
+    cancelButtonText: '不保存',
+    distinguishCancelAndClose: true,
+    type: 'warning',
+  })
+    .then(async () => {
+      try {
+        if (await handleSave()) close()
+      } catch { /* error shown by interceptor */ }
+    })
+    .catch((action: string) => {
+      if (action === 'cancel') close()
+    })
 }
 
 async function handleDelete(row: any) {
@@ -290,7 +331,7 @@ onMounted(() => {
     </div>
 
     <!-- 新增/编辑对话框 -->
-    <el-dialog v-model="dialogVisible" :title="isEdit ? '编辑物料' : '新增物料'" width="800px" destroy-on-close>
+    <el-dialog v-model="dialogVisible" :title="isEdit ? '编辑物料' : '新增物料'" width="800px" destroy-on-close :close-on-click-modal="false" :before-close="confirmLeave">
       <el-form ref="formRef" :model="form" :rules="rules" label-width="100px">
         <el-row :gutter="16">
           <el-col :span="12">
@@ -413,12 +454,36 @@ onMounted(() => {
             <el-option v-for="r in routes" :key="r.id" :label="`${r.code} - ${r.name}`" :value="r.id" />
           </el-select>
         </el-form-item>
+        <el-row :gutter="16">
+          <el-col :span="12">
+            <el-form-item label="自定义字段1">
+              <el-input v-model="form.desc1" clearable />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="自定义字段2">
+              <el-input v-model="form.desc2" clearable />
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-row :gutter="16">
+          <el-col :span="12">
+            <el-form-item label="自定义字段3">
+              <el-input v-model="form.desc3" clearable />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="自定义字段4">
+              <el-input v-model="form.desc4" clearable />
+            </el-form-item>
+          </el-col>
+        </el-row>
         <el-form-item label="备注">
           <el-input v-model="form.remark" type="textarea" :rows="2" />
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="dialogVisible = false">取消</el-button>
+        <el-button @click="confirmLeave()">取消</el-button>
         <el-button type="primary" @click="handleSave">保存</el-button>
       </template>
     </el-dialog>

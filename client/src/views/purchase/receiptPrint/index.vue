@@ -84,6 +84,7 @@ onMounted(async () => {
                 </div>
                 <div class="docno">
                   <div class="docno-row"><span>收货单号</span><b>{{ receipts[0]?.receiptNo || receipts[0]?.documentNo || '-' }}</b></div>
+                  <div class="docno-row"><span>送货单号</span><b>{{ receipts[0]?.deliveryNo || '-' }}</b></div>
                   <div class="docno-row"><span>采购单号</span><b>{{ order.orderNo }}</b></div>
                   <div class="docno-row"><span>订货日期</span><b>{{ fmt(order.orderDate) }}</b></div>
                   <div class="docno-row"><span>收货日期</span><b>{{ receiptDates }}</b></div>

@@ -130,7 +130,7 @@ onMounted(async () => {
       </div>
 
       <div class="sh-sign">
-        <div class="sh-sign-cell"><div class="sh-sign-name">领料人（车间）</div><div class="sh-sign-line">签字：____________　日期：____________</div></div>
+        <div class="sh-sign-cell"><div class="sh-sign-name">领料人（部门）</div><div class="sh-sign-line">签字：____________　日期：____________</div></div>
         <div class="sh-sign-cell"><div class="sh-sign-name">发料人（仓库）</div><div class="sh-sign-line">签字：____________　日期：____________</div></div>
         <div class="sh-sign-cell"><div class="sh-sign-name">审核</div><div class="sh-sign-line">签字：____________　日期：____________</div></div>
       </div>

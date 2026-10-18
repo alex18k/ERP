@@ -50,6 +50,15 @@ export async function recordsHandler(req: Request, res: Response) {
   }
 }
 
+export async function handlersHandler(_req: Request, res: Response) {
+  try {
+    const data = await stockService.listStockHandlers();
+    return success(res, data);
+  } catch (error: any) {
+    return fail(res, 500, error.message, 500);
+  }
+}
+
 export async function recordsByDocumentHandler(req: Request, res: Response) {
   try {
     const data = await stockService.listStockRecordsByDocument(String(req.query.documentNo ?? ""));
@@ -81,6 +90,24 @@ export async function outHandler(req: AuthRequest, res: Response) {
   try {
     const data = await stockService.stockOut(req.body, req.user!.id);
     return success(res, data, "出库成功");
+  } catch (error: any) {
+    return fail(res, 400, error.message);
+  }
+}
+
+export async function inBatchHandler(req: AuthRequest, res: Response) {
+  try {
+    const data = await stockService.stockInBatch(req.body, req.user!.id);
+    return success(res, data, "成品入库成功");
+  } catch (error: any) {
+    return fail(res, 400, error.message);
+  }
+}
+
+export async function outBatchHandler(req: AuthRequest, res: Response) {
+  try {
+    const data = await stockService.stockOutBatch(req.body, req.user!.id);
+    return success(res, data, "材料出库成功");
   } catch (error: any) {
     return fail(res, 400, error.message);
   }

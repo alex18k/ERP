@@ -75,7 +75,7 @@ onMounted(loadData)
   <div class="page-container">
     <div class="page-card">
       <div class="search-bar">
-        <el-select v-model="query.workshopId" placeholder="按车间筛选" clearable style="width: 180px" @change="loadData">
+        <el-select v-model="query.workshopId" placeholder="按部门筛选" clearable style="width: 180px" @change="loadData">
           <el-option v-for="w in workshops" :key="w.id" :label="w.name" :value="w.id" />
         </el-select>
         <el-button type="primary" @click="loadData"><el-icon><Search /></el-icon>查询</el-button>
@@ -84,7 +84,7 @@ onMounted(loadData)
       <el-table :data="list" v-loading="loading" stripe max-height="calc(100vh - 260px)">
         <el-table-column prop="code" label="工位编码" width="110" />
         <el-table-column prop="name" label="工位名称" min-width="140" />
-        <el-table-column label="所属车间" min-width="120">
+        <el-table-column label="所属部门" min-width="120">
           <template #default="{ row }">{{ row.workshop?.name }}</template>
         </el-table-column>
         <el-table-column prop="type" label="类型" width="100" />
@@ -111,7 +111,7 @@ onMounted(loadData)
         <el-form-item label="工位名称" prop="name">
           <el-input v-model="form.name" />
         </el-form-item>
-        <el-form-item label="所属车间">
+        <el-form-item label="所属部门">
           <el-select v-model="form.workshopId" clearable style="width: 100%">
             <el-option v-for="w in workshops" :key="w.id" :label="w.name" :value="w.id" />
           </el-select>
