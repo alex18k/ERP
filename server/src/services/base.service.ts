@@ -176,7 +176,7 @@ export const customerService = {
   },
 };
 
-// ===== 车间/工位 =====
+// ===== 部门/工位 =====
 export const workshopService = {
   list: () =>
     prisma.workshop.findMany({
@@ -187,16 +187,16 @@ export const workshopService = {
   create: (data: any) => prisma.workshop.create({ data }),
   update: async (id: number, data: any) => {
     const exists = await prisma.workshop.findUnique({ where: { id } });
-    if (!exists) throw new Error("车间不存在");
+    if (!exists) throw new Error("部门不存在");
     return prisma.workshop.update({ where: { id }, data });
   },
   remove: async (id: number) => {
     const exists = await prisma.workshop.findUnique({ where: { id } });
-    if (!exists) throw new Error("车间不存在");
-    if (exists.status === 0) throw new Error("该车间已停用");
+    if (!exists) throw new Error("部门不存在");
+    if (exists.status === 0) throw new Error("该部门已停用");
     const activeStationCount = await prisma.workstation.count({ where: { workshopId: id, status: 1 } });
     if (activeStationCount > 0) {
-      throw new Error(`该车间下仍有 ${activeStationCount} 个有效工位，请先停用/转移后再删除`);
+      throw new Error(`该部门下仍有 ${activeStationCount} 个有效工位，请先停用/转移后再删除`);
     }
     await prisma.$transaction([
       prisma.workstation.updateMany({ where: { workshopId: id }, data: { status: 0 } }),

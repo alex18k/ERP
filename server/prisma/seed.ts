@@ -99,7 +99,7 @@ async function main() {
     update: {},
     create: {
       code: "PRODUCTION",
-      name: "车间人员",
+      name: "部门人员",
       description: "生产报工",
       dataScope: "department",
     },
@@ -239,7 +239,7 @@ async function main() {
     create: {
       username: "user01",
       passwordHash,
-      realName: "车间操作员",
+      realName: "部门操作员",
       departmentId: deptProduction.id,
       status: 1,
     },
@@ -405,16 +405,16 @@ async function main() {
     materials.set(m.code, created);
   }
 
-  // ===== 车间/工位 =====
+  // ===== 部门/工位 =====
   const workshop1 = await prisma.workshop.upsert({
     where: { code: "WS-01" },
     update: {},
-    create: { code: "WS-01", name: "一号车间", manager: "车间主任" },
+    create: { code: "WS-01", name: "一号部门", manager: "部门主任" },
   });
   const workshop2 = await prisma.workshop.upsert({
     where: { code: "WS-02" },
     update: {},
-    create: { code: "WS-02", name: "二号车间", manager: "车间副主任" },
+    create: { code: "WS-02", name: "二号部门", manager: "部门副主任" },
   });
 
   const workstationData = [

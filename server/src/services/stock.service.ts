@@ -41,8 +41,9 @@ function typeDocPrefix(type: { documentPrefix: string | null }, fallback = "ST")
 }
 
 function buildStockFilters(where: any) {
-  const { materialCode, materialName, warehouseId, binId } = where;
+  const { materialId, materialCode, materialName, warehouseId, binId } = where;
   const filters: any = { quantity: { gt: 0 } };
+  if (materialId) filters.materialId = Number(materialId);
   if (materialCode || materialName) {
     filters.material = {
       ...(materialCode && { code: { contains: materialCode } }),
@@ -378,6 +379,7 @@ export async function listStockRecords(where: any) {
         warehouse: { select: { id: true, code: true, name: true } },
         bin: { select: { id: true, code: true, name: true } },
         operator: { select: { id: true, realName: true } },
+        department: { select: { id: true, code: true, name: true } },
         transactionType: { select: { id: true, code: true, description: true, direction: true } },
       },
       orderBy: { createdAt: "desc" },
@@ -400,11 +402,23 @@ export async function listStockRecordsByDocument(documentNo: string) {
       warehouse: { select: { id: true, code: true, name: true } },
       bin: { select: { id: true, code: true, name: true } },
       operator: { select: { id: true, realName: true, username: true } },
+      department: { select: { id: true, code: true, name: true } },
       transactionType: { select: { id: true, code: true, description: true, direction: true } },
     },
     orderBy: [{ lineNo: "asc" }, { id: "asc" }],
   });
   return { documentNo: no, items };
+}
+
+// 经手人下拉：历史库存流水使用过的经手人
+export async function listStockHandlers() {
+  const rows = await prisma.stockRecord.findMany({
+    where: { handler: { not: null } },
+    select: { handler: true },
+    distinct: ["handler"],
+    orderBy: { handler: "asc" },
+  });
+  return rows.map((r) => r.handler).filter((h): h is string => !!h && h.trim() !== "");
 }
 
 // ===== 仓库/货位辅助 =====
@@ -541,7 +555,16 @@ export async function listBatches(where: any) {
   return { total, page: pageNum, pageSize: sizeNum, items };
 }
 
-export async function stockIn(data: { materialId: number; quantity: number; unit?: string; warehouseId: number; binId?: number | null; batchNo?: string; relatedType?: string; relatedId?: number; transactionTypeId: number; effectiveDate?: string; orderNo?: string; lineNo?: number; remark?: string }, userId: number) {
+// 手工库存事务的部门：必须存在且启用
+async function resolveDepartmentId(departmentId?: number | null) {
+  if (!departmentId) return null;
+  const dept = await prisma.workshop.findUnique({ where: { id: Number(departmentId) } });
+  if (!dept) throw new Error("部门不存在");
+  if (dept.status !== 1) throw new Error("该部门已停用");
+  return dept.id;
+}
+
+export async function stockIn(data: { materialId: number; quantity: number; unit?: string; warehouseId: number; binId?: number | null; batchNo?: string; relatedType?: string; relatedId?: number; transactionTypeId: number; effectiveDate?: string; orderNo?: string; lineNo?: number; remark?: string; departmentId?: number; handler?: string }, userId: number) {
   if (!Number.isFinite(data.quantity) || data.quantity <= 0) throw new Error("入库数量必须大于0");
   const transactionType = await resolveManualTransactionType(data.transactionTypeId, "in");
 
@@ -550,6 +573,8 @@ export async function stockIn(data: { materialId: number; quantity: number; unit
 
   const warehouse = await prisma.warehouse.findUnique({ where: { id: data.warehouseId } });
   if (!warehouse) throw new Error("仓库不存在");
+
+  const departmentId = await resolveDepartmentId(data.departmentId);
 
   // 计量单位换算：录入数量按换算率折算为基本单位后入库
   const { rate } = await resolveUnitRate(data.materialId, data.unit);
@@ -584,6 +609,8 @@ export async function stockIn(data: { materialId: number; quantity: number; unit
         lineNo: data.lineNo ?? 1,
         effectiveDate: data.effectiveDate ? new Date(data.effectiveDate) : new Date(),
         operatorId: userId,
+        departmentId,
+        handler: data.handler || null,
         remark: data.remark,
       },
     });
@@ -592,7 +619,7 @@ export async function stockIn(data: { materialId: number; quantity: number; unit
   });
 }
 
-export async function stockOut(data: { materialId: number; quantity: number; unit?: string; warehouseId: number; binId?: number | null; batchNo?: string; relatedType?: string; relatedId?: number; transactionTypeId: number; effectiveDate?: string; orderNo?: string; lineNo?: number; remark?: string }, userId: number) {
+export async function stockOut(data: { materialId: number; quantity: number; unit?: string; warehouseId: number; binId?: number | null; batchNo?: string; relatedType?: string; relatedId?: number; transactionTypeId: number; effectiveDate?: string; orderNo?: string; lineNo?: number; remark?: string; departmentId?: number; handler?: string }, userId: number) {
   if (!Number.isFinite(data.quantity) || data.quantity <= 0) throw new Error("出库数量必须大于0");
   const transactionType = await resolveManualTransactionType(data.transactionTypeId, "out");
 
@@ -601,6 +628,8 @@ export async function stockOut(data: { materialId: number; quantity: number; uni
 
   const warehouse = await prisma.warehouse.findUnique({ where: { id: data.warehouseId } });
   if (!warehouse) throw new Error("仓库不存在");
+
+  const departmentId = await resolveDepartmentId(data.departmentId);
 
   // 计量单位换算：录入数量按换算率折算为基本单位后出库
   const { rate } = await resolveUnitRate(data.materialId, data.unit);
@@ -651,12 +680,192 @@ export async function stockOut(data: { materialId: number; quantity: number; uni
         lineNo: data.lineNo ?? 1,
         effectiveDate: data.effectiveDate ? new Date(data.effectiveDate) : new Date(),
         operatorId: userId,
+        departmentId,
+        handler: data.handler || null,
         remark: data.remark,
       },
     });
 
     const after = await tx.stock.findUnique({ where: { id: stock.id } });
     return { success: true, remainingQty: after?.quantity ?? 0, batchNo: resolvedBatchNo, baseQty, binId };
+  });
+}
+
+// 材料出库：一张单据对应多条出库明细，共用一个系统单号，整单原子提交
+export async function stockOutBatch(
+  data: {
+    transactionTypeId: number;
+    effectiveDate?: string;
+    orderNo?: string;
+    departmentId?: number;
+    handler?: string;
+    items: {
+      materialId: number;
+      warehouseId: number;
+      binId?: number | null;
+      batchNo?: string;
+      quantity: number;
+      unit?: string;
+      remark?: string;
+    }[];
+  },
+  userId: number
+) {
+  if (!Array.isArray(data.items) || data.items.length === 0) throw new Error("请至少添加一条出库明细");
+  const transactionType = await resolveManualTransactionType(data.transactionTypeId, "out");
+  const departmentId = await resolveDepartmentId(data.departmentId);
+
+  // 预校验：物料/仓库/货位/单位换算
+  const prepared: {
+    material: any;
+    warehouse: any;
+    binId: number | null;
+    batchNo?: string;
+    baseQty: number;
+    remark?: string;
+  }[] = [];
+  for (const [idx, line] of data.items.entries()) {
+    if (!line.materialId) throw new Error(`第 ${idx + 1} 行请选择物料`);
+    if (!line.warehouseId) throw new Error(`第 ${idx + 1} 行请选择仓库`);
+    if (!Number.isFinite(line.quantity) || line.quantity <= 0) throw new Error(`第 ${idx + 1} 行数量必须大于0`);
+    const material = await prisma.material.findUnique({ where: { id: line.materialId } });
+    if (!material) throw new Error(`第 ${idx + 1} 行物料不存在`);
+    const warehouse = await prisma.warehouse.findUnique({ where: { id: line.warehouseId } });
+    if (!warehouse) throw new Error(`第 ${idx + 1} 行仓库不存在`);
+    const binId = await resolveBinId(prisma, warehouse, line.binId);
+    const { rate } = await resolveUnitRate(line.materialId, line.unit);
+    const baseQty = toBaseQty(line.quantity, rate);
+    if (baseQty <= 0) throw new Error(`第 ${idx + 1} 行数量必须大于0`);
+    prepared.push({ material, warehouse, binId, batchNo: line.batchNo, baseQty, remark: line.remark });
+  }
+
+  return prisma.$transaction(async (tx) => {
+    await lockOrderNo(tx, ORDER_NO_LOCK.ST);
+    const documentNo = await generateDocNo(tx, typeDocPrefix(transactionType));
+    const effectiveDate = data.effectiveDate ? new Date(data.effectiveDate) : new Date();
+
+    for (const [idx, line] of prepared.entries()) {
+      const binId = await resolveBinId(tx, line.warehouse, line.binId);
+
+      // 条件递减：并发出库不会扣成负数
+      const updated = await tx.stock.updateMany({
+        where: { materialId: line.material.id, warehouseId: line.warehouse.id, binId, quantity: { gte: line.baseQty } },
+        data: { quantity: { decrement: line.baseQty }, lastOutDate: new Date() },
+      });
+      if (updated.count === 0) {
+        const fresh = await tx.stock.findFirst({
+          where: { materialId: line.material.id, warehouseId: line.warehouse.id, binId },
+        });
+        throw new Error(`第 ${idx + 1} 行物料 ${line.material.code} 库存不足，当前库存 ${fresh?.quantity ?? 0}`);
+      }
+
+      const resolvedBatchNo = await applyBatchOut(tx, line.material, line.warehouse.id, binId, line.batchNo, line.baseQty);
+
+      await tx.stockRecord.create({
+        data: {
+          materialId: line.material.id,
+          warehouseId: line.warehouse.id,
+          binId,
+          type: "out",
+          quantity: line.baseQty,
+          batchNo: resolvedBatchNo,
+          transactionTypeId: data.transactionTypeId,
+          documentNo,
+          orderNo: data.orderNo || null,
+          lineNo: idx + 1,
+          effectiveDate,
+          operatorId: userId,
+          departmentId,
+          handler: data.handler || null,
+          remark: line.remark || null,
+        },
+      });
+    }
+
+    return { success: true, documentNo, count: prepared.length };
+  });
+}
+
+// 成品入库：一张单据对应多条入库明细，共用一个系统单号，整单原子提交
+export async function stockInBatch(
+  data: {
+    transactionTypeId: number;
+    effectiveDate?: string;
+    orderNo?: string;
+    departmentId?: number;
+    handler?: string;
+    items: {
+      materialId: number;
+      warehouseId: number;
+      binId?: number | null;
+      batchNo?: string;
+      quantity: number;
+      unit?: string;
+      remark?: string;
+    }[];
+  },
+  userId: number
+) {
+  if (!Array.isArray(data.items) || data.items.length === 0) throw new Error("请至少添加一条入库明细");
+  const transactionType = await resolveManualTransactionType(data.transactionTypeId, "in");
+  const departmentId = await resolveDepartmentId(data.departmentId);
+
+  // 预校验：物料/仓库/货位/单位换算
+  const prepared: {
+    material: any;
+    warehouse: any;
+    binId: number | null;
+    batchNo?: string;
+    baseQty: number;
+    remark?: string;
+  }[] = [];
+  for (const [idx, line] of data.items.entries()) {
+    if (!line.materialId) throw new Error(`第 ${idx + 1} 行请选择物料`);
+    if (!line.warehouseId) throw new Error(`第 ${idx + 1} 行请选择仓库`);
+    if (!Number.isFinite(line.quantity) || line.quantity <= 0) throw new Error(`第 ${idx + 1} 行数量必须大于0`);
+    const material = await prisma.material.findUnique({ where: { id: line.materialId } });
+    if (!material) throw new Error(`第 ${idx + 1} 行物料不存在`);
+    const warehouse = await prisma.warehouse.findUnique({ where: { id: line.warehouseId } });
+    if (!warehouse) throw new Error(`第 ${idx + 1} 行仓库不存在`);
+    const binId = await resolveBinId(prisma, warehouse, line.binId);
+    const { rate } = await resolveUnitRate(line.materialId, line.unit);
+    const baseQty = toBaseQty(line.quantity, rate);
+    if (baseQty <= 0) throw new Error(`第 ${idx + 1} 行数量必须大于0`);
+    prepared.push({ material, warehouse, binId, batchNo: line.batchNo, baseQty, remark: line.remark });
+  }
+
+  return prisma.$transaction(async (tx) => {
+    await lockOrderNo(tx, ORDER_NO_LOCK.ST);
+    const documentNo = await generateDocNo(tx, typeDocPrefix(transactionType));
+    const effectiveDate = data.effectiveDate ? new Date(data.effectiveDate) : new Date();
+
+    for (const [idx, line] of prepared.entries()) {
+      const binId = await resolveBinId(tx, line.warehouse, line.binId);
+      await addStock(tx, line.material.id, line.warehouse.id, binId, line.baseQty);
+      const resolvedBatchNo = await applyBatchIn(tx, line.material, line.warehouse.id, binId, line.batchNo, line.baseQty);
+
+      await tx.stockRecord.create({
+        data: {
+          materialId: line.material.id,
+          warehouseId: line.warehouse.id,
+          binId,
+          type: "in",
+          quantity: line.baseQty,
+          batchNo: resolvedBatchNo,
+          transactionTypeId: data.transactionTypeId,
+          documentNo,
+          orderNo: data.orderNo || null,
+          lineNo: idx + 1,
+          effectiveDate,
+          operatorId: userId,
+          departmentId,
+          handler: data.handler || null,
+          remark: line.remark || null,
+        },
+      });
+    }
+
+    return { success: true, documentNo, count: prepared.length };
   });
 }
 

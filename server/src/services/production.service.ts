@@ -159,7 +159,7 @@ export async function listPlanners() {
   });
 }
 
-// 车间员工下拉：车间人员角色的启用用户
+// 部门员工下拉：部门人员角色的启用用户
 export async function listEmployees(keyword?: string) {
   return prisma.user.findMany({
     where: {

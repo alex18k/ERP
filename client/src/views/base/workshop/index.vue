@@ -11,8 +11,8 @@ const formRef = ref()
 const form = reactive<any>({ id: null, code: '', name: '', manager: '', status: 1 })
 
 const rules = {
-  code: [{ required: true, message: '请输入车间编码', trigger: 'blur' }],
-  name: [{ required: true, message: '请输入车间名称', trigger: 'blur' }],
+  code: [{ required: true, message: '请输入部门编码', trigger: 'blur' }],
+  name: [{ required: true, message: '请输入部门名称', trigger: 'blur' }],
 }
 
 async function loadData() {
@@ -54,7 +54,7 @@ async function handleSave() {
 
 async function handleDelete(row: any) {
   try {
-    await ElMessageBox.confirm(`确定删除车间「${row.name}」吗？`, '提示', { type: 'warning' })
+    await ElMessageBox.confirm(`确定删除部门「${row.name}」吗？`, '提示', { type: 'warning' })
     await workshopApi.remove(row.id)
     ElMessage.success('删除成功')
     loadData()
@@ -68,12 +68,12 @@ onMounted(loadData)
   <div class="page-container">
     <div class="page-card">
       <div class="table-toolbar">
-        <el-button type="success" plain class="btn-add" @click="openDialog()"><el-icon><Plus /></el-icon>新增车间</el-button>
+        <el-button type="success" plain class="btn-add" @click="openDialog()"><el-icon><Plus /></el-icon>新增部门</el-button>
       </div>
 
       <el-table :data="list" v-loading="loading" stripe max-height="calc(100vh - 260px)">
-        <el-table-column prop="code" label="车间编码" width="120" />
-        <el-table-column prop="name" label="车间名称" min-width="160" />
+        <el-table-column prop="code" label="部门编码" width="120" />
+        <el-table-column prop="name" label="部门名称" min-width="160" />
         <el-table-column prop="manager" label="负责人" width="140" />
         <el-table-column label="工位数" width="90">
           <template #default="{ row }">{{ row.workstations?.length ?? 0 }}</template>
@@ -92,12 +92,12 @@ onMounted(loadData)
       </el-table>
     </div>
 
-    <el-dialog v-model="dialogVisible" :title="isEdit ? '编辑车间' : '新增车间'" width="520px" destroy-on-close>
+    <el-dialog v-model="dialogVisible" :title="isEdit ? '编辑部门' : '新增部门'" width="520px" destroy-on-close>
       <el-form ref="formRef" :model="form" :rules="rules" label-width="100px">
-        <el-form-item label="车间编码" prop="code">
+        <el-form-item label="部门编码" prop="code">
           <el-input v-model="form.code" placeholder="如 WS-01" />
         </el-form-item>
-        <el-form-item label="车间名称" prop="name">
+        <el-form-item label="部门名称" prop="name">
           <el-input v-model="form.name" />
         </el-form-item>
         <el-form-item label="负责人">

@@ -1,0 +1,513 @@
+<script setup lang="ts">
+import { ref, reactive, computed, onMounted } from 'vue'
+import { ElMessage } from 'element-plus'
+import { stockApi, warehouseApi, materialApi, stockTransactionTypeApi, warehouseBinApi, workshopApi } from '../../../api'
+import { warehouseIdByLocation } from '../../../utils/location'
+
+const saving = ref(false)
+const transactionTypes = ref<any[]>([])
+const warehouses = ref<any[]>([])
+const departments = ref<any[]>([])
+const handlerOptions = ref<string[]>([])
+const binMap: Record<number, any[]> = {}
+const currentRow = ref<any>(null)
+
+const activeWarehouses = computed(() => warehouses.value.filter((w: any) => w.status === 1))
+
+function todayStr() {
+  const d = new Date()
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+}
+
+function newRow() {
+  return {
+    materialId: null as number | null,
+    material: null as any,
+    materialOptions: [] as any[],
+    materialLoading: false,
+    unit: '',
+    unitOptions: [] as string[],
+    warehouseId: null as number | null,
+    binId: null as number | null,
+    batches: [] as any[],
+    batchNo: '',
+    stockQty: null as number | null,
+    quantity: 1,
+    remark: '',
+  }
+}
+
+const form = reactive({
+  transactionTypeId: null as number | null,
+  effectiveDate: todayStr(),
+  orderNo: '',
+  departmentId: null as number | null,
+  handler: '',
+  items: [newRow()],
+})
+
+function warehouseBinManaged(warehouseId: number | null) {
+  return !!warehouseId && warehouses.value.find((w: any) => w.id === warehouseId)?.binManaged === true
+}
+
+function binOptionsFor(warehouseId: number | null) {
+  return warehouseId ? binMap[warehouseId] || [] : []
+}
+
+async function loadBins(warehouseId: number | null) {
+  if (!warehouseId || !warehouseBinManaged(warehouseId)) return
+  if (binMap[warehouseId]) return
+  try {
+    const res: any = await warehouseBinApi.list({ warehouseId, status: 1, pageSize: 200 })
+    binMap[warehouseId] = res.data.items || []
+  } catch {
+    binMap[warehouseId] = []
+  }
+}
+
+function onQuantityInput(row: any, value: number | undefined) {
+  if (value != null && value < 0) row.quantity = 0
+}
+
+function preventNegativeKey(e: KeyboardEvent) {
+  if (e.key === '-' || e.key === '+' || e.key.toLowerCase() === 'e') e.preventDefault()
+}
+
+function batchPlaceholder(row: any) {
+  return row.material?.batchManaged ? '留空自动生成，或选择/输入批号' : '可选：输入或选择批号（留空不记批次）'
+}
+
+// 单价取物料主文件成本；按录入单位换算（1 录入单位 = N 基本单位）
+function rowUnitCost(row: any) {
+  const cost = Number(row.material?.cost) || 0
+  const baseUnit = row.material?.unit
+  let rate = 1
+  if (row.unit && baseUnit && row.unit !== baseUnit) rate = Number(row.material?.unitRates?.[row.unit]) || 0
+  return cost * rate
+}
+
+function rowAmount(row: any) {
+  return (Number(row.quantity) || 0) * rowUnitCost(row)
+}
+
+async function searchRowMaterials(row: any, keyword: string) {
+  row.materialLoading = true
+  try {
+    const res: any = await materialApi.options({ keyword, limit: 50 })
+    row.materialOptions = res.data || []
+  } catch {
+    row.materialOptions = []
+  } finally {
+    row.materialLoading = false
+  }
+}
+
+async function onRowMaterialChange(row: any) {
+  const m = row.materialOptions.find((x: any) => x.id === row.materialId)
+  row.material = m || null
+  row.unit = m?.unit || ''
+  const units = new Set<string>()
+  if (m?.unit) units.add(m.unit)
+  if (m?.units) for (const u of m.units) units.add(u)
+  row.unitOptions = [...units]
+  row.batchNo = ''
+  row.batches = []
+  row.binId = null
+  row.stockQty = null
+  // 按物料主文件的默认库位自动带出仓库
+  row.warehouseId = warehouseIdByLocation(activeWarehouses.value, m?.location || '')
+  if (row.warehouseId) {
+    await loadBins(row.warehouseId)
+    loadRowBatches(row)
+    loadRowStock(row)
+  }
+}
+
+async function onRowWarehouseChange(row: any) {
+  row.binId = null
+  row.batchNo = ''
+  row.batches = []
+  row.stockQty = null
+  await loadBins(row.warehouseId)
+  loadRowBatches(row)
+  loadRowStock(row)
+}
+
+async function onRowBinChange(row: any) {
+  await loadRowBatches(row)
+  loadRowStock(row)
+}
+
+async function loadRowStock(row: any) {
+  row.stockQty = null
+  if (!row.materialId || !row.warehouseId) return
+  try {
+    const res: any = await stockApi.list({
+      materialId: row.materialId,
+      warehouseId: row.warehouseId,
+      binId: row.binId || undefined,
+      pageSize: 1000,
+    })
+    const items = res.data.items || []
+    // 启用货位管理但尚未选货位时，显示该仓库所有货位的合计库存
+    row.stockQty = warehouseBinManaged(row.warehouseId) && !row.binId
+      ? items.reduce((sum: number, it: any) => sum + Number(it.quantity || 0), 0)
+      : Number(items[0]?.quantity ?? 0)
+  } catch {
+    row.stockQty = null
+  }
+}
+
+async function loadRowBatches(row: any) {
+  row.batchNo = ''
+  row.batches = []
+  if (!row.materialId || !row.warehouseId) return
+  if (warehouseBinManaged(row.warehouseId) && !row.binId) return
+  try {
+    const res: any = await stockApi.batches({
+      materialId: row.materialId,
+      warehouseId: row.warehouseId,
+      binId: row.binId || undefined,
+      pageSize: 200,
+    })
+    row.batches = res.data.items || []
+  } catch {
+    row.batches = []
+  }
+}
+
+function addRow() {
+  form.items.push(newRow())
+}
+
+function onCurrentChange(row: any) {
+  currentRow.value = row
+}
+
+function removeSelected() {
+  if (!currentRow.value) return
+  const index = form.items.indexOf(currentRow.value)
+  if (index >= 0) form.items.splice(index, 1)
+  currentRow.value = null
+}
+
+function validateForm(): boolean {
+  if (!form.transactionTypeId) { ElMessage.warning('请选择事务类型'); return false }
+  if (form.items.length === 0) { ElMessage.warning('请至少添加一条入库明细'); return false }
+  for (let i = 0; i < form.items.length; i++) {
+    const row = form.items[i]
+    const line = `第 ${i + 1} 行`
+    if (!row.materialId) { ElMessage.warning(`${line}请选择物料`); return false }
+    if (!row.warehouseId) { ElMessage.warning(`${line}请选择仓库`); return false }
+    if (warehouseBinManaged(row.warehouseId) && !row.binId) { ElMessage.warning(`${line}所在仓库启用货位管理，请选择货位`); return false }
+    if (!(Number(row.quantity) > 0)) { ElMessage.warning(`${line}数量必须大于0`); return false }
+  }
+  return true
+}
+
+async function submit() {
+  if (!validateForm()) return
+  saving.value = true
+  try {
+    const items = form.items.map((row: any) => ({
+      materialId: row.materialId,
+      warehouseId: row.warehouseId,
+      binId: row.binId || undefined,
+      batchNo: row.batchNo || undefined,
+      quantity: row.quantity,
+      unit: row.unit || undefined,
+      remark: row.remark || undefined,
+    }))
+    const res: any = await stockApi.inBatch({
+      transactionTypeId: form.transactionTypeId,
+      effectiveDate: form.effectiveDate || undefined,
+      orderNo: form.orderNo || undefined,
+      departmentId: form.departmentId || undefined,
+      handler: form.handler || undefined,
+      items,
+    })
+    ElMessage.success(res.data?.documentNo ? `成品入库成功，单据号 ${res.data.documentNo}` : '成品入库成功')
+    resetForm()
+  } catch { /* error shown by interceptor */ } finally {
+    saving.value = false
+  }
+}
+
+function resetForm() {
+  currentRow.value = null
+  Object.assign(form, {
+    transactionTypeId: form.transactionTypeId,
+    effectiveDate: todayStr(),
+    orderNo: '',
+    departmentId: null,
+    handler: '',
+    items: [newRow()],
+  })
+}
+
+onMounted(async () => {
+  const [wRes, tRes, dRes, hRes]: any[] = await Promise.all([
+    warehouseApi.list({ pageSize: 200 }),
+    stockTransactionTypeApi.list({ pageSize: 200 }),
+    workshopApi.list(),
+    stockApi.handlers(),
+  ])
+  warehouses.value = wRes.data.items || []
+  transactionTypes.value = (tRes.data.items || []).filter((t: any) => t.status === 1 && t.direction === 'in')
+  departments.value = (dRes.data || []).filter((d: any) => d.status === 1)
+  handlerOptions.value = hRes.data || []
+})
+</script>
+
+<template>
+  <div class="page-container">
+    <div class="page-card">
+      <div class="search-bar">
+        <span style="font-weight: 600">成品入库</span>
+        <el-button style="margin-left: auto" @click="resetForm">新增</el-button>
+        <el-button type="primary" :loading="saving" @click="submit">提交入库</el-button>
+      </div>
+
+      <el-form :model="form" label-width="72px" class="kd-header-form">
+        <div class="erp-group">
+          <div class="kd-grid">
+            <div class="kd-field">
+              <el-form-item label="单号">
+                <el-input v-model="form.orderNo" class="kd-flex" placeholder="手工单号（可选）" clearable />
+              </el-form-item>
+            </div>
+            <div class="kd-field">
+              <el-form-item label="事务类型" required>
+                <el-select v-model="form.transactionTypeId" filterable placeholder="选择入库事务类型" class="kd-flex">
+                  <el-option v-for="t in transactionTypes" :key="t.id" :label="t.description" :value="t.id" />
+                </el-select>
+              </el-form-item>
+            </div>
+            <div class="kd-field">
+              <el-form-item label="生效日期">
+                <el-date-picker v-model="form.effectiveDate" type="date" value-format="YYYY-MM-DD" class="kd-flex kd-date" placeholder="选择日期" />
+              </el-form-item>
+            </div>
+            <div class="kd-field">
+              <el-form-item label="部门">
+                <el-select v-model="form.departmentId" filterable clearable placeholder="选择部门" class="kd-flex">
+                  <el-option v-for="d in departments" :key="d.id" :label="`${d.code} - ${d.name}`" :value="d.id" />
+                </el-select>
+              </el-form-item>
+            </div>
+            <div class="kd-field">
+              <el-form-item label="经手人">
+                <el-select v-model="form.handler" filterable clearable allow-create default-first-option placeholder="选择或输入经手人" class="kd-flex">
+                  <el-option v-for="h in handlerOptions" :key="h" :label="h" :value="h" />
+                </el-select>
+              </el-form-item>
+            </div>
+          </div>
+        </div>
+
+        <div style="width: 100%">
+          <el-button size="small" type="primary" plain @click="addRow"><el-icon><Plus /></el-icon>添加明细</el-button>
+          <el-button size="small" type="primary" plain style="margin-left: 8px" :disabled="!currentRow" @click="removeSelected">删除选中</el-button>
+          <el-table class="items-editor" :data="form.items" size="small" border max-height="calc(100vh - 320px)" style="margin-top: 8px; width: 100%" highlight-current-row @current-change="onCurrentChange">
+        <el-table-column label="行号" width="50" align="center">
+          <template #default="{ $index }">{{ $index + 1 }}</template>
+        </el-table-column>
+        <el-table-column label="物料编码" width="110">
+          <template #default="{ row }">
+            <el-select
+              v-model="row.materialId"
+              filterable
+              remote
+              reserve-keyword
+              :remote-method="(kw: string) => searchRowMaterials(row, kw)"
+              :loading="row.materialLoading"
+              placeholder="输入编码/名称搜索"
+              style="width: 100%"
+              @change="onRowMaterialChange(row)"
+            >
+              <el-option v-for="m in row.materialOptions" :key="m.id" :label="m.code" :value="m.id">
+                <span>{{ m.code }}</span>
+                <span style="color: var(--el-text-color-secondary); margin-left: 8px">{{ m.name }}</span>
+                <span v-if="m.specification" style="color: var(--el-text-color-secondary); margin-left: 8px">{{ m.specification }}</span>
+              </el-option>
+            </el-select>
+          </template>
+        </el-table-column>
+        <el-table-column label="物料名称" min-width="120" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.material?.name || '-' }}</template>
+        </el-table-column>
+        <el-table-column label="型号规格" min-width="120" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.material?.specification || '-' }}</template>
+        </el-table-column>
+        <el-table-column label="计量单位" width="80">
+          <template #default="{ row }">
+            <el-select v-model="row.unit" filterable allow-create default-first-option clearable placeholder="基本单位" style="width: 100%">
+              <el-option v-for="u in row.unitOptions" :key="u" :label="u" :value="u" />
+            </el-select>
+          </template>
+        </el-table-column>
+        <el-table-column label="仓库" width="100">
+          <template #default="{ row }">
+            <el-select v-model="row.warehouseId" placeholder="选择仓库" style="width: 100%" @change="onRowWarehouseChange(row)">
+              <el-option v-for="w in activeWarehouses" :key="w.id" :label="w.name" :value="w.id" />
+            </el-select>
+          </template>
+        </el-table-column>
+        <el-table-column label="货位" width="90">
+          <template #default="{ row }">
+            <el-select v-if="warehouseBinManaged(row.warehouseId)" v-model="row.binId" filterable clearable placeholder="选择货位" style="width: 100%" @change="onRowBinChange(row)">
+              <el-option v-for="b in binOptionsFor(row.warehouseId)" :key="b.id" :label="`${b.code} - ${b.name}`" :value="b.id" />
+            </el-select>
+            <span v-else>-</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="批号" width="110">
+          <template #default="{ row }">
+            <el-select v-model="row.batchNo" filterable clearable allow-create default-first-option :placeholder="batchPlaceholder(row)" style="width: 100%">
+              <el-option v-for="b in row.batches" :key="b.batchNo" :label="`${b.batchNo}（余 ${b.quantity}）`" :value="b.batchNo" />
+            </el-select>
+          </template>
+        </el-table-column>
+        <el-table-column label="现存量" width="80" align="right">
+          <template #default="{ row }">{{ row.stockQty ?? '-' }}</template>
+        </el-table-column>
+        <el-table-column label="数量" width="80">
+          <template #default="{ row }">
+            <el-input-number v-model="row.quantity" :min="0" :precision="2" :controls="false" style="width: 100%" @input="(v: number | undefined) => onQuantityInput(row, v)" @keydown="preventNegativeKey" />
+          </template>
+        </el-table-column>
+        <el-table-column label="单价" width="100" align="right">
+          <template #default="{ row }">{{ row.material ? rowUnitCost(row).toFixed(6) : '-' }}</template>
+        </el-table-column>
+        <el-table-column label="金额" width="100" align="right">
+          <template #default="{ row }">{{ row.material ? rowAmount(row).toFixed(2) : '-' }}</template>
+        </el-table-column>
+        <el-table-column label="备注" width="120">
+          <template #default="{ row }">
+            <el-input v-model="row.remark" placeholder="备注" clearable />
+          </template>
+        </el-table-column>
+      </el-table>
+        </div>
+      </el-form>
+    </div>
+  </div>
+</template>
+
+<style scoped>
+.erp-group {
+  border: 1px solid #d5dae2;
+  border-radius: 6px;
+  padding: 8px 12px 2px;
+  margin-bottom: 12px;
+  background: #fafbfc;
+}
+
+/* 金蝶表头：5 列网格，固定标签宽，列对齐、行距紧凑 */
+.kd-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) repeat(4, minmax(0, 1fr));
+  column-gap: 16px;
+  row-gap: 2px;
+}
+.kd-header-form .kd-grid :deep(.el-form-item) {
+  margin-bottom: 6px;
+  margin-right: 0;
+  white-space: nowrap;
+}
+.kd-header-form .kd-grid :deep(.el-form-item__label) {
+  line-height: 26px;
+  height: 26px;
+  font-size: 13px;
+  color: var(--el-text-color-regular);
+  white-space: nowrap;
+}
+.kd-header-form .kd-grid :deep(.el-form-item__content) {
+  line-height: 26px;
+  min-height: 26px;
+  white-space: nowrap;
+}
+.kd-flex {
+  width: 100%;
+}
+
+/* 金蝶风格：表头输入控件无方框，仅底部下划线；聚焦时下划线变主题色 */
+.erp-group :deep(.el-input__wrapper),
+.erp-group :deep(.el-select__wrapper) {
+  box-shadow: 0 1px 0 0 var(--erp-hairline);
+  background: transparent;
+  border-radius: 0;
+  padding-left: 2px;
+  padding-right: 2px;
+  transition: box-shadow 0.2s;
+}
+.erp-group :deep(.el-input__wrapper:hover),
+.erp-group :deep(.el-select__wrapper:hover) {
+  box-shadow: 0 1px 0 0 var(--el-text-color-secondary);
+}
+.erp-group :deep(.el-input__wrapper.is-focus),
+.erp-group :deep(.el-select__wrapper.is-focused) {
+  box-shadow: 0 1px 0 0 var(--erp-copper);
+  background: transparent;
+}
+.erp-group :deep(.el-select__caret),
+.erp-group :deep(.el-input__icon) {
+  color: var(--el-text-color-secondary);
+}
+.erp-group :deep(.el-input__wrapper.is-focus .el-input__icon),
+.erp-group :deep(.el-select__wrapper.is-focused .el-select__caret) {
+  color: var(--erp-copper);
+}
+
+/* 明细表 Excel 网格风格：细线表格 + 紧凑单元格 + 全幅无边框输入 */
+.items-editor {
+  --el-table-border-color: var(--erp-hairline);
+  --el-table-header-bg-color: var(--el-fill-color-light);
+  --el-table-row-hover-bg-color: var(--el-color-primary-light-9);
+  border: 1px solid var(--erp-hairline);
+}
+.items-editor :deep(.el-table__inner-wrapper::before),
+.items-editor :deep(.el-table__inner-wrapper::after),
+.items-editor :deep(.el-table__header th.el-table__cell),
+.items-editor :deep(.el-table__body td.el-table__cell) {
+  border-color: var(--erp-hairline);
+}
+.items-editor :deep(.el-table__cell) {
+  padding: 0;
+}
+.items-editor :deep(.el-table .cell) {
+  padding: 3px 4px;
+  line-height: 24px;
+}
+.items-editor :deep(.el-table th.el-table__cell) {
+  height: 28px;
+}
+.items-editor :deep(.el-table td.el-table__cell) {
+  height: 30px;
+}
+.items-editor :deep(.el-input__wrapper),
+.items-editor :deep(.el-select__wrapper) {
+  box-shadow: none;
+  background: transparent;
+  border-radius: 0;
+  padding: 0 2px;
+  min-height: 24px;
+}
+.items-editor :deep(.el-input__wrapper:hover),
+.items-editor :deep(.el-select__wrapper:hover) {
+  box-shadow: none;
+}
+.items-editor :deep(.el-input__wrapper.is-focus),
+.items-editor :deep(.el-select__wrapper.is-focused) {
+  box-shadow: 0 0 0 1px var(--erp-copper) inset;
+  background: var(--el-fill-color-blank);
+}
+.items-editor :deep(.el-input-number .el-input__inner) {
+  text-align: right;
+}
+.items-editor :deep(.el-input-number__decrease),
+.items-editor :deep(.el-input-number__increase) {
+  display: none;
+}
+</style>

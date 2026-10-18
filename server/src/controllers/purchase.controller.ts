@@ -30,6 +30,42 @@ export async function optionsHandler(req: Request, res: Response) {
     return fail(res, 500, error.message, 500);
   }
 }
+export async function receiptDocumentsHandler(req: Request, res: Response) {
+  try {
+    const data = await purchaseService.listPurchaseReceiptDocuments(req.query as any);
+    return success(res, data);
+  } catch (error: any) {
+    return fail(res, 500, error.message, 500);
+  }
+}
+
+export async function returnReceiptDocHandler(req: AuthRequest, res: Response) {
+  try {
+    const data = await purchaseService.returnPurchaseReceiptBatch(String(req.params.documentNo ?? ""), req.body, req.user!.id);
+    return success(res, data, "采购退货成功");
+  } catch (error: any) {
+    return fail(res, 400, error.message);
+  }
+}
+
+export async function returnReceiptHandler(req: AuthRequest, res: Response) {
+  try {
+    const data = await purchaseService.returnPurchaseReceipt(Number(req.params.id), req.body, req.user!.id);
+    return success(res, data, "采购退货成功");
+  } catch (error: any) {
+    return fail(res, 400, error.message);
+  }
+}
+
+export async function keepersHandler(_req: Request, res: Response) {
+  try {
+    const data = await purchaseService.listReceiptKeepers();
+    return success(res, data);
+  } catch (error: any) {
+    return fail(res, 500, error.message, 500);
+  }
+}
+
 export async function receiptsHandler(req: Request, res: Response) {
   try {
     const data = await purchaseService.listPurchaseReceipts(req.query as any);
@@ -101,7 +137,7 @@ export async function receiveHandler(req: AuthRequest, res: Response) {
       Number(req.params.id),
       req.user!.id,
       Array.isArray(items) ? items : undefined,
-      { effectiveDate: req.body?.effectiveDate, location: req.body?.location, binId: req.body?.binId }
+      { effectiveDate: req.body?.effectiveDate, location: req.body?.location, binId: req.body?.binId, deliveryNo: req.body?.deliveryNo, keeper: req.body?.keeper, remark: req.body?.remark }
     );
     return success(res, data, "收货完成");
   } catch (error: any) {

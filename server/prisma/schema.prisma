@@ -119,6 +119,10 @@ model Material {
   batchManaged        Boolean              @default(false) // 是否启用批号管理
   status              Int                  @default(1)
   remark              String?
+  desc1               String? // 自定义字段1
+  desc2               String? // 自定义字段2
+  desc3               String? // 自定义字段3
+  desc4               String? // 自定义字段4
   createdAt           DateTime             @default(now())
   updatedAt           DateTime             @updatedAt
   bomItems            BomItem[]
@@ -247,6 +251,7 @@ model Workshop {
   status       Int           @default(1)
   createdAt    DateTime      @default(now())
   workstations Workstation[]
+  stockRecords StockRecord[] @relation("StockRecordDepartment")
 }
 
 model Supplier {
@@ -582,6 +587,11 @@ model StockRecord {
   transactionType   StockTransactionType? @relation(fields: [transactionTypeId], references: [id])
   documentNo        String? // 系统自动生成的单据号
   orderNo           String? // 手工/原单号（新增库存事务页面录入）
+  deliveryNo        String? // 送货单号（采购收货录入）
+  keeper            String? // 仓管员（采购收货录入）
+  departmentId      Int?
+  department        Workshop?             @relation("StockRecordDepartment", fields: [departmentId], references: [id])
+  handler           String? // 经手人（手工库存事务录入）
   lineNo            Int? // 行号
   location          String? // 库位
   effectiveDate     DateTime? // 生效日期

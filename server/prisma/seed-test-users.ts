@@ -39,7 +39,7 @@ const roleDefs: {
   },
   {
     code: "PRODUCTION",
-    name: "车间人员",
+    name: "部门人员",
     description: "生产报工",
     dataScope: "department",
     permissions: ["material:view", "production:view", "production:report", "dashboard:view"],
@@ -73,7 +73,7 @@ const userDefs: { username: string; realName: string; email: string; role: strin
   { username: "manager01", realName: "厂长/经理", email: "manager01@erp.com", role: "MANAGER", deptCode: null },
   { username: "sales01", realName: "销售员", email: "sales01@erp.com", role: "SALES", deptCode: "DEPT-SALE" },
   { username: "plan01", realName: "计划员", email: "plan01@erp.com", role: "PLANNER", deptCode: "DEPT-PROD" },
-  { username: "user01", realName: "车间操作员", email: "user01@erp.com", role: "PRODUCTION", deptCode: "DEPT-PROD" },
+  { username: "user01", realName: "部门操作员", email: "user01@erp.com", role: "PRODUCTION", deptCode: "DEPT-PROD" },
   { username: "purch01", realName: "采购员", email: "purch01@erp.com", role: "PURCHASE", deptCode: "DEPT-PURCH" },
   { username: "wh01", realName: "仓库管理员", email: "wh01@erp.com", role: "WAREHOUSE", deptCode: "DEPT-WH" },
   { username: "base01", realName: "基础数据员", email: "base01@erp.com", role: "BASE", deptCode: null },

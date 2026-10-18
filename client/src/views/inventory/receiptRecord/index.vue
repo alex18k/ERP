@@ -56,6 +56,9 @@ onMounted(loadData)
         <el-table-column label="收货单号" width="160">
           <template #default="{ row }">{{ row.receiptNo || row.documentNo }}</template>
         </el-table-column>
+        <el-table-column label="送货单号" width="160">
+          <template #default="{ row }">{{ row.deliveryNo || '-' }}</template>
+        </el-table-column>
         <el-table-column prop="orderNo" label="采购单号" width="160">
           <template #default="{ row }">{{ row.orderNo || '-' }}</template>
         </el-table-column>
@@ -65,11 +68,14 @@ onMounted(loadData)
         <el-table-column prop="lineNo" label="行号" width="70">
           <template #default="{ row }">{{ row.lineNo ?? '-' }}</template>
         </el-table-column>
-        <el-table-column label="物料" min-width="180">
-          <template #default="{ row }">
-            <span>{{ row.material?.code }} - {{ row.material?.name }}</span>
-            <span v-if="row.material?.specification" style="color: var(--el-text-color-secondary); margin-left: 6px">{{ row.material.specification }}</span>
-          </template>
+        <el-table-column label="物料编码" width="110" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.material?.code }}</template>
+        </el-table-column>
+        <el-table-column label="物料名称" min-width="140" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.material?.name }}</template>
+        </el-table-column>
+        <el-table-column label="型号规格" min-width="130" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.material?.specification || '-' }}</template>
         </el-table-column>
         <el-table-column label="收货数量" width="100">
           <template #default="{ row }">

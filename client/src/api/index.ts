@@ -182,6 +182,10 @@ export const purchaseApi = {
   receive: (id: number, data?: any) => request.put(`/purchase/${id}/receive`, data),
   arrival: () => request.get('/purchase/arrival'),
   receipts: (params: PageParams) => request.get('/purchase/receipts', { params }),
+  receiptKeepers: () => request.get('/purchase/receipt-keepers'),
+  returnReceipt: (id: number, data: any) => request.post(`/purchase/receipts/${id}/return`, data),
+  receiptDocuments: (params: PageParams) => request.get('/purchase/receipt-documents', { params }),
+  returnReceiptDocument: (documentNo: string, data: any) => request.post(`/purchase/receipt-documents/${encodeURIComponent(documentNo)}/return`, data),
   exportCsv: () => downloadCsv('/purchase/export', '采购订单'),
 }
 
@@ -192,8 +196,11 @@ export const stockApi = {
   summary: (params: PageParams) => request.get('/stocks/summary', { params }),
   records: (params: PageParams) => request.get('/stocks/records', { params }),
   recordsByDocument: (documentNo: string) => request.get('/stocks/records/by-document', { params: { documentNo } }),
+  handlers: () => request.get('/stocks/handlers'),
   in: (data: any) => request.post('/stocks/in', data),
   out: (data: any) => request.post('/stocks/out', data),
+  outBatch: (data: any) => request.post('/stocks/out-batch', data),
+  inBatch: (data: any) => request.post('/stocks/in-batch', data),
   transfer: (data: any) => request.post('/stocks/transfer', data),
   alert: (params?: any) => request.get('/stocks/alert', { params }),
   batches: (params: PageParams) => request.get('/stocks/batches', { params }),
