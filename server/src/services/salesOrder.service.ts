@@ -1,6 +1,6 @@
 import prisma from "../config/prisma";
 import { Prisma } from "@prisma/client";
-import { localDateCompact } from "../utils/date";
+import { localDateCompact, parseLocalDateStart, parseLocalDateEnd } from "../utils/date";
 import { retryOnDuplicate, lockOrderNo, ORDER_NO_LOCK } from "../utils/retry";
 import { applyBatchOut, resolveBinId, generateDocNo } from "./stock.service";
 import { resolveUnitRateMap, toBaseQty } from "../utils/unit";
@@ -64,7 +64,7 @@ export async function listShippableOrders(where: any) {
       customer: { select: { id: true, name: true } },
       items: {
         include: {
-          material: { select: { id: true, code: true, name: true, unit: true, specification: true, category: true } },
+          material: { select: { id: true, code: true, name: true, unit: true, specification: true, category: true, location: true, batchManaged: true } },
         },
       },
     },
@@ -558,9 +558,22 @@ export async function shipOrder(id: number, userId: number) {
 export async function shipOrderItems(
   id: number,
   userId: number,
-  data: { items: { itemId: number; quantity: number; warehouseId: number; remark?: string; binId?: number | null; batchNo?: string }[]; effectiveDate?: string },
+  data: {
+    items: { itemId: number; quantity: number; warehouseId: number; remark?: string; binId?: number | null; batchNo?: string }[];
+    effectiveDate?: string;
+    deliveryNo?: string;
+    handler?: string;
+    keeper?: string;
+    departmentId?: number | null;
+  },
 ) {
   if (!data.items?.length) throw new Error("请填写发运明细");
+
+  if (data.departmentId) {
+    const dept = await prisma.workshop.findUnique({ where: { id: Number(data.departmentId) } });
+    if (!dept) throw new Error("部门不存在");
+    if (dept.status !== 1) throw new Error("该部门已停用");
+  }
 
   const order = await prisma.salesOrder.findUnique({
     where: { id },
@@ -626,6 +639,10 @@ export async function shipOrderItems(
           transactionTypeId: shipType?.id,
           documentNo: docNo,
           orderNo: order.orderNo,
+          deliveryNo: data.deliveryNo?.trim() || null,
+          handler: data.handler?.trim() || null,
+          keeper: data.keeper?.trim() || null,
+          departmentId: data.departmentId ? Number(data.departmentId) : null,
           lineNo: idx + 1,
           effectiveDate: data.effectiveDate ? new Date(data.effectiveDate) : null,
           operatorId: userId,
@@ -825,4 +842,106 @@ export async function listOverdueOrders() {
     },
     orderBy: { deliveryDate: "asc" },
   });
+}
+// ===== 销售发运记录（来源：销售发运写入的库存流水）=====
+export async function listSalesShipments(where: any) {
+  const { documentNo, orderNo, customerName, materialKeyword, startDate, endDate, page = 1, pageSize = 20 } = where;
+
+  const and: Prisma.StockRecordWhereInput[] = [{ relatedType: "sales-order", type: "out" }];
+  if (documentNo) and.push({ documentNo: { contains: documentNo } });
+  if (orderNo || customerName) {
+    const orderFilter: Prisma.SalesOrderWhereInput = {};
+    if (orderNo) orderFilter.orderNo = { contains: orderNo };
+    if (customerName) orderFilter.customerName = { contains: customerName };
+    const matched = await prisma.salesOrder.findMany({ where: orderFilter, select: { id: true } });
+    and.push({ relatedId: { in: matched.map((o) => o.id) } });
+  }
+  if (materialKeyword) {
+    and.push({
+      material: {
+        OR: [
+          { code: { contains: materialKeyword } },
+          { name: { contains: materialKeyword } },
+          { specification: { contains: materialKeyword } },
+        ],
+      },
+    });
+  }
+  if (startDate || endDate) {
+    const range = {
+      gte: startDate ? parseLocalDateStart(startDate) : undefined,
+      lte: endDate ? parseLocalDateEnd(endDate) : undefined,
+    };
+    and.push({ OR: [{ effectiveDate: range }, { effectiveDate: null, createdAt: range }] });
+  }
+  const filters: Prisma.StockRecordWhereInput = { AND: and };
+  const pageNum = Math.max(1, Number(page) || 1);
+  const sizeNum = Math.min(1000, Math.max(1, Number(pageSize) || 20));
+
+  const [total, items] = await Promise.all([
+    prisma.stockRecord.count({ where: filters }),
+    prisma.stockRecord.findMany({
+      where: filters,
+      include: {
+        material: { select: { id: true, code: true, name: true, specification: true, unit: true } },
+        warehouse: { select: { id: true, code: true, name: true } },
+        bin: { select: { id: true, code: true, name: true } },
+        operator: { select: { id: true, realName: true, username: true } },
+        transactionType: { select: { id: true, code: true, description: true } },
+      },
+      orderBy: { createdAt: "desc" },
+      skip: (pageNum - 1) * sizeNum,
+      take: sizeNum,
+    }),
+  ]);
+
+  const orderIds = [...new Set(items.map((i) => i.relatedId).filter((x): x is number => !!x))];
+  const orders = orderIds.length
+    ? await prisma.salesOrder.findMany({
+        where: { id: { in: orderIds } },
+        select: {
+          id: true,
+          orderNo: true,
+          customerName: true,
+          customerCode: true,
+          contactPerson: true,
+          contactPhone: true,
+          customer: { select: { name: true, contactPerson: true, phone: true, address: true } },
+          seller1: true,
+          seller2: true,
+          items: { select: { line: true, materialId: true, unit: true, unitPrice: true, conversionRate: true } },
+        },
+      })
+    : [];
+  const orderMap = new Map(orders.map((o) => [o.id, o]));
+
+  return {
+    total,
+    page: pageNum,
+    pageSize: sizeNum,
+    items: items.map((i) => {
+      const order = i.relatedId ? orderMap.get(i.relatedId) : undefined;
+      const item =
+        order?.items.find((it) => it.line === i.lineNo && it.materialId === i.materialId) ??
+        order?.items.find((it) => it.materialId === i.materialId);
+      const rate = item?.conversionRate || 1;
+      const unitPrice = item?.unitPrice != null && rate > 0 ? item.unitPrice / rate : (item?.unitPrice ?? null);
+      const amount = unitPrice != null ? Math.round(i.quantity * unitPrice * 100) / 100 : null;
+      return {
+        ...i,
+        receiptNo: i.documentNo,
+        orderNo: order?.orderNo ?? i.orderNo ?? null,
+        customerName: order?.customerName || order?.customer?.name || null,
+        customerCode: order?.customerCode ?? null,
+        contactPerson: order?.contactPerson || order?.customer?.contactPerson || null,
+        contactPhone: order?.contactPhone || order?.customer?.phone || null,
+        sellerNames: [order?.seller1, order?.seller2].filter(Boolean).join("、") || null,
+        lineQty: Math.round((i.quantity / rate) * 1e6) / 1e6,
+        lineUnit: item?.unit || i.material?.unit || null,
+        transactionTypeName: i.transactionType?.description ?? i.transactionType?.code ?? "销售发运",
+        unitPrice,
+        amount,
+      };
+    }),
+  };
 }

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { h, ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { materialApi, supplierApi, warehouseApi, processRouteApi } from '../../../api'
 import { MATERIAL_CATEGORIES, materialCategoryLabel } from '../../../utils/category'
@@ -9,7 +9,7 @@ const list = ref<any[]>([])
 const total = ref(0)
 const tableRef = ref()
 const currentRow = ref<any>(null)
-const query = reactive({ page: 1, pageSize: 20, code: '', name: '', materialType: '', status: 1 })
+const query = reactive({ page: 1, pageSize: 20, code: '', bomcode: '', name: '', materialType: '', brand: '', packageType: '' })
 
 const categoryOptions = MATERIAL_CATEGORIES
 
@@ -41,9 +41,11 @@ function handleSearch() {
 
 function handleReset() {
   query.code = ''
+  query.bomcode = ''
   query.name = ''
   query.materialType = ''
-  query.status = 1
+  query.brand = ''
+  query.packageType = ''
   query.page = 1
   loadData()
 }
@@ -65,8 +67,12 @@ const typeOptions = ref<string[]>([])
 const form = reactive<any>({
   id: null,
   code: '',
+  bomcode: '',
   name: '',
   specification: '',
+  description: '',
+  packageType: '',
+  brand: '',
   category: 'purchase',
   materialType: '',
   unit: '',
@@ -83,11 +89,8 @@ const form = reactive<any>({
   supplierId: null,
   batchManaged: false,
   location: '',
+  status: 1,
   remark: '',
-  desc1: '',
-  desc2: '',
-  desc3: '',
-  desc4: '',
 })
 let initialSnapshot = ''
 
@@ -98,11 +101,16 @@ const rules = {
   unit: [{ required: true, message: '请输入单位', trigger: 'blur' }],
 }
 
-async function openDialog(row?: any) {
+async function openDialog(row?: any, copy = false) {
   await loadOptions()
-  isEdit.value = !!row
+  isEdit.value = !!row && !copy
   if (row) {
     Object.assign(form, row)
+    if (copy) {
+      form.id = null
+      form.code = `${row.code}-copy`
+      form.status = 1
+    }
   } else {
     Object.keys(form).forEach((k) => { form[k] = null })
     form.category = 'purchase'
@@ -133,6 +141,10 @@ function buildPayload() {
   delete payload.supplier
   delete payload.stock
   delete payload.processRoute
+  delete payload.desc1
+  delete payload.desc2
+  delete payload.desc3
+  delete payload.desc4
   return payload
 }
 
@@ -217,7 +229,16 @@ function confirmLeave(done?: () => void) {
 
 async function handleDelete(row: any) {
   try {
-    await ElMessageBox.confirm(`确定删除物料「${row.name}」吗？`, '提示', { type: 'warning' })
+    await ElMessageBox.confirm(
+      h('div', [
+        h('div', '确定删除以下物料吗？'),
+        h('div', `物料编码：${row.code}`),
+        h('div', `物料名称：${row.name}`),
+        h('div', `规格型号：${row.specification || '-'}`),
+      ]),
+      '删除物料',
+      { type: 'warning' },
+    )
     await materialApi.remove(row.id)
     ElMessage.success('删除成功')
     loadData()
@@ -231,6 +252,11 @@ function handleCurrentChange(row: any) {
 function handleEditCurrent() {
   if (!currentRow.value) return ElMessage.warning('请先点击选择一行')
   openDialog(currentRow.value)
+}
+
+function handleCopyCurrent() {
+  if (!currentRow.value) return ElMessage.warning('请先点击选择一行')
+  openDialog(currentRow.value, true)
 }
 
 function handleDeleteCurrent() {
@@ -259,14 +285,18 @@ onMounted(() => {
   <div class="page-container">
     <div class="page-card">
       <div class="search-bar">
-        <el-input v-model="query.code" placeholder="物料编码" clearable style="width: 180px" />
-        <el-input v-model="query.name" placeholder="物料名称" clearable style="width: 180px" />
+        <el-input v-model="query.code" placeholder="物料编码" clearable style="width: 160px" />
+        <el-input v-model="query.bomcode" placeholder="BOM编码" clearable style="width: 140px" />
+        <el-input v-model="query.name" placeholder="物料名称" clearable style="width: 160px" />
+        <el-input v-model="query.packageType" placeholder="封装" clearable style="width: 130px" />
+        <el-input v-model="query.brand" placeholder="品牌" clearable style="width: 130px" />
         <el-select v-model="query.materialType" placeholder="物料类别" clearable filterable :fit-input-width="false" style="width: 150px">
           <el-option v-for="t in typeOptions" :key="t" :label="t" :value="t" />
         </el-select>
         <el-button type="primary" @click="handleSearch"><el-icon><Search /></el-icon>查询</el-button>
         <el-button @click="handleReset">重置</el-button>
         <el-button style="margin-left: auto" @click="handleEditCurrent"><el-icon><Edit /></el-icon>编辑</el-button>
+        <el-button @click="handleCopyCurrent"><el-icon><CopyDocument /></el-icon>复制</el-button>
         <el-button @click="handleDeleteCurrent"><el-icon><Delete /></el-icon>删除</el-button>
         <el-button type="success" plain class="btn-add" @click="openDialog()"><el-icon><Plus /></el-icon>新增物料</el-button>
       </div>
@@ -281,8 +311,12 @@ onMounted(() => {
         @current-change="handleCurrentChange"
       >
         <el-table-column prop="code" label="物料编码" width="110" />
+        <el-table-column prop="bomcode" label="BOM编码" width="120" />
         <el-table-column prop="name" label="物料名称" min-width="160" />
         <el-table-column prop="specification" label="规格型号" min-width="140" />
+        <el-table-column prop="description" label="物料描述" min-width="180" show-overflow-tooltip />
+        <el-table-column prop="packageType" label="封装" width="100" />
+        <el-table-column prop="brand" label="品牌" width="110" />
         <el-table-column prop="materialType" label="物料类别" min-width="110" />
         <el-table-column label="分类" width="90">
           <template #default="{ row }">
@@ -311,6 +345,11 @@ onMounted(() => {
             <span v-if="row.processRoute">{{ row.processRoute.code }} - {{ row.processRoute.name }}</span>
           </template>
         </el-table-column>
+        <el-table-column label="状态" width="80" align="center">
+          <template #default="{ row }">
+            <el-tag :type="row.status === 1 ? 'success' : 'info'" size="small">{{ row.status === 1 ? '启用' : '停用' }}</el-tag>
+          </template>
+        </el-table-column>
         <el-table-column prop="createdAt" label="创建日期" width="150" :formatter="(row: any) => fmtDateTime(row.createdAt)" />
       </el-table>
 
@@ -336,7 +375,7 @@ onMounted(() => {
         <el-row :gutter="16">
           <el-col :span="12">
             <el-form-item label="物料编码" prop="code">
-              <el-input v-model="form.code" placeholder="如 M-001" />
+              <el-input v-model="form.code" :disabled="isEdit" placeholder="如 M-001" />
             </el-form-item>
           </el-col>
           <el-col :span="12">
@@ -359,6 +398,21 @@ onMounted(() => {
             </el-form-item>
           </el-col>
         </el-row>
+        <el-form-item label="物料描述">
+          <el-input v-model="form.description" placeholder="物料描述/补充说明" />
+        </el-form-item>
+        <el-row :gutter="16">
+          <el-col :span="12">
+            <el-form-item label="封装">
+              <el-input v-model="form.packageType" placeholder="如 0603 / 1206 / QFN" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="品牌">
+              <el-input v-model="form.brand" placeholder="如 国巨 / 村田 / TI" />
+            </el-form-item>
+          </el-col>
+        </el-row>
         <el-row :gutter="16">
           <el-col :span="12">
             <el-form-item label="物料类别">
@@ -369,7 +423,7 @@ onMounted(() => {
           </el-col>
           <el-col :span="12">
             <el-form-item label="最小订量">
-              <el-input-number v-model="form.minOrderQty" :min="0" style="width: 100%" />
+              <el-input-number v-model="form.minOrderQty" :min="0" :controls="false" style="width: 100%" />
             </el-form-item>
           </el-col>
         </el-row>
@@ -390,46 +444,46 @@ onMounted(() => {
         <el-row :gutter="16">
           <el-col :span="12">
             <el-form-item label="采购提前期">
-              <el-input-number v-model="form.leadTime" :min="0" style="width: 100%" />
+              <el-input-number v-model="form.leadTime" :min="0" :controls="false" style="width: 100%" />
             </el-form-item>
           </el-col>
           <el-col :span="12">
             <el-form-item label="制造提前期">
-              <el-input-number v-model="form.manufactureLeadTime" :min="0" style="width: 100%" />
+              <el-input-number v-model="form.manufactureLeadTime" :min="0" :controls="false" style="width: 100%" />
             </el-form-item>
           </el-col>
         </el-row>
         <el-row :gutter="16">
           <el-col :span="12">
             <el-form-item label="订货周期(天)">
-              <el-input-number v-model="form.orderCycleDays" :min="0" style="width: 100%" />
+              <el-input-number v-model="form.orderCycleDays" :min="0" :controls="false" style="width: 100%" />
             </el-form-item>
           </el-col>
           <el-col :span="6">
             <el-form-item label="成本(加权平均)">
-              <el-input-number v-model="form.cost" :min="0" :precision="2" style="width: 100%" />
+              <el-input-number v-model="form.cost" :min="0" :precision="2" :controls="false" style="width: 100%" />
             </el-form-item>
           </el-col>
           <el-col :span="6">
             <el-form-item label="最近采购价">
-              <el-input-number v-model="form.price" :min="0" :precision="2" style="width: 100%" />
+              <el-input-number v-model="form.price" :min="0" :precision="2" :controls="false" style="width: 100%" />
             </el-form-item>
           </el-col>
         </el-row>
         <el-row :gutter="16">
           <el-col :span="8">
             <el-form-item label="安全库存">
-              <el-input-number v-model="form.safetyStock" :min="0" style="width: 100%" />
+              <el-input-number v-model="form.safetyStock" :min="0" :controls="false" style="width: 100%" />
             </el-form-item>
           </el-col>
           <el-col :span="8">
             <el-form-item label="最低库存">
-              <el-input-number v-model="form.minStock" :min="0" style="width: 100%" />
+              <el-input-number v-model="form.minStock" :min="0" :controls="false" style="width: 100%" />
             </el-form-item>
           </el-col>
           <el-col :span="8">
             <el-form-item label="最高库存">
-              <el-input-number v-model="form.maxStock" :min="0" style="width: 100%" />
+              <el-input-number v-model="form.maxStock" :min="0" :controls="false" style="width: 100%" />
             </el-form-item>
           </el-col>
         </el-row>
@@ -449,35 +503,23 @@ onMounted(() => {
             </el-form-item>
           </el-col>
         </el-row>
-        <el-form-item label="工艺路线">
-          <el-select v-model="form.processRouteId" clearable filterable placeholder="选择该物料使用的工艺路线（成品/半成品）" style="width: 100%">
-            <el-option v-for="r in routes" :key="r.id" :label="`${r.code} - ${r.name}`" :value="r.id" />
-          </el-select>
+        <el-row :gutter="16">
+          <el-col :span="12">
+            <el-form-item label="BOM编码">
+              <el-input v-model="form.bomcode" placeholder="用于管理BOM" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="工艺路线">
+              <el-select v-model="form.processRouteId" clearable filterable placeholder="选择该物料使用的工艺路线（成品/半成品）" style="width: 100%">
+                <el-option v-for="r in routes" :key="r.id" :label="`${r.code} - ${r.name}`" :value="r.id" />
+              </el-select>
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-form-item label="状态">
+          <el-switch v-model="form.status" :active-value="1" :inactive-value="0" active-text="启用" inactive-text="停用" />
         </el-form-item>
-        <el-row :gutter="16">
-          <el-col :span="12">
-            <el-form-item label="自定义字段1">
-              <el-input v-model="form.desc1" clearable />
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="自定义字段2">
-              <el-input v-model="form.desc2" clearable />
-            </el-form-item>
-          </el-col>
-        </el-row>
-        <el-row :gutter="16">
-          <el-col :span="12">
-            <el-form-item label="自定义字段3">
-              <el-input v-model="form.desc3" clearable />
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="自定义字段4">
-              <el-input v-model="form.desc4" clearable />
-            </el-form-item>
-          </el-col>
-        </el-row>
         <el-form-item label="备注">
           <el-input v-model="form.remark" type="textarea" :rows="2" />
         </el-form-item>

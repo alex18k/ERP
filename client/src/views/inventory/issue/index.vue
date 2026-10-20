@@ -24,6 +24,7 @@ const currentBatch = ref<any>(null)
 const detail = ref<any[]>([])
 const locationOptions = ref<{ code: string; name: string }[]>([])
 const form = reactive<any>({ batchId: null, warehouseId: null, issueQty: 0, effectiveDate: '' })
+let batchReqSeq = 0
 
 const bins = ref<any[]>([])
 const activeWarehouses = computed(() => warehouses.value.filter((w: any) => w.status === 1))
@@ -97,13 +98,16 @@ async function openDialog(order: any) {
 }
 
 async function onBatchChange() {
-  const batch = batchList(currentOrder.value).find((b: any) => b.id === form.batchId)
+  const batchId = form.batchId
+  const reqSeq = ++batchReqSeq
+  const batch = batchList(currentOrder.value).find((b: any) => b.id === batchId)
   currentBatch.value = batch || null
+  detail.value = []
   if (!batch) {
-    detail.value = []
     return
   }
   const res: any = await productionApi.batchMaterialsOfBatch(batch.id)
+  if (reqSeq !== batchReqSeq || form.batchId !== batchId) return
   const data = res.data || {}
   currentBatch.value = data
   detail.value = (data.materials || []).map((m: any) => ({

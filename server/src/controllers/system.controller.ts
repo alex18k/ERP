@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import * as systemService from "../services/system.service";
+import * as companyService from "../services/company.service";
 import { success, fail } from "../utils/response";
 
 export async function listUserHandler(req: Request, res: Response) {
@@ -107,5 +108,22 @@ export async function listLogHandler(req: Request, res: Response) {
     return success(res, data);
   } catch (error: any) {
     return fail(res, 500, error.message, 500);
+  }
+}
+export async function getCompanyInfoHandler(_req: Request, res: Response) {
+  try {
+    const data = await companyService.getCompanyInfo();
+    return success(res, data);
+  } catch (error: any) {
+    return fail(res, 500, error.message, 500);
+  }
+}
+
+export async function updateCompanyInfoHandler(req: Request, res: Response) {
+  try {
+    const data = await companyService.updateCompanyInfo(req.body);
+    return success(res, data, "公司信息保存成功");
+  } catch (error: any) {
+    return fail(res, 400, error.message);
   }
 }

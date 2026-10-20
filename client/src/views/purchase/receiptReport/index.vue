@@ -50,19 +50,24 @@ onMounted(loadData)
       </div>
 
       <el-table :data="list" v-loading="loading" stripe highlight-current-row max-height="calc(100vh - 260px)" @row-click="(row: any) => (currentRow = row)">
-        <el-table-column label="收货日期" width="120">
+        <el-table-column label="收货日期" width="90">
           <template #default="{ row }">{{ dateOnly(row.effectiveDate || row.createdAt) }}</template>
+        </el-table-column>
+        <el-table-column label="类型" width="80" align="center">
+          <template #default="{ row }">
+            <el-tag :type="row.isReturn ? 'danger' : 'success'" size="small" effect="plain">{{ row.isReturn ? '退货' : '收货' }}</el-tag>
+          </template>
         </el-table-column>
         <el-table-column label="收货单号" width="160">
           <template #default="{ row }">{{ row.receiptNo || row.documentNo }}</template>
         </el-table-column>
-        <el-table-column label="送货单号" width="160">
+        <el-table-column label="送货单号" width="120">
           <template #default="{ row }">{{ row.deliveryNo || '-' }}</template>
         </el-table-column>
-        <el-table-column prop="orderNo" label="采购单号" width="160">
+        <el-table-column prop="orderNo" label="采购单号" width="120">
           <template #default="{ row }">{{ row.orderNo || '-' }}</template>
         </el-table-column>
-        <el-table-column prop="supplierName" label="供应商" min-width="140">
+        <el-table-column prop="supplierName" label="供应商" min-width="220">
           <template #default="{ row }">{{ row.supplierName || '未指定' }}</template>
         </el-table-column>
         <el-table-column prop="lineNo" label="行号" width="70">
@@ -77,9 +82,11 @@ onMounted(loadData)
         <el-table-column label="型号规格" min-width="130" show-overflow-tooltip>
           <template #default="{ row }">{{ row.material?.specification || '-' }}</template>
         </el-table-column>
-        <el-table-column label="收货数量" width="100">
+        <el-table-column :label="'收货/退货数量'" width="120">
           <template #default="{ row }">
-            <span style="color: var(--el-color-success); font-weight: 600">+{{ row.quantity }}</span>
+            <span :style="{ color: row.isReturn ? 'var(--el-color-danger)' : 'var(--el-color-success)', fontWeight: 600 }">
+              {{ row.isReturn ? '-' : '+' }}{{ row.quantity }}
+            </span>
           </template>
         </el-table-column>
         <el-table-column label="单位" width="70">

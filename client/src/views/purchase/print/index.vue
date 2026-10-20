@@ -2,14 +2,19 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { purchaseApi } from '../../../api'
+import { useCompanyInfo, displayCompanyName } from '../../../composables/useCompanyInfo'
 
 const route = useRoute()
 const router = useRouter()
 const order = ref<any>(null)
 
-// —— 需方信息（可改成实际公司名/联系方式）——
-const COMPANY_NAME = '肇庆市博士芯电子科技有限公司'
-const COMPANY_CONTACT = '采购部 | 电话：000-0000-0000 | 地址：肇庆市端州区睦岗街道太和南路创新创业园'
+const { companyInfo, loadCompanyInfo } = useCompanyInfo()
+const companyName = computed(() => displayCompanyName(companyInfo.value))
+const companyContact = computed(() => {
+  const c = companyInfo.value
+  return [c.contact, c.phone ? `电话：${c.phone}` : '', c.address ? `地址：${c.address}` : ''].filter(Boolean).join(' | ')
+})
+const companyPhone = computed(() => companyInfo.value.phone || '-')
 
 const statusLabel = (v: string) =>
   ({ draft: '草稿', confirmed: '已确认', partial_received: '部分收货', received: '已收货', cancelled: '已取消', closed: '已关闭' })[v] || v
@@ -97,6 +102,7 @@ function doPrint() {
 }
 
 onMounted(async () => {
+  loadCompanyInfo()
   const id = Number(route.query.id)
   if (!id) return
   const res: any = await purchaseApi.get(id)
@@ -116,8 +122,8 @@ onMounted(async () => {
       <!-- 单据头 -->
       <div class="po-header">
         <div class="po-brand">
-          <div class="po-brand-name">{{ COMPANY_NAME }}</div>
-          <div class="po-brand-sub">{{ COMPANY_CONTACT }}</div>
+          <div class="po-brand-name">{{ companyName }}</div>
+          <div class="po-brand-sub">{{ companyContact }}</div>
         </div>
         <div class="po-docno">
           <div class="po-docno-row"><span>单据编号</span><b>{{ order.orderNo }}</b></div>
@@ -144,10 +150,10 @@ onMounted(async () => {
         <div class="po-party">
           <h4>需方 <span class="po-mute">BUYER</span></h4>
           <dl>
-            <div><dt>名称</dt><dd>{{ COMPANY_NAME }}</dd></div>
+            <div><dt>名称</dt><dd>{{ companyName }}</dd></div>
             <div><dt>采购员</dt><dd>{{ order.buyer || '-' }}</dd></div>
             <div><dt>结算方式</dt><dd>{{ order.settleMethod || '-' }}</dd></div>
-            <div><dt>电话</dt><dd>{{ COMPANY_CONTACT.split('|')[1]?.replace('电话：', '').trim() || '-' }}</dd></div>
+            <div><dt>电话</dt><dd>{{ companyPhone }}</dd></div>
           </dl>
         </div>
       </div>

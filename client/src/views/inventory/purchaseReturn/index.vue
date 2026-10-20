@@ -1,19 +1,20 @@
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { purchaseApi, stockApi, workshopApi } from '../../../api'
+import { purchaseApi, stockApi, warehouseApi, warehouseBinApi, workshopApi } from '../../../api'
 
 const loading = ref(false)
 const list = ref<any[]>([])
 const total = ref(0)
-const query = reactive({ page: 1, pageSize: 20, receiptNo: '', orderNo: '', materialKeyword: '', startDate: '', endDate: '' })
+const query = reactive({ page: 1, pageSize: 20, orderNo: '', supplierKeyword: '', materialKeyword: '', startDate: '', endDate: '' })
 
+const warehouses = ref<any[]>([])
 const departments = ref<any[]>([])
 const handlerOptions = ref<string[]>([])
 
 const returnVisible = ref(false)
 const returning = ref(false)
-const currentDoc = ref<any>(null)
+const currentOrder = ref<any>(null)
 const returnLines = ref<any[]>([])
 const returnForm = reactive({
   effectiveDate: todayStr(),
@@ -21,8 +22,6 @@ const returnForm = reactive({
   handler: '',
   remark: '',
 })
-
-const hasReturnQty = computed(() => returnLines.value.some((l: any) => Number(l.returnQty) > 0))
 
 function todayStr() {
   const d = new Date()
@@ -39,10 +38,6 @@ function fmtQty(v: any) {
   return Number.isFinite(n) ? n : 0
 }
 
-function rowClassName({ row }: any) {
-  return (row.returns?.length ?? 0) > 0 ? '' : 'no-return-row'
-}
-
 function onQuantityInput(row: any, value: number | undefined) {
   if (value != null && value < 0) row.returnQty = 0
 }
@@ -54,7 +49,7 @@ function preventNegativeKey(e: KeyboardEvent) {
 async function loadData() {
   loading.value = true
   try {
-    const res: any = await purchaseApi.receiptDocuments(query)
+    const res: any = await purchaseApi.returnOrders(query)
     list.value = res.data.items
     total.value = res.data.total
   } finally {
@@ -63,36 +58,119 @@ async function loadData() {
 }
 
 async function loadOptions() {
-  const [dRes, hRes]: any[] = await Promise.all([workshopApi.list(), stockApi.handlers()])
+  const [wRes, dRes, hRes]: any[] = await Promise.all([
+    warehouseApi.list({ pageSize: 200 }),
+    workshopApi.list(),
+    stockApi.handlers(),
+  ])
+  const whs = wRes.data.items || wRes.data || []
+  warehouses.value = whs.filter((w: any) => w.status === 1)
   departments.value = (dRes.data || []).filter((d: any) => d.status === 1)
   handlerOptions.value = hRes.data || []
 }
 
 function openReturn(row: any) {
   if (fmtQty(row.returnableQty) <= 0) {
-    ElMessage.warning('该收货单已全部退货')
+    ElMessage.warning('该采购订单已全部退货')
     return
   }
-  currentDoc.value = row
-  returnLines.value = (row.items || []).map((l: any) => ({ ...l, returnQty: 0 }))
+  currentOrder.value = row
+  returnLines.value = (row.items || [])
+    .filter((l: any) => fmtQty(l.returnableQty) > 0)
+    .map((l: any) => ({
+      ...l,
+      returnQty: 0,
+      warehouseId: null,
+      binId: null,
+      batchNo: '',
+      bins: [],
+      batches: [],
+      binLoading: false,
+      batchLoading: false,
+    }))
   returnForm.effectiveDate = todayStr()
   returnForm.departmentId = null
   returnForm.handler = ''
   returnForm.remark = ''
   returnVisible.value = true
-  loadOptions().catch(() => {})
+  if (warehouses.value.length === 0) loadOptions().catch(() => {})
+}
+
+function lineWarehouse(row: any) {
+  return warehouses.value.find((w: any) => w.id === row.warehouseId) || null
+}
+
+function lineBinManaged(row: any) {
+  return lineWarehouse(row)?.binManaged === true
+}
+
+function lineBatchRequired(row: any) {
+  return row.material?.batchManaged === true || (row.batches?.length ?? 0) > 0
+}
+
+function lineBatchQty(row: any) {
+  const b = (row.batches || []).find((x: any) => x.batchNo === row.batchNo)
+  return b ? Number(b.quantity) : 0
+}
+
+async function loadLineBatches(row: any) {
+  if (!row.materialId || !row.warehouseId) {
+    row.batches = []
+    return
+  }
+  row.batchLoading = true
+  try {
+    const res: any = await stockApi.batches({
+      materialId: row.materialId,
+      warehouseId: row.warehouseId,
+      binId: row.binId || undefined,
+      pageSize: 200,
+    })
+    row.batches = res.data.items || []
+  } catch {
+    row.batches = []
+  } finally {
+    row.batchLoading = false
+  }
+}
+
+async function onLineWarehouseChange(row: any) {
+  row.binId = null
+  row.batchNo = ''
+  row.bins = []
+  row.batches = []
+  const wh = lineWarehouse(row)
+  if (!wh) return
+  if (wh.binManaged) {
+    row.binLoading = true
+    try {
+      const res: any = await warehouseBinApi.list({ warehouseId: wh.id, status: 1, pageSize: 200 })
+      row.bins = res.data.items || []
+    } catch {
+      row.bins = []
+    } finally {
+      row.binLoading = false
+    }
+  }
+  await loadLineBatches(row)
+}
+
+function onLineBinChange(row: any) {
+  row.batchNo = ''
+  row.batches = []
+  loadLineBatches(row)
 }
 
 function toggleFill() {
-  const fill = !hasReturnQty.value
+  const fill = !returnLines.value.some((l: any) => Number(l.returnQty) > 0)
   for (const line of returnLines.value) {
     line.returnQty = fill ? fmtQty(line.returnableQty) : 0
   }
 }
 
 async function submitReturn() {
-  const doc = currentDoc.value
-  if (!doc) return
+  const order = currentOrder.value
+  if (!order) return
   if (!returnForm.departmentId) {
     ElMessage.warning('请选择部门')
     return
@@ -107,15 +185,37 @@ async function submitReturn() {
     return
   }
   for (const line of lines) {
-    if (Number(line.returnQty) > fmtQty(line.returnableQty) + 1e-6) {
+    if (fmtQty(line.returnQty) > fmtQty(line.returnableQty) + 1e-6) {
       ElMessage.warning(`${line.material?.code || ''} 退货数量不能超过可退数量 ${line.returnableQty}`)
+      return
+    }
+    if (!line.warehouseId) {
+      ElMessage.warning(`${line.material?.code || ''} 请选择仓库`)
+      return
+    }
+    if (lineBinManaged(line) && !line.binId) {
+      ElMessage.warning(`${line.material?.code || ''} 该仓库启用货位管理，请选择货位`)
+      return
+    }
+    if (lineBatchRequired(line) && !line.batchNo) {
+      ElMessage.warning(`${line.material?.code || ''} 请选择批号`)
+      return
+    }
+    if (line.batchNo && fmtQty(line.returnQty) > lineBatchQty(line) + 1e-6) {
+      ElMessage.warning(`${line.material?.code || ''} 退货数量不能超过该批号余量 ${lineBatchQty(line)}`)
       return
     }
   }
   returning.value = true
   try {
-    const res: any = await purchaseApi.returnReceiptDocument(doc.documentNo, {
-      items: lines.map((l: any) => ({ recordId: l.id, quantity: l.returnQty })),
+    const res: any = await purchaseApi.returnOrder(order.id, {
+      items: lines.map((line: any) => ({
+        itemId: line.id,
+        quantity: line.returnQty,
+        warehouseId: line.warehouseId,
+        binId: lineBinManaged(line) ? line.binId : undefined,
+        batchNo: line.batchNo || undefined,
+      })),
       effectiveDate: returnForm.effectiveDate || undefined,
       departmentId: returnForm.departmentId || undefined,
       handler: returnForm.handler || undefined,
@@ -138,86 +238,74 @@ onMounted(async () => {
   <div class="page-container">
     <div class="page-card">
       <div class="search-bar">
-        <el-input v-model="query.receiptNo" placeholder="收货单号" clearable style="width: 160px" />
         <el-input v-model="query.orderNo" placeholder="采购单号" clearable style="width: 160px" />
+        <el-input v-model="query.supplierKeyword" placeholder="供应商编码/名称" clearable style="width: 170px" />
         <el-input v-model="query.materialKeyword" placeholder="物料编码/名称/规格" clearable style="width: 190px" />
-        <el-input v-model="query.startDate" type="date" placeholder="开始" clearable style="width: 150px" />
-        <el-input v-model="query.endDate" type="date" placeholder="结束" clearable style="width: 150px" />
+        <el-input v-model="query.startDate" type="date" placeholder="订货开始" clearable style="width: 150px" />
+        <el-input v-model="query.endDate" type="date" placeholder="订货结束" clearable style="width: 150px" />
         <el-button type="primary" @click="query.page = 1, loadData()"><el-icon><Search /></el-icon>查询</el-button>
-        <el-button @click="Object.assign(query, { receiptNo: '', orderNo: '', materialKeyword: '', startDate: '', endDate: '', page: 1 }), loadData()">重置</el-button>
+        <el-button @click="Object.assign(query, { orderNo: '', supplierKeyword: '', materialKeyword: '', startDate: '', endDate: '', page: 1 }), loadData()">重置</el-button>
       </div>
 
-      <el-table :data="list" v-loading="loading" stripe max-height="calc(100vh - 260px)" :row-class-name="rowClassName">
+      <el-table :data="list" v-loading="loading" stripe max-height="calc(100vh - 260px)">
         <el-table-column type="expand" width="40">
           <template #default="{ row }">
             <div class="return-detail">
-              <el-table :data="row.returns" size="small" border>
-                <el-table-column label="退货单号" width="150">
-                  <template #default="{ row: r }">{{ r.documentNo || '-' }}</template>
-                </el-table-column>
-                <el-table-column label="退货日期" width="110">
-                  <template #default="{ row: r }">{{ dateOnly(r.effectiveDate || r.createdAt) }}</template>
+              <el-table :data="row.items" size="small" border>
+                <el-table-column label="行号" width="60" align="center">
+                  <template #default="{ row: l }">{{ l.line ?? '-' }}</template>
                 </el-table-column>
                 <el-table-column label="物料编码" width="110" show-overflow-tooltip>
-                  <template #default="{ row: r }">{{ r.material?.code }}</template>
+                  <template #default="{ row: l }">{{ l.material?.code }}</template>
                 </el-table-column>
                 <el-table-column label="物料名称" min-width="130" show-overflow-tooltip>
-                  <template #default="{ row: r }">{{ r.material?.name }}</template>
+                  <template #default="{ row: l }">{{ l.material?.name }}</template>
                 </el-table-column>
                 <el-table-column label="型号规格" min-width="120" show-overflow-tooltip>
-                  <template #default="{ row: r }">{{ r.material?.specification || '-' }}</template>
+                  <template #default="{ row: l }">{{ l.material?.specification || '-' }}</template>
                 </el-table-column>
-                <el-table-column label="退货数量" width="90" align="right">
-                  <template #default="{ row: r }">{{ r.quantity }}</template>
+                <el-table-column label="订货数量" width="90" align="right">
+                  <template #default="{ row: l }">{{ l.quantity }}</template>
+                </el-table-column>
+                <el-table-column label="收货数量" width="90" align="right">
+                  <template #default="{ row: l }">{{ l.receivedQty }}</template>
+                </el-table-column>
+                <el-table-column label="已退数量" width="90" align="right">
+                  <template #default="{ row: l }">{{ l.returnedQty }}</template>
+                </el-table-column>
+                <el-table-column label="可退数量" width="90" align="right">
+                  <template #default="{ row: l }">{{ l.returnableQty }}</template>
                 </el-table-column>
                 <el-table-column label="单位" width="70">
-                  <template #default="{ row: r }">{{ r.material?.unit || '-' }}</template>
+                  <template #default="{ row: l }">{{ l.unit || '-' }}</template>
                 </el-table-column>
-                <el-table-column label="批号" width="120" show-overflow-tooltip>
-                  <template #default="{ row: r }">{{ r.batchNo || '-' }}</template>
-                </el-table-column>
-                <el-table-column label="仓库" width="100" show-overflow-tooltip>
-                  <template #default="{ row: r }">{{ r.warehouseName || '-' }}</template>
-                </el-table-column>
-                <el-table-column label="货位" width="90" show-overflow-tooltip>
-                  <template #default="{ row: r }">{{ r.binName || '-' }}</template>
-                </el-table-column>
-                <el-table-column label="部门" width="100" show-overflow-tooltip>
-                  <template #default="{ row: r }">{{ r.departmentName || '-' }}</template>
-                </el-table-column>
-                <el-table-column label="经手人" width="90" show-overflow-tooltip>
-                  <template #default="{ row: r }">{{ r.handler || '-' }}</template>
-                </el-table-column>
-                <el-table-column label="操作员" width="90" show-overflow-tooltip>
-                  <template #default="{ row: r }">{{ r.operatorName || '-' }}</template>
-                </el-table-column>
-                <el-table-column label="备注" min-width="120" show-overflow-tooltip>
-                  <template #default="{ row: r }">{{ r.remark || '-' }}</template>
+                <el-table-column label="物料库位" width="100" show-overflow-tooltip>
+                  <template #default="{ row: l }">{{ l.location || '-' }}</template>
                 </el-table-column>
               </el-table>
             </div>
           </template>
         </el-table-column>
-        <el-table-column label="收货日期" width="110">
-          <template #default="{ row }">{{ dateOnly(row.effectiveDate) }}</template>
-        </el-table-column>
-        <el-table-column label="收货单号" width="160">
-          <template #default="{ row }">{{ row.documentNo }}</template>
-        </el-table-column>
-        <el-table-column label="送货单号" width="140">
-          <template #default="{ row }">{{ row.deliveryNo || '-' }}</template>
-        </el-table-column>
         <el-table-column label="采购单号" width="160">
-          <template #default="{ row }">{{ row.orderNo || '-' }}</template>
+          <template #default="{ row }">{{ row.orderNo }}</template>
         </el-table-column>
         <el-table-column label="供应商" min-width="150">
           <template #default="{ row }">{{ row.supplierName || '未指定' }}</template>
+        </el-table-column>
+        <el-table-column label="订货日期" width="110">
+          <template #default="{ row }">{{ dateOnly(row.orderDate) }}</template>
+        </el-table-column>
+        <el-table-column label="截止日期" width="110">
+          <template #default="{ row }">{{ dateOnly(row.expectedDate) }}</template>
+        </el-table-column>
+        <el-table-column label="采购员" width="100">
+          <template #default="{ row }">{{ row.buyer || '-' }}</template>
         </el-table-column>
         <el-table-column label="行数" width="70" align="center">
           <template #default="{ row }">{{ row.lineCount ?? row.items?.length ?? 0 }}</template>
         </el-table-column>
         <el-table-column label="收货数量" width="100" align="right">
-          <template #default="{ row }">{{ row.totalQty }}</template>
+          <template #default="{ row }">{{ row.totalReceivedQty }}</template>
         </el-table-column>
         <el-table-column label="已退数量" width="100" align="right">
           <template #default="{ row }">{{ row.returnedQty }}</template>
@@ -237,12 +325,12 @@ onMounted(async () => {
       </div>
     </div>
 
-    <el-dialog v-model="returnVisible" :title="`采购退货 - ${currentDoc?.documentNo || ''}`" width="1150px" destroy-on-close :close-on-click-modal="false">
+    <el-dialog v-model="returnVisible" :title="`采购退货 - ${currentOrder?.orderNo || ''}`" width="1250px" destroy-on-close :close-on-click-modal="false">
       <el-descriptions :column="4" border size="small" style="margin-bottom: 12px">
-        <el-descriptions-item label="收货单号">{{ currentDoc?.documentNo }}</el-descriptions-item>
-        <el-descriptions-item label="采购单号">{{ currentDoc?.orderNo || '-' }}</el-descriptions-item>
-        <el-descriptions-item label="供应商">{{ currentDoc?.supplierName || '-' }}</el-descriptions-item>
-        <el-descriptions-item label="送货单号">{{ currentDoc?.deliveryNo || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="采购单号">{{ currentOrder?.orderNo }}</el-descriptions-item>
+        <el-descriptions-item label="供应商">{{ currentOrder?.supplierName || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="订货日期">{{ dateOnly(currentOrder?.orderDate) }}</el-descriptions-item>
+        <el-descriptions-item label="采购员">{{ currentOrder?.buyer || '-' }}</el-descriptions-item>
       </el-descriptions>
 
       <el-form :model="returnForm" label-width="90px">
@@ -277,32 +365,32 @@ onMounted(async () => {
       <div class="table-toolbar">
         <span class="toolbar-title">退货明细</span>
         <div style="flex: 1" />
-        <el-button size="small" @click="toggleFill">{{ hasReturnQty ? '清空' : '自动' }}</el-button>
+        <el-button size="small" @click="toggleFill">{{ returnLines.some((l: any) => Number(l.returnQty) > 0) ? '清空' : '自动' }}</el-button>
       </div>
 
-      <el-table :data="returnLines" size="small" border max-height="400">
-        <el-table-column label="行号" width="60" align="center">
-          <template #default="{ row }">{{ row.lineNo ?? '-' }}</template>
+      <el-table :data="returnLines" size="small" border max-height="420">
+        <el-table-column label="行号" width="55" align="center">
+          <template #default="{ row }">{{ row.line ?? '-' }}</template>
         </el-table-column>
-        <el-table-column label="物料编码" width="110" show-overflow-tooltip>
+        <el-table-column label="物料编码" width="105" show-overflow-tooltip>
           <template #default="{ row }">{{ row.material?.code }}</template>
         </el-table-column>
-        <el-table-column label="物料名称" min-width="130" show-overflow-tooltip>
+        <el-table-column label="物料名称" min-width="120" show-overflow-tooltip>
           <template #default="{ row }">{{ row.material?.name }}</template>
         </el-table-column>
-        <el-table-column label="型号规格" min-width="120" show-overflow-tooltip>
+        <el-table-column label="型号规格" min-width="110" show-overflow-tooltip>
           <template #default="{ row }">{{ row.material?.specification || '-' }}</template>
         </el-table-column>
-        <el-table-column label="收货数量" width="90" align="right">
-          <template #default="{ row }">{{ row.quantity }}</template>
+        <el-table-column label="收货数量" width="85" align="right">
+          <template #default="{ row }">{{ row.receivedQty }}</template>
         </el-table-column>
-        <el-table-column label="已退数量" width="90" align="right">
+        <el-table-column label="已退数量" width="85" align="right">
           <template #default="{ row }">{{ row.returnedQty }}</template>
         </el-table-column>
-        <el-table-column label="可退数量" width="90" align="right">
+        <el-table-column label="可退数量" width="85" align="right">
           <template #default="{ row }">{{ row.returnableQty }}</template>
         </el-table-column>
-        <el-table-column label="本次退货" width="110">
+        <el-table-column label="本次退货" width="105">
           <template #default="{ row }">
             <el-input-number
               v-model="row.returnQty"
@@ -317,17 +405,45 @@ onMounted(async () => {
             />
           </template>
         </el-table-column>
-        <el-table-column label="单位" width="70">
-          <template #default="{ row }">{{ row.material?.unit || '-' }}</template>
+        <el-table-column label="单位" width="65">
+          <template #default="{ row }">{{ row.unit || '-' }}</template>
         </el-table-column>
-        <el-table-column label="批号" width="120" show-overflow-tooltip>
-          <template #default="{ row }">{{ row.batchNo || '-' }}</template>
+        <el-table-column label="仓库" width="140">
+          <template #default="{ row }">
+            <el-select v-model="row.warehouseId" filterable placeholder="选择仓库" style="width: 100%" @change="onLineWarehouseChange(row)">
+              <el-option v-for="w in warehouses" :key="w.id" :label="w.name" :value="w.id" />
+            </el-select>
+          </template>
         </el-table-column>
-        <el-table-column label="仓库" width="100" show-overflow-tooltip>
-          <template #default="{ row }">{{ row.warehouse?.name || '-' }}</template>
+        <el-table-column label="货位" width="130">
+          <template #default="{ row }">
+            <el-select
+              v-model="row.binId"
+              filterable
+              clearable
+              :loading="row.binLoading"
+              :disabled="!lineBinManaged(row)"
+              :placeholder="lineBinManaged(row) ? '选择货位' : '无需货位'"
+              style="width: 100%"
+              @change="onLineBinChange(row)"
+            >
+              <el-option v-for="b in row.bins" :key="b.id" :label="b.name || b.code" :value="b.id" />
+            </el-select>
+          </template>
         </el-table-column>
-        <el-table-column label="货位" width="90" show-overflow-tooltip>
-          <template #default="{ row }">{{ row.bin?.name || '-' }}</template>
+        <el-table-column label="批号" width="160">
+          <template #default="{ row }">
+            <el-select
+              v-model="row.batchNo"
+              filterable
+              clearable
+              :loading="row.batchLoading"
+              :placeholder="lineBatchRequired(row) ? '选择批号（必选）' : '可选'"
+              style="width: 100%"
+            >
+              <el-option v-for="b in row.batches" :key="b.batchNo" :label="`${b.batchNo}（余 ${b.quantity}）`" :value="b.batchNo" />
+            </el-select>
+          </template>
         </el-table-column>
       </el-table>
 
@@ -343,9 +459,5 @@ onMounted(async () => {
 .return-detail {
   padding: 8px 16px 8px 48px;
   background: var(--el-fill-color-lighter);
-}
-:deep(.no-return-row .el-table__expand-icon) {
-  visibility: hidden;
-  pointer-events: none;
 }
 </style>

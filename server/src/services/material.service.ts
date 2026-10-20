@@ -3,8 +3,12 @@ import { Prisma } from "@prisma/client";
 
 export interface MaterialCreateInput {
   code: string;
+  bomcode?: string;
   name: string;
   specification?: string;
+  description?: string;
+  packageType?: string;
+  brand?: string;
   category: string;
   unit: string;
   safetyStock?: number;
@@ -21,6 +25,7 @@ export interface MaterialCreateInput {
   location?: string;
   supplierId?: number;
   batchManaged?: boolean;
+  status?: number;
   remark?: string;
   desc1?: string;
   desc2?: string;
@@ -30,24 +35,28 @@ export interface MaterialCreateInput {
 
 export interface MaterialWhere {
   code?: string;
+  bomcode?: string;
   name?: string;
   keyword?: string;
   category?: string;
   materialType?: string;
+  brand?: string;
+  packageType?: string;
   status?: number;
   page?: number;
   pageSize?: number;
 }
 
 export async function listMaterials(where: MaterialWhere) {
-  const { code, name, keyword, category, materialType, status, page = 1, pageSize = 20 } = where;
+  const { code, bomcode, name, keyword, category, materialType, brand, packageType, status, page = 1, pageSize = 20 } = where;
 
   const filters: Prisma.MaterialWhereInput = {};
   if (code) filters.code = { contains: code, mode: "insensitive" };
+  if (bomcode) filters.bomcode = { contains: bomcode, mode: "insensitive" };
   if (name) filters.name = { contains: name, mode: "insensitive" };
   if (keyword) {
     const kw = { contains: keyword, mode: "insensitive" as const };
-    filters.OR = [{ code: kw }, { name: kw }, { specification: kw }];
+    filters.OR = [{ code: kw }, { bomcode: kw }, { name: kw }, { specification: kw }, { description: kw }, { packageType: kw }, { brand: kw }];
   }
   if (category) {
     const cats = String(category).split(",").map((c) => c.trim()).filter(Boolean);
@@ -57,6 +66,8 @@ export async function listMaterials(where: MaterialWhere) {
     const types = String(materialType).split(",").map((t) => t.trim()).filter(Boolean);
     filters.materialType = types.length === 1 ? types[0] : { in: types };
   }
+  if (brand) filters.brand = { contains: brand, mode: "insensitive" };
+  if (packageType) filters.packageType = { contains: packageType, mode: "insensitive" };
   if (status !== undefined) filters.status = Number(status);
 
   const [total, items] = await Promise.all([
@@ -148,14 +159,18 @@ export async function listMaterialOptions(where: MaterialOptionWhere) {
     const kw = { contains: keyword, mode: "insensitive" as const };
     filters.OR = [
       { code: kw },
+      { bomcode: kw },
       { name: kw },
       { specification: kw },
+      { description: kw },
       { materialType: kw },
+      { packageType: kw },
+      { brand: kw },
     ];
   }
   const materials = await prisma.material.findMany({
     where: filters,
-    select: { id: true, code: true, name: true, specification: true, unit: true, location: true, cost: true, price: true, category: true, processRouteId: true, batchManaged: true },
+    select: { id: true, code: true, name: true, specification: true, description: true, packageType: true, brand: true, remark: true, unit: true, location: true, cost: true, price: true, category: true, processRouteId: true, batchManaged: true },
     orderBy: { code: "asc" },
     take: Math.min(Number(limit) || 50, 500),
   });
@@ -205,26 +220,52 @@ export async function updateMaterial(id: number, data: Partial<MaterialCreateInp
   const exists = await prisma.material.findUnique({ where: { id } });
   if (!exists) throw new Error("物料不存在");
 
-  if (data.code) {
-    const dup = await prisma.material.findFirst({
-      where: { code: data.code, NOT: { id } },
-    });
-    if (dup) throw new Error("物料编码已存在");
-  }
-
-  return prisma.material.update({ where: { id }, data });
+  if (data.code && data.code !== exists.code) throw new Error("物料编码不可修改");
+  const { code: _code, ...payload } = data;
+  return prisma.material.update({ where: { id }, data: payload });
 }
 
 export async function deleteMaterial(id: number) {
   const exists = await prisma.material.findUnique({ where: { id } });
   if (!exists) throw new Error("物料不存在");
 
-  // 检查是否被关联使用
-  const bomItemCount = await prisma.bomItem.count({ where: { materialId: id } });
-  const orderItemCount = await prisma.salesOrderItem.count({ where: { materialId: id } });
-  if (bomItemCount > 0 || orderItemCount > 0) {
-    throw new Error("物料已被BOM或订单引用，无法删除");
-  }
+  // 检查是否被关联使用（任何业务引用都不允许删除）
+  const [
+    bomItemCount,
+    bomProductCount,
+    orderItemCount,
+    purchaseItemCount,
+    productionOrderCount,
+    stockCount,
+    batchCount,
+    stockRecordCount,
+    batchMaterialCount,
+    suggestionCount,
+    shortageCount,
+    unitConversionCount,
+  ] = await Promise.all([
+    prisma.bomItem.count({ where: { materialId: id } }),
+    prisma.bom.count({ where: { productId: id } }),
+    prisma.salesOrderItem.count({ where: { materialId: id } }),
+    prisma.purchaseOrderItem.count({ where: { materialId: id } }),
+    prisma.productionOrder.count({ where: { materialId: id } }),
+    prisma.stock.count({ where: { materialId: id } }),
+    prisma.materialBatch.count({ where: { materialId: id } }),
+    prisma.stockRecord.count({ where: { materialId: id } }),
+    prisma.productionBatchMaterial.count({ where: { materialId: id } }),
+    prisma.purchaseSuggestion.count({ where: { materialId: id } }),
+    prisma.mrpShortage.count({ where: { materialId: id } }),
+    prisma.materialUnitConversion.count({ where: { materialId: id } }),
+  ]);
+  if (bomItemCount > 0) throw new Error("物料已被BOM引用，无法删除");
+  if (bomProductCount > 0) throw new Error("物料已维护BOM，无法删除");
+  if (orderItemCount > 0) throw new Error("物料已被销售订单引用，无法删除");
+  if (purchaseItemCount > 0) throw new Error("物料已被采购订单引用，无法删除");
+  if (productionOrderCount > 0) throw new Error("物料已被生产订单引用，无法删除");
+  if (stockCount > 0 || batchCount > 0 || stockRecordCount > 0) throw new Error("物料存在库存、批次或库存流水，无法删除");
+  if (batchMaterialCount > 0) throw new Error("物料已被生产批次用料引用，无法删除");
+  if (suggestionCount > 0 || shortageCount > 0) throw new Error("物料存在采购建议或MRP缺料记录，无法删除");
+  if (unitConversionCount > 0) throw new Error("物料存在计量单位换算，无法删除");
 
   await prisma.material.update({ where: { id }, data: { status: 0 } });
   return true;

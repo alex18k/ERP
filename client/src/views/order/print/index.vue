@@ -2,13 +2,14 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { orderApi } from '../../../api'
+import { useCompanyInfo, displayCompanyName } from '../../../composables/useCompanyInfo'
 
 const route = useRoute()
 const router = useRouter()
 const order = ref<any>(null)
 
-// —— 卖方信息（可改成实际公司名/联系方式）——
-const SELLER_NAME = '肇庆市博士芯电子科技有限公司'
+const { companyInfo, loadCompanyInfo } = useCompanyInfo()
+const sellerName = computed(() => displayCompanyName(companyInfo.value))
 
 function fmt(d: string | null | undefined) {
   return d ? String(d).slice(0, 10) : '-'
@@ -87,6 +88,7 @@ function doPrint() {
 }
 
 onMounted(async () => {
+  loadCompanyInfo()
   const id = Number(route.query.id)
   if (!id) return
   const res: any = await orderApi.get(id)
@@ -106,7 +108,7 @@ onMounted(async () => {
       <!-- 单据头 -->
       <div class="so-header">
         <div class="so-brand">
-          <div class="so-brand-name">{{ SELLER_NAME }}</div>
+          <div class="so-brand-name">{{ sellerName }}</div>
         </div>
         <div class="so-docno">
           <div class="so-docno-row"><span>单据编号</span><b>{{ order.orderNo }}</b></div>
@@ -130,7 +132,7 @@ onMounted(async () => {
         <div class="so-party">
           <h4>卖方</h4>
           <dl>
-            <div><dt>名称</dt><dd>{{ SELLER_NAME }}</dd></div>
+            <div><dt>名称</dt><dd>{{ sellerName }}</dd></div>
             <div><dt>经办销售</dt><dd>{{ order.seller1 || '-' }}{{ order.seller2 ? `、${order.seller2}` : '' }}</dd></div>
             <div><dt>结算方式</dt><dd>{{ order.paymentMethod || '-' }}</dd></div>
             <div><dt>渠道</dt><dd>{{ order.channel || '-' }}</dd></div>

@@ -476,9 +476,9 @@ function confirmTransferLeave(done?: () => void) {
 }
 
 function signedQty(row: any) {
-  if (row.type === 'out') return `-${row.quantity}`
-  if (row.type === 'in') return `+${row.quantity}`
-  return String(row.quantity)
+  const q = Number(row.quantity) || 0
+  const signed = row.type === 'out' ? -q : q
+  return signed > 0 ? `+${signed}` : String(signed)
 }
 
 async function loadData() {
@@ -526,6 +526,8 @@ onMounted(async () => {
         <el-button type="primary" @click="query.page = 1, loadData()"><el-icon><Search /></el-icon>查询</el-button>
         <el-button @click="Object.assign(query, { materialKeyword: '', warehouseId: '', transactionTypeId: '', startDate: '', endDate: '', documentNo: '', page: 1 }), loadData()">重置</el-button>
         <div class="row-actions">
+          <el-button type="success" plain @click="router.push('/inventory/product-in')"><el-icon><Download /></el-icon>入库</el-button>
+          <el-button type="danger" plain @click="router.push('/inventory/material-out')"><el-icon><Upload /></el-icon>出库</el-button>
           <el-button type="success" plain class="btn-add" @click="openDialog()"><el-icon><Plus /></el-icon>增加</el-button>
           <el-button type="warning" plain @click="openTransfer()"><el-icon><Switch /></el-icon>移库</el-button>
           <el-button type="primary" plain :disabled="!currentRow?.documentNo" title="先点击列表中的行，再打印该单号" @click="printSelected"><el-icon><Printer /></el-icon>打印</el-button>
@@ -560,6 +562,15 @@ onMounted(async () => {
         <el-table-column label="型号规格" min-width="120" show-overflow-tooltip>
           <template #default="{ row }">{{ row.material?.specification }}</template>
         </el-table-column>
+        <el-table-column label="封装" width="80" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.material?.packageType || '-' }}</template>
+        </el-table-column>
+        <el-table-column label="品牌" width="100" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.material?.brand || '-' }}</template>
+        </el-table-column>
+        <el-table-column label="物料备注" min-width="140" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.material?.remark || '-' }}</template>
+        </el-table-column>
         <el-table-column label="库位" width="100" show-overflow-tooltip>
           <template #default="{ row }">{{ row.warehouse?.name }}</template>
         </el-table-column>
@@ -569,19 +580,19 @@ onMounted(async () => {
         <el-table-column prop="batchNo" label="批号" width="130" show-overflow-tooltip />
         <el-table-column label="数量" width="80" align="right">
           <template #default="{ row }">
-            <span :style="{ color: row.type === 'out' ? 'var(--el-color-danger)' : 'var(--el-color-success)', fontWeight: 600 }">
+            <span :style="{ color: Number(signedQty(row)) >= 0 ? 'var(--el-color-success)' : 'var(--el-color-danger)', fontWeight: 600 }">
               {{ signedQty(row) }}
             </span>
           </template>
-        </el-table-column>
-        <el-table-column label="余额" width="80" align="right">
-          <template #default="{ row }">{{ row.balanceAfter }}</template>
         </el-table-column>
         <el-table-column label="部门" width="120" show-overflow-tooltip>
           <template #default="{ row }">{{ row.department?.name || '-' }}</template>
         </el-table-column>
         <el-table-column label="经手人" width="100" show-overflow-tooltip>
           <template #default="{ row }">{{ row.handler || '-' }}</template>
+        </el-table-column>
+        <el-table-column label="仓管员" width="100" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.keeper || '-' }}</template>
         </el-table-column>
         <el-table-column label="操作员" width="90" show-overflow-tooltip>
           <template #default="{ row }">{{ row.operator?.realName || '-' }}</template>

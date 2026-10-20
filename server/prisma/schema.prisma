@@ -99,8 +99,12 @@ model Department {
 model Material {
   id                  Int                  @id @default(autoincrement())
   code                String               @unique
+  bomcode             String? // BOM编码（用于管理BOM）
   name                String
   specification       String?
+  description         String? // 物料描述
+  packageType         String? // 封装（自由填写）
+  brand               String? // 品牌（自由填写）
   category            String // purchase=采购, manufacture=制造
   unit                String
   safetyStock         Float                @default(0)
@@ -562,7 +566,7 @@ model Stock {
   warehouseId Int
   warehouse   Warehouse @relation(fields: [warehouseId], references: [id])
   binId       Int?
-  bin         WarehouseBin? @relation(fields: [binId], references: [id])
+  bin         WarehouseBin? @relation(fields: [binId], references: [id], onDelete: Restrict)
   quantity    Float     @default(0)
   reservedQty Float     @default(0)
   lastInDate  DateTime?
@@ -581,7 +585,7 @@ model StockRecord {
   warehouseId       Int
   warehouse         Warehouse             @relation("StockRecordWarehouse", fields: [warehouseId], references: [id])
   binId             Int?
-  bin               WarehouseBin?         @relation(fields: [binId], references: [id])
+  bin               WarehouseBin?         @relation(fields: [binId], references: [id], onDelete: Restrict)
   type              String // in, out, transfer, adjust
   transactionTypeId Int?
   transactionType   StockTransactionType? @relation(fields: [transactionTypeId], references: [id])
@@ -589,6 +593,7 @@ model StockRecord {
   orderNo           String? // 手工/原单号（新增库存事务页面录入）
   deliveryNo        String? // 送货单号（采购收货录入）
   keeper            String? // 仓管员（采购收货录入）
+  approver          String? // 审核人（材料出库录入）
   departmentId      Int?
   department        Workshop?             @relation("StockRecordDepartment", fields: [departmentId], references: [id])
   handler           String? // 经手人（手工库存事务录入）
@@ -611,6 +616,7 @@ model StockRecord {
   @@index([relatedType, relatedId])
   @@index([createdAt])
   @@index([type, createdAt])
+  @@index([departmentId])
 }
 
 // 物料批号库存：按 (物料, 仓库, 货位, 批号) 记录各批数量
@@ -621,7 +627,7 @@ model MaterialBatch {
   warehouseId Int
   warehouse   Warehouse @relation(fields: [warehouseId], references: [id])
   binId       Int?
-  bin         WarehouseBin? @relation(fields: [binId], references: [id])
+  bin         WarehouseBin? @relation(fields: [binId], references: [id], onDelete: Restrict)
   batchNo     String
   quantity    Float     @default(0)
   createdAt   DateTime  @default(now())
@@ -704,4 +710,21 @@ model PurchaseSuggestion {
   status           String    @default("pending") // pending, converted, cancelled
   convertedOrderId Int?
   createdAt        DateTime  @default(now())
+}
+
+model CompanyInfo {
+  id        Int      @id @default(autoincrement())
+  nameZh    String   @default("")
+  nameEn    String?
+  region    String?
+  address   String?
+  phone     String?
+  fax       String?
+  email     String?
+  contact   String?
+  taxNo     String?
+  website   String?
+  remark    String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }

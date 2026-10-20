@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { stockApi, materialApi } from '../../../../api'
 
 const loading = ref(false)
-const list = ref<any[]>([])
+const allList = ref<any[]>([])
 const materialTypes = ref<string[]>([])
-const query = reactive({ materialType: '', keyword: '' })
+const query = reactive({ materialType: '', keyword: '', page: 1, pageSize: 20 })
+const pagedList = computed(() => allList.value.slice((query.page - 1) * query.pageSize, query.page * query.pageSize))
 
 async function loadMaterialTypes() {
   try {
@@ -23,16 +24,17 @@ async function loadData() {
     if (query.materialType) params.materialType = query.materialType
     if (query.keyword) params.keyword = query.keyword
     const res: any = await stockApi.alert(params)
-    list.value = res.data
+    allList.value = res.data
   } finally { loading.value = false }
 }
 
 function search() {
+  query.page = 1
   loadData()
 }
 
 function resetQuery() {
-  Object.assign(query, { materialType: '', keyword: '' })
+  Object.assign(query, { materialType: '', keyword: '', page: 1 })
   loadData()
 }
 
@@ -59,7 +61,7 @@ onMounted(async () => {
     </div>
 
     <div class="page-card">
-      <el-table :data="list" size="small">
+      <el-table :data="pagedList" size="small">
         <el-table-column prop="materialCode" label="物料编码" width="150" />
         <el-table-column prop="materialName" label="物料名称" min-width="180" show-overflow-tooltip />
         <el-table-column prop="specification" label="规格型号" min-width="180" show-overflow-tooltip>
@@ -83,7 +85,15 @@ onMounted(async () => {
           </template>
         </el-table-column>
       </el-table>
-      <el-empty v-if="!list.length" description="所有物料库存均正常" :image-size="60" />
+      <el-empty v-if="!allList.length" description="所有物料库存均正常" :image-size="60" />
+      <el-pagination
+        v-model:current-page="query.page"
+        v-model:page-size="query.pageSize"
+        :total="allList.length"
+        :page-sizes="[20, 50, 100]"
+        layout="total, sizes, prev, pager, next, jumper"
+        style="margin-top: 12px; justify-content: flex-end"
+      />
     </div>
   </div>
 </template>

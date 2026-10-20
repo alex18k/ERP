@@ -27,6 +27,10 @@ router.get("/permissions", requirePermission("role:manage"), systemController.li
 // 部门
 router.get("/departments", systemController.listDepartmentHandler);
 
+// 公司信息
+router.get("/company", requirePermission("company:view"), systemController.getCompanyInfoHandler);
+router.put("/company", requirePermission("company:edit"), systemController.updateCompanyInfoHandler);
+
 // 操作日志
 router.get("/logs", requirePermission("user:manage"), systemController.listLogHandler);
 

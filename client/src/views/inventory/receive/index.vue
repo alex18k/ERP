@@ -7,6 +7,7 @@ import { warehouseIdByLocation } from '../../../utils/location'
 const loading = ref(false)
 const list = ref<any[]>([])
 const total = ref(0)
+const currentRow = ref<any>(null)
 const query = reactive({ page: 1, pageSize: 20, orderNo: '' })
 
 const warehouses = ref<any[]>([])
@@ -253,6 +254,11 @@ function confirmLeave(done?: () => void) {
     })
 }
 
+function handleReceive() {
+  if (!currentRow.value?.receivable) return
+  openReceiveByOrder(currentRow.value.orderId)
+}
+
 onMounted(async () => {
   const wRes: any = await warehouseApi.list({ pageSize: 200 })
   warehouses.value = wRes.data.items
@@ -267,17 +273,16 @@ onMounted(async () => {
         <el-input v-model="query.orderNo" placeholder="采购单号" clearable style="width: 180px" />
         <el-button type="primary" @click="query.page = 1, loadData()"><el-icon><Search /></el-icon>查询</el-button>
         <el-button @click="Object.assign(query, { orderNo: '', page: 1 }), loadData()">重置</el-button>
+        <div style="flex: 1" />
+        <el-button type="success" plain :disabled="!currentRow?.receivable" @click="handleReceive"><el-icon><Box /></el-icon>收货</el-button>
       </div>
 
-      <el-table :data="rows" v-loading="loading" stripe max-height="calc(100vh - 260px)">
+      <el-table :data="rows" v-loading="loading" stripe max-height="calc(100vh - 260px)" highlight-current-row @current-change="(row: any) => (currentRow = row)">
         <el-table-column prop="orderNo" label="采购单号" width="150" />
-        <el-table-column prop="supplierName" label="供应商" min-width="140" />
-        <el-table-column label="物料" min-width="200">
-          <template #default="{ row }">
-            <span>{{ row.materialCode }} - {{ row.materialName }}</span>
-            <span v-if="row.specification" style="color: var(--el-text-color-secondary); margin-left: 6px">{{ row.specification }}</span>
-          </template>
-        </el-table-column>
+        <el-table-column prop="supplierName" label="供应商" min-width="200" />
+        <el-table-column prop="materialCode" label="物料编码" width="120" show-overflow-tooltip />
+        <el-table-column prop="materialName" label="物料名称" min-width="160" show-overflow-tooltip />
+        <el-table-column prop="specification" label="规格型号" min-width="150" show-overflow-tooltip />
         <el-table-column prop="quantity" label="采购数量" width="90" />
         <el-table-column prop="receivedQty" label="已收" width="80" />
         <el-table-column prop="remaining" label="未收" width="80" />
@@ -290,11 +295,6 @@ onMounted(async () => {
         <el-table-column label="明细状态" width="100">
           <template #default="{ row }">
             <el-tag :type="row.itemState.type" size="small">{{ row.itemState.label }}</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="操作" width="100" fixed="right">
-          <template #default="{ row }">
-            <el-button size="small" type="success" link :disabled="!row.receivable" @click="openReceiveByOrder(row.orderId)">收货</el-button>
           </template>
         </el-table-column>
       </el-table>
