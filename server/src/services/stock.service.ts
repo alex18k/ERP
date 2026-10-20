@@ -483,9 +483,9 @@ export async function applyBatchIn(
   return resolved;
 }
 
-// 出库：提供了批号即按批次台账扣减并校验批次余量；批号管理物料必须指定批号，
-// 非批号管理物料默认可选，但若该物料×仓库×货位仍存在批次库存，则也必须指定批号（保证批次台账与现存量一致）。
-export async function applyBatchOut(
+// 出库批号预检（只读、不落库）：确定实际扣减批号并校验批次余量，规则与 applyBatchOut 完全一致；
+// 供批量发料等“异常行跳过”场景在写入前先校验，避免事务中途抛错导致整单回滚。
+export async function checkBatchOutAvailable(
   tx: any,
   material: { id: number; code: string; batchManaged?: boolean },
   warehouseId: number,
@@ -493,7 +493,6 @@ export async function applyBatchOut(
   batchNo: string | undefined,
   quantity: number
 ): Promise<string | null> {
-  // 非批号管理物料且未提供批号：仅当该仓库×货位已无批次库存时才允许不记批次
   if (!material.batchManaged && !batchNo?.trim()) {
     const batchStock = await tx.materialBatch.findFirst({
       where: { materialId: material.id, warehouseId, binId, quantity: { gt: 0 } },
@@ -509,6 +508,27 @@ export async function applyBatchOut(
   });
   if (!existing || existing.quantity + 1e-6 < quantity) {
     throw new Error(`物料 ${material.code} 批号 ${resolved} 库存不足（当前 ${existing?.quantity ?? 0}）`);
+  }
+  return resolved;
+}
+
+// 出库：提供了批号即按批次台账扣减并校验批次余量；批号管理物料必须指定批号，
+// 非批号管理物料默认可选，但若该物料×仓库×货位仍存在批次库存，则也必须指定批号（保证批次台账与现存量一致）。
+export async function applyBatchOut(
+  tx: any,
+  material: { id: number; code: string; batchManaged?: boolean },
+  warehouseId: number,
+  binId: number | null,
+  batchNo: string | undefined,
+  quantity: number
+): Promise<string | null> {
+  const resolved = await checkBatchOutAvailable(tx, material, warehouseId, binId, batchNo, quantity);
+  if (resolved === null) return null;
+  const existing = await tx.materialBatch.findFirst({
+    where: { materialId: material.id, warehouseId, binId, batchNo: resolved },
+  });
+  if (!existing) {
+    throw new Error(`物料 ${material.code} 批号 ${resolved} 库存不足（当前 0）`);
   }
   // 条件递减：WHERE 在写入时原子校验，防止并发下扣成负数
   const updated = await tx.materialBatch.updateMany({
@@ -575,6 +595,8 @@ async function resolveDepartmentId(departmentId?: number | null) {
 
 export async function stockIn(data: { materialId: number; quantity: number; unit?: string; warehouseId: number; binId?: number | null; batchNo?: string; relatedType?: string; relatedId?: number; transactionTypeId: number; effectiveDate?: string; orderNo?: string; lineNo?: number; remark?: string; departmentId?: number; handler?: string }, userId: number) {
   if (!Number.isFinite(data.quantity) || data.quantity <= 0) throw new Error("入库数量必须大于0");
+  if (!Number.isFinite(Number(data.materialId)) || Number(data.materialId) <= 0) throw new Error("请选择物料");
+  if (!Number.isFinite(Number(data.warehouseId)) || Number(data.warehouseId) <= 0) throw new Error("请选择仓库");
   const transactionType = await resolveManualTransactionType(data.transactionTypeId, "in");
 
   const material = await prisma.material.findUnique({ where: { id: data.materialId } });
@@ -630,6 +652,8 @@ export async function stockIn(data: { materialId: number; quantity: number; unit
 
 export async function stockOut(data: { materialId: number; quantity: number; unit?: string; warehouseId: number; binId?: number | null; batchNo?: string; relatedType?: string; relatedId?: number; transactionTypeId: number; effectiveDate?: string; orderNo?: string; lineNo?: number; remark?: string; departmentId?: number; handler?: string }, userId: number) {
   if (!Number.isFinite(data.quantity) || data.quantity <= 0) throw new Error("出库数量必须大于0");
+  if (!Number.isFinite(Number(data.materialId)) || Number(data.materialId) <= 0) throw new Error("请选择物料");
+  if (!Number.isFinite(Number(data.warehouseId)) || Number(data.warehouseId) <= 0) throw new Error("请选择仓库");
   const transactionType = await resolveManualTransactionType(data.transactionTypeId, "out");
 
   const material = await prisma.material.findUnique({ where: { id: data.materialId } });

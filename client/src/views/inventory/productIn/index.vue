@@ -16,7 +16,7 @@ const departments = ref<any[]>([])
 const handlerOptions = ref<string[]>([])
 const keeperOptions = ref<string[]>([])
 const approverOptions = ref<string[]>([])
-const binMap: Record<number, any[]> = {}
+const binMap = reactive<Record<number, any[]>>({})
 const currentRow = ref<any>(null)
 
 const activeWarehouses = computed(() => warehouses.value.filter((w: any) => w.status === 1))

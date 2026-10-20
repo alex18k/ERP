@@ -2,7 +2,7 @@ import prisma from "../config/prisma";
 import { Prisma } from "@prisma/client";
 import { localDateCompact } from "../utils/date";
 import { retryOnDuplicate, lockOrderNo, ORDER_NO_LOCK } from "../utils/retry";
-import { generateDocNo, applyBatchIn, applyBatchOut, addStock, resolveBinId } from "./stock.service";
+import { generateDocNo, applyBatchIn, applyBatchOut, checkBatchOutAvailable, addStock, resolveBinId } from "./stock.service";
 import { resolveUnitRate, toBaseQty } from "../utils/unit";
 
 // ===== 生产订单 =====
@@ -727,7 +727,7 @@ export async function getBatchMaterials(batchId: number) {
       },
       materials: {
         include: {
-          material: { select: { id: true, code: true, name: true, specification: true, unit: true, location: true } },
+          material: { select: { id: true, code: true, name: true, specification: true, unit: true, location: true, batchManaged: true } },
         },
         orderBy: { id: "asc" },
       },
@@ -803,7 +803,13 @@ export async function issueBatchMaterials(
         continue;
       }
       // 计量单位换算：录入数量按换算率折算为基本单位（需求量/已发量均以基本单位计）
-      const { rate } = await resolveUnitRate(row.materialId, it.unit, tx as any);
+      let rate: number;
+      try {
+        ({ rate } = await resolveUnitRate(row.materialId, it.unit, tx as any));
+      } catch (e: any) {
+        skipped.push({ ...base, reason: e.message });
+        continue;
+      }
       const baseQty = toBaseQty(qty, rate);
 
       const remain = row.requiredQty - row.issuedQty;
@@ -823,6 +829,13 @@ export async function issueBatchMaterials(
       const stock = await tx.stock.findFirst({ where: { materialId: row.materialId, warehouseId, binId } });
       if (!stock || stock.quantity < baseQty) {
         skipped.push({ ...base, reason: `库存不足（当前 ${stock?.quantity ?? 0}）` });
+        continue;
+      }
+      // 批号余量预检（与 applyBatchOut 同规则，只读）：失败仅跳过该行，避免写入后抛错整单回滚
+      try {
+        await checkBatchOutAvailable(tx, row.material, warehouseId, binId, it.batchNo, baseQty);
+      } catch (e: any) {
+        skipped.push({ ...base, reason: e.message });
         continue;
       }
 

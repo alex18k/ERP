@@ -63,7 +63,7 @@ const menuItems: MenuNode[] = [
     ],
   },
   {
-    title: '部门管理',
+    title: '车间管理',
     icon: 'OfficeBuilding',
     children: [
       { path: '/production/work-report', title: '批次报工', icon: 'EditPen' },

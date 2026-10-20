@@ -16,7 +16,7 @@ const departments = ref<any[]>([])
 const handlerOptions = ref<string[]>([])
 const keeperOptions = ref<string[]>([])
 const approverOptions = ref<string[]>([])
-const binMap: Record<number, any[]> = {}
+const binMap = reactive<Record<number, any[]>>({})
 const currentRow = ref<any>(null)
 
 const activeWarehouses = computed(() => warehouses.value.filter((w: any) => w.status === 1))
@@ -79,6 +79,18 @@ async function loadBins(warehouseId: number | null) {
 function batchQtyOf(row: any) {
   const b = row.batches.find((x: any) => x.batchNo === row.batchNo)
   return b ? Number(b.quantity) : 0
+}
+
+// 录入单位 → 基本单位换算率（现存量/批余量均为基本单位，校验须同口径比较）
+function rowBaseRate(row: any): number {
+  const base = row.material?.unit
+  if (!row.unit || !base || row.unit === base) return 1
+  return Number(row.material?.unitRates?.[row.unit]) || 1
+}
+
+// 批余量按录入单位折算后的可录入上限（向下保留两位，避免放行超量）
+function batchMaxOf(row: any) {
+  return Math.floor((batchQtyOf(row) / rowBaseRate(row)) * 100) / 100
 }
 
 // 单价取物料主文件成本；按录入单位换算（1 录入单位 = N 基本单位）
@@ -211,12 +223,13 @@ function validateForm(): boolean {
     const qty = Number(row.quantity)
     if (!Number.isFinite(qty) || qty === 0) { ElMessage.warning(`${line}数量不能为0`); return false }
     if (qty > 0) {
-      if (row.stockQty != null && qty > row.stockQty + 1e-6) {
-        ElMessage.warning(`${line}数量不能超过现存量 ${row.stockQty}`)
+      const baseQty = qty * rowBaseRate(row)
+      if (row.stockQty != null && baseQty > row.stockQty + 1e-6) {
+        ElMessage.warning(`${line}数量折算基本单位后不能超过现存量 ${row.stockQty}`)
         return false
       }
-      if (row.batchNo && qty > batchQtyOf(row) + 1e-6) {
-        ElMessage.warning(`${line}数量不能超过该批余量 ${batchQtyOf(row)}`)
+      if (row.batchNo && baseQty > batchQtyOf(row) + 1e-6) {
+        ElMessage.warning(`${line}数量超过该批余量 ${batchQtyOf(row)}（当前单位最多可录入 ${batchMaxOf(row)}）`)
         return false
       }
     }
@@ -426,7 +439,7 @@ onMounted(async () => {
         </el-table-column>
         <el-table-column label="数量" width="80">
           <template #default="{ row }">
-            <el-input-number v-model="row.quantity" :max="Number(row.quantity) > 0 && row.batchNo ? batchQtyOf(row) : undefined" :precision="2" :controls="false" style="width: 100%" />
+            <el-input-number v-model="row.quantity" :max="Number(row.quantity) > 0 && row.batchNo ? batchMaxOf(row) : undefined" :precision="2" :controls="false" style="width: 100%" />
           </template>
         </el-table-column>
         <el-table-column label="单价" width="100" align="right">

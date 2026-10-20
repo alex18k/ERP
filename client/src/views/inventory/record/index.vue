@@ -50,10 +50,24 @@ const batchPlaceholder = computed(() => {
   return batchManaged.value ? '留空自动生成，或选择/输入已有批号' : '可选：输入或选择批号（留空不记批次）'
 })
 
-// 当前所选批号的剩余量（用于出库数量管控）
+// 当前所选批号的剩余量（用于出库数量管控，基本单位）
 const selectedBatchQty = computed(() => {
   const b = batchOptions.value.find((x: any) => x.batchNo === form.batchNo)
   return b ? Number(b.quantity) : 0
+})
+
+// 录入单位 → 基本单位换算率（与后端 resolveUnitRate 同口径，未维护时按 1 近似，后端会兜底 400）
+const selectedUnitRate = computed(() => {
+  const m = selectedMaterial.value
+  if (!m || !form.unit || form.unit === m.unit) return 1
+  return Number(m.unitRates?.[form.unit]) || 1
+})
+// 录入数量折算基本单位（批余量/现存量均为基本单位，校验必须同口径比较）
+const formBaseQty = computed(() => (Number(form.quantity) || 0) * selectedUnitRate.value)
+// 按录入单位展示的批余量上限（向下保留两位，避免向上取整放行超量）
+const batchMaxQty = computed(() => {
+  const rate = selectedUnitRate.value
+  return Math.floor((selectedBatchQty.value / rate) * 100) / 100
 })
 
 async function loadBatchOptions() {
@@ -184,8 +198,8 @@ function validateForm(): boolean {
   if (binRequired.value && !form.binId) { ElMessage.warning('该仓库启用货位管理，请选择货位'); return false }
   if (form.quantity <= 0) { ElMessage.warning('数量必须大于0'); return false }
   if (batchRequired.value && !form.batchNo) { ElMessage.warning('出库需选择批号（该物料或仓库存在批次库存）'); return false }
-  if (isOutbound.value && form.batchNo && form.quantity > selectedBatchQty.value) {
-    ElMessage.warning(`出库数量不能超过该批余量 ${selectedBatchQty.value}`)
+  if (isOutbound.value && form.batchNo && formBaseQty.value > selectedBatchQty.value + 1e-6) {
+    ElMessage.warning(`出库数量超过该批余量 ${selectedBatchQty.value}（当前单位最多可录入 ${batchMaxQty.value}）`)
     return false
   }
   return true
@@ -298,6 +312,12 @@ const tSelectedBatchQty = computed(() => {
   const b = transferBatchOptions.value.find((x: any) => x.batchNo === transferForm.batchNo)
   return b ? Number(b.quantity) : 0
 })
+const tUnitRate = computed(() => {
+  const m = tSelectedMaterial.value
+  if (!m || !transferForm.unit || transferForm.unit === m.unit) return 1
+  return Number(m.unitRates?.[transferForm.unit]) || 1
+})
+const tBatchMaxQty = computed(() => Math.floor((tSelectedBatchQty.value / tUnitRate.value) * 100) / 100)
 const tUnitOptions = computed<string[]>(() => {
   const m = tSelectedMaterial.value
   const set = new Set<string>(['个', '件', '套', '台', '只', '箱', '包'])
@@ -400,8 +420,8 @@ function validateTransfer(): boolean {
   }
   if (!(transferForm.quantity > 0)) { ElMessage.warning('移库数量必须大于0'); return false }
   if (tBatchRequired.value && !transferForm.batchNo) { ElMessage.warning('该物料或源货位存在批次库存，请选择批号'); return false }
-  if (transferForm.batchNo && transferForm.quantity > tSelectedBatchQty.value) {
-    ElMessage.warning(`移库数量不能超过该批余量 ${tSelectedBatchQty.value}`)
+  if (transferForm.batchNo && transferForm.quantity * tUnitRate.value > tSelectedBatchQty.value + 1e-6) {
+    ElMessage.warning(`移库数量超过该批余量 ${tSelectedBatchQty.value}（当前单位最多可录入 ${tBatchMaxQty.value}）`)
     return false
   }
   return true
@@ -661,7 +681,7 @@ onMounted(async () => {
           </el-select>
         </el-form-item>
         <el-form-item label="数量" required>
-          <el-input-number v-model="form.quantity" :min="1" :max="isOutbound && form.batchNo ? selectedBatchQty : undefined" style="width: 100%" />
+          <el-input-number v-model="form.quantity" :min="1" :max="isOutbound && form.batchNo ? batchMaxQty : undefined" style="width: 100%" />
           <div v-if="baseHint" class="unit-hint">{{ baseHint }}</div>
           <div v-if="isOutbound && form.batchNo" class="unit-hint">该批余量 {{ selectedBatchQty }}</div>
         </el-form-item>
@@ -728,7 +748,7 @@ onMounted(async () => {
         </el-form-item>
 
         <el-form-item label="数量" required>
-          <el-input-number v-model="transferForm.quantity" :min="0.01" :max="transferForm.batchNo ? tSelectedBatchQty : undefined" :controls="false" style="width: 100%" />
+          <el-input-number v-model="transferForm.quantity" :min="0.01" :max="transferForm.batchNo ? tBatchMaxQty : undefined" :controls="false" style="width: 100%" />
           <div v-if="transferForm.batchNo" class="unit-hint">该批余量 {{ tSelectedBatchQty }}</div>
         </el-form-item>
         <el-form-item label="计量单位">
