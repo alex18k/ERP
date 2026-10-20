@@ -48,31 +48,56 @@ export async function generateOrderNo(): Promise<string> {
   return `${prefix}${String(max + 1).padStart(4, "0")}`;
 }
 
-// 可发运订单：未发完且非草稿/取消的订单
+// 可发运订单：未发完且非草稿/取消的订单（SQL 级分页，参照 listStockSummary）
+function escapeLike(value: any) {
+  return String(value ?? "").replace(/[\\%_]/g, (c) => `\\${c}`);
+}
+
 export async function listShippableOrders(where: any) {
-  const { orderNo, customerName, page = 1, pageSize = 20 } = where;
+  const { orderNo, customerName } = where;
+  const pageNum = Math.max(1, Number(where.page) || 1);
+  const sizeNum = Math.min(1000, Math.max(1, Number(where.pageSize) || 20));
+  const offset = (pageNum - 1) * sizeNum;
 
-  const filters: Prisma.SalesOrderWhereInput = {
-    status: { in: ["confirmed", "in_production", "completed"] },
-  };
-  if (orderNo) filters.orderNo = { contains: orderNo };
-  if (customerName) filters.customerName = { contains: customerName };
+  const conds: Prisma.Sql[] = [Prisma.sql`o.status IN ('confirmed', 'in_production', 'completed')`];
+  if (orderNo) conds.push(Prisma.sql`o."orderNo" LIKE ${`%${escapeLike(orderNo)}%`}`);
+  if (customerName) conds.push(Prisma.sql`o."customerName" LIKE ${`%${escapeLike(customerName)}%`}`);
+  const whereSql = Prisma.sql`WHERE ${Prisma.join(conds, " AND ")}
+    AND EXISTS (
+      SELECT 1 FROM "SalesOrderItem" i
+      WHERE i."orderId" = o.id
+        AND (i.status IS NULL OR i.status <> 'cancelled')
+        AND i.quantity - COALESCE(i."deliveredQty", 0) > 0.0001
+    )`;
 
-  const all = await prisma.salesOrder.findMany({
-    where: filters,
+  const [countRows, pageRows] = await Promise.all([
+    prisma.$queryRaw<{ total: number }[]>(Prisma.sql`SELECT COUNT(*)::int AS total FROM "SalesOrder" o ${whereSql}`),
+    prisma.$queryRaw<{ id: number }[]>(Prisma.sql`
+      SELECT o.id FROM "SalesOrder" o ${whereSql}
+      ORDER BY o."orderNo" DESC
+      LIMIT ${sizeNum} OFFSET ${offset}
+    `),
+  ]);
+  const total = Number(countRows[0]?.total ?? 0);
+  const ids = pageRows.map((r) => Number(r.id));
+  if (ids.length === 0) return { total, page: pageNum, pageSize: sizeNum, items: [] };
+
+  const orders = await prisma.salesOrder.findMany({
+    where: { id: { in: ids } },
     include: {
       customer: { select: { id: true, name: true } },
       items: {
         include: {
           material: { select: { id: true, code: true, name: true, unit: true, specification: true, category: true, location: true, batchManaged: true } },
         },
+        orderBy: { line: "asc" },
       },
     },
-    orderBy: { orderNo: "desc" },
   });
-
-  const shippable = all
-    .filter((o) => o.items.some((it) => it.status !== "cancelled" && it.quantity - (it.deliveredQty ?? 0) > 0.0001))
+  const byId = new Map(orders.map((o) => [o.id, o]));
+  const items = ids
+    .map((id) => byId.get(id))
+    .filter((o): o is (typeof orders)[number] => !!o)
     .map((o) => ({
       ...o,
       items: o.items
@@ -80,9 +105,7 @@ export async function listShippableOrders(where: any) {
         .map((it) => ({ ...it, remaining: Number((it.quantity - (it.deliveredQty ?? 0)).toFixed(4)) })),
     }));
 
-  const total = shippable.length;
-  const start = (Number(page) - 1) * Number(pageSize);
-  return { total, page: Number(page), pageSize: Number(pageSize), items: shippable.slice(start, start + Number(pageSize)) };
+  return { total, page: pageNum, pageSize: sizeNum, items };
 }
 
 export async function listOrders(where: any) {
@@ -457,7 +480,11 @@ export async function shipOrder(id: number, userId: number) {
 
       // 制造类成品发货自动出库（必须库存充足；不足时提示改用销售发运按仓库出库）
       if (item.material.category === "manufacture") {
-        const shipBase = item.baseQty && item.baseQty > 0 ? item.baseQty : item.quantity;
+        const fullBase = item.baseQty && item.baseQty > 0 ? item.baseQty : item.quantity;
+        // 已按销售发运部分出库的量（deliveredQty 为录入单位，折回基本单位），自动发货只补差值，避免双倍扣库存
+        const deliveredBase = toBaseQty(item.deliveredQty ?? 0, item.conversionRate ?? 1);
+        const shipBase = Number((fullBase - deliveredBase).toFixed(6));
+        if (shipBase <= 1e-6) continue;
         // 自动发货只允许从启用仓库的有效货位出库，跳过停用仓库/停用货位上的历史库存
         const stockRows = await tx.stock.findMany({
           where: { materialId: item.materialId, quantity: { gt: 0 } },

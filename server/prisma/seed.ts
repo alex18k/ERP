@@ -328,6 +328,12 @@ async function main() {
     { code: "SCRAP", description: "报废出库", direction: "out" },
     { code: "ISS-TR", description: "移库出库", direction: "out" },
     { code: "RCT-TR", description: "移库入库", direction: "in" },
+    // 业务路径按 code 查找的事务类型：缺失会导致流水静默丢失事务类型关联（须与 docs/事务类型文件.csv 保持一致）
+    { code: "ISS-WO", description: "生产领料", direction: "out" },
+    { code: "RCT-WO", description: "生产入库", direction: "in" },
+    { code: "ISS-SO", description: "销售出库", direction: "out" },
+    { code: "RCT-PO", description: "采购收货", direction: "in" },
+    { code: "ISS-PRV", description: "采购退货", direction: "out" },
   ];
   for (const t of txnTypes) {
     await prisma.stockTransactionType.upsert({ where: { code: t.code }, update: {}, create: t });

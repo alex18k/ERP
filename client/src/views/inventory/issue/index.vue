@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { productionApi, warehouseApi, warehouseBinApi } from '../../../api'
+import { productionApi, warehouseApi, warehouseBinApi, stockApi } from '../../../api'
 import { BASE_LOCATIONS, warehouseIdByLocation } from '../../../utils/location'
 
 const loading = ref(false)
@@ -40,8 +40,36 @@ async function loadBins() {
 }
 
 async function onWarehouseChange() {
-  for (const line of detail.value) line.binId = null
+  for (const line of detail.value) {
+    line.binId = null
+    line.batchNo = ''
+    line.batches = []
+    line.batchesKey = ''
+  }
   await loadBins()
+}
+
+// 批号候选：该物料×仓库×货位尚有结存的批次，打开下拉时按需加载
+async function loadRowBatches(row: any) {
+  if (!form.warehouseId || !row.material?.id) return
+  const key = `${form.warehouseId}|${row.binId ?? ''}`
+  if (row.batchesKey === key) return
+  row.batchesLoading = true
+  try {
+    const res: any = await stockApi.batches({ materialId: row.material.id, warehouseId: form.warehouseId, binId: row.binId || undefined, pageSize: 200 })
+    row.batches = res.data.items || []
+    row.batchesKey = key
+  } catch {
+    row.batches = []
+  } finally {
+    row.batchesLoading = false
+  }
+}
+
+function onRowBinChange(row: any) {
+  row.batchNo = ''
+  row.batches = []
+  row.batchesKey = ''
 }
 
 function todayStr() {
@@ -123,6 +151,9 @@ async function onBatchChange() {
     binId: null,
     issueQty: 0,
     batchNo: '',
+    batches: [] as any[],
+    batchesKey: '',
+    batchesLoading: false,
   }))
   buildLocationOptions()
   form.issueQty = data.quantity ?? 0
@@ -156,6 +187,10 @@ async function submit() {
   }
   if (binRequired.value && detail.value.some((l) => Number(l.issueQty) > 0 && !l.binId)) {
     ElMessage.warning('该仓库启用货位管理，请为发料行选择货位')
+    return
+  }
+  if (detail.value.some((l) => Number(l.issueQty) > 0 && l.material?.batchManaged && !l.batchNo)) {
+    ElMessage.warning('批号管理物料必须选择批号')
     return
   }
   const items = detail.value
@@ -291,7 +326,7 @@ onMounted(async () => {
         </el-table-column>
         <el-table-column v-if="binRequired" label="货位" width="150">
           <template #default="{ row }">
-            <el-select v-model="row.binId" size="small" filterable clearable placeholder="选择货位" style="width: 100%">
+            <el-select v-model="row.binId" size="small" filterable clearable placeholder="选择货位" style="width: 100%" @change="onRowBinChange(row)">
               <el-option v-for="b in bins" :key="b.id" :label="`${b.code} - ${b.name}`" :value="b.id" />
             </el-select>
           </template>
@@ -308,7 +343,18 @@ onMounted(async () => {
         </el-table-column>
         <el-table-column label="批号" width="160">
           <template #default="{ row }">
-            <el-input v-model="row.batchNo" placeholder="批号管理物料必填" size="small" />
+            <el-select
+              v-model="row.batchNo"
+              size="small"
+              filterable
+              clearable
+              :loading="row.batchesLoading"
+              :placeholder="row.material?.batchManaged ? '选择批号（必选）' : '选择该仓库现有批次'"
+              style="width: 100%"
+              @visible-change="(v: boolean) => v && loadRowBatches(row)"
+            >
+              <el-option v-for="b in row.batches" :key="b.batchNo" :label="`${b.batchNo}（余 ${b.quantity}）`" :value="b.batchNo" />
+            </el-select>
           </template>
         </el-table-column>
       </el-table>

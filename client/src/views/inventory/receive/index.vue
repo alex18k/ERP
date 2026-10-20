@@ -17,7 +17,7 @@ const currentOrder = ref<any>(null)
 const receiveItems = ref<any[]>([])
 const receiveForm = reactive({ effectiveDate: '', deliveryNo: '', keeper: '', remark: '' })
 const keeperOptions = ref<string[]>([])
-const binMap: Record<number, any[]> = {}
+const binMap = reactive<Record<number, any[]>>({})
 
 const activeWarehouses = computed(() => warehouses.value.filter((w: any) => w.status === 1))
 
