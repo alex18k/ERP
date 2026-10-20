@@ -133,3 +133,11 @@ export async function overdueHandler(req: Request, res: Response) {
     return fail(res, 500, error.message, 500);
   }
 }
+export async function shipmentsHandler(req: Request, res: Response) {
+  try {
+    const data = await orderService.listSalesShipments(req.query as any);
+    return success(res, data);
+  } catch (error: any) {
+    return fail(res, 500, error.message, 500);
+  }
+}

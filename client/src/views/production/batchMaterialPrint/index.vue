@@ -2,13 +2,15 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { productionApi } from '../../../api'
+import { useCompanyInfo, displayCompanyName } from '../../../composables/useCompanyInfo'
 
 const route = useRoute()
 const router = useRouter()
 const order = ref<any>(null)
 const list = ref<any[]>([])
 
-const COMPANY_NAME = '肇庆市博士芯电子科技有限公司'
+const { companyInfo, loadCompanyInfo } = useCompanyInfo()
+const companyName = computed(() => displayCompanyName(companyInfo.value))
 
 function fmt(d: string | null | undefined) {
   return d ? String(d).slice(0, 10) : '-'
@@ -43,6 +45,7 @@ function doPrint() {
 }
 
 onMounted(async () => {
+  loadCompanyInfo()
   const orderNo = String(route.query.orderNo || '')
   if (!orderNo) return
   const res: any = await productionApi.batchMaterials({ orderNo, pageSize: 500 })
@@ -63,7 +66,7 @@ onMounted(async () => {
     <div v-if="order" id="print-area" class="issued-sheet">
       <div class="sh-header">
         <div>
-          <div class="sh-brand">{{ COMPANY_NAME }}</div>
+          <div class="sh-brand">{{ companyName }}</div>
         </div>
         <div class="sh-title">加工单领料单</div>
         <div class="sh-meta">

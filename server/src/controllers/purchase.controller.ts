@@ -30,6 +30,24 @@ export async function optionsHandler(req: Request, res: Response) {
     return fail(res, 500, error.message, 500);
   }
 }
+export async function returnOrdersHandler(req: Request, res: Response) {
+  try {
+    const data = await purchaseService.listPurchaseReturnOrders(req.query as any);
+    return success(res, data);
+  } catch (error: any) {
+    return fail(res, 500, error.message, 500);
+  }
+}
+
+export async function returnOrderHandler(req: AuthRequest, res: Response) {
+  try {
+    const data = await purchaseService.returnPurchaseOrder(Number(req.params.id), req.body, req.user!.id);
+    return success(res, data, "采购退货成功");
+  } catch (error: any) {
+    return fail(res, 400, error.message);
+  }
+}
+
 export async function receiptDocumentsHandler(req: Request, res: Response) {
   try {
     const data = await purchaseService.listPurchaseReceiptDocuments(req.query as any);

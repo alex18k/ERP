@@ -73,6 +73,7 @@ const rows = computed(() => {
         specification: m?.specification,
         quantity: it.quantity,
         receivedQty: it.receivedQty ?? 0,
+        returnedQty: it.returnedQty ?? 0,
         unitPrice: it.unitPrice,
         taxIncluded: it.taxIncluded ?? o.taxIncluded,
         taxRate: it.taxRate ?? o.taxRate,
@@ -172,6 +173,11 @@ onMounted(async () => {
             <span :class="receivedClass(row)">{{ row.receivedQty ?? 0 }}</span>
           </template>
         </el-table-column>
+        <el-table-column label="退货" width="80">
+          <template #default="{ row }">
+            <span :class="{ 'qty-return': Number(row.returnedQty) > 0 }">{{ row.returnedQty ?? 0 }}</span>
+          </template>
+        </el-table-column>
         <el-table-column label="单价" width="80">
           <template #default="{ row }">{{ fmtPrice(row.unitPrice) }}</template>
         </el-table-column>
@@ -216,6 +222,10 @@ onMounted(async () => {
 }
 .qty-full {
   color: var(--el-color-success);
+  font-weight: 600;
+}
+.qty-return {
+  color: var(--el-color-danger);
   font-weight: 600;
 }
 </style>

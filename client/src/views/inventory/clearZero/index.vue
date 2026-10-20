@@ -27,6 +27,7 @@ async function loadWarehouses() {
 }
 
 async function handleClear() {
+  await loadData()
   if (total.value === 0) {
     ElMessage.info('当前没有 0 库存记录')
     return

@@ -50,9 +50,9 @@ export async function recordsHandler(req: Request, res: Response) {
   }
 }
 
-export async function handlersHandler(_req: Request, res: Response) {
+export async function handlersHandler(req: Request, res: Response) {
   try {
-    const data = await stockService.listStockHandlers();
+    const data = await stockService.listStockHandlers(String(req.query.field || "handler"));
     return success(res, data);
   } catch (error: any) {
     return fail(res, 500, error.message, 500);

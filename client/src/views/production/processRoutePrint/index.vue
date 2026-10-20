@@ -3,6 +3,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import QRCode from 'qrcode'
 import { productionApi } from '../../../api'
+import { useCompanyInfo, displayCompanyName } from '../../../composables/useCompanyInfo'
 
 const route = useRoute()
 const router = useRouter()
@@ -10,7 +11,8 @@ const order = ref<any>(null)
 const routeInfo = ref<any>(null)
 const qrDataUrl = ref('')
 
-const COMPANY_NAME = '肇庆市博士芯电子科技有限公司'
+const { companyInfo, loadCompanyInfo } = useCompanyInfo()
+const companyName = computed(() => displayCompanyName(companyInfo.value))
 const REPORT_BASE_URL = 'http://134.175.22.157:63130'
 
 async function renderQrCode(orderNo: string) {
@@ -33,6 +35,7 @@ function doPrint() {
 }
 
 onMounted(async () => {
+  loadCompanyInfo()
   const orderNo = String(route.query.orderNo || '')
   if (!orderNo) return
   const listRes: any = await productionApi.orders({ pageSize: 5, orderNo })
@@ -55,7 +58,7 @@ onMounted(async () => {
 
     <div v-if="order" id="print-area" class="route-sheet">
       <div class="sh-header">
-        <div class="sh-brand">{{ COMPANY_NAME }}</div>
+        <div class="sh-brand">{{ companyName }}</div>
         <div class="sh-title">工艺路线卡</div>
         <div class="sh-meta">
           <div><span>打印日期</span><b>{{ todayStr }}</b></div>

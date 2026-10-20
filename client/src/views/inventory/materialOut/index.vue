@@ -1,14 +1,21 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue'
-import { ElMessage } from 'element-plus'
+import { useRouter } from 'vue-router'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { stockApi, warehouseApi, materialApi, stockTransactionTypeApi, warehouseBinApi, workshopApi } from '../../../api'
 import { warehouseIdByLocation } from '../../../utils/location'
+import { useAuthStore } from '../../../stores/auth'
 
+const router = useRouter()
+const authStore = useAuthStore()
+const currentUserName = authStore.user?.realName || authStore.user?.username || ''
 const saving = ref(false)
 const transactionTypes = ref<any[]>([])
 const warehouses = ref<any[]>([])
 const departments = ref<any[]>([])
 const handlerOptions = ref<string[]>([])
+const keeperOptions = ref<string[]>([])
+const approverOptions = ref<string[]>([])
 const binMap: Record<number, any[]> = {}
 const currentRow = ref<any>(null)
 
@@ -45,6 +52,8 @@ const form = reactive({
   orderNo: '',
   departmentId: null as number | null,
   handler: '',
+  keeper: currentUserName,
+  approver: '',
   items: [newRow()],
 })
 
@@ -65,14 +74,6 @@ async function loadBins(warehouseId: number | null) {
   } catch {
     binMap[warehouseId] = []
   }
-}
-
-function onQuantityInput(row: any, value: number | undefined) {
-  if (value != null && value < 0) row.quantity = 0
-}
-
-function preventNegativeKey(e: KeyboardEvent) {
-  if (e.key === '-' || e.key === '+' || e.key.toLowerCase() === 'e') e.preventDefault()
 }
 
 function batchQtyOf(row: any) {
@@ -207,14 +208,17 @@ function validateForm(): boolean {
     if (!row.warehouseId) { ElMessage.warning(`${line}请选择仓库`); return false }
     if (warehouseBinManaged(row.warehouseId) && !row.binId) { ElMessage.warning(`${line}所在仓库启用货位管理，请选择货位`); return false }
     if (row.batchRequired && !row.batchNo) { ElMessage.warning(`${line}请选择批号`); return false }
-    if (!(Number(row.quantity) > 0)) { ElMessage.warning(`${line}数量必须大于0`); return false }
-    if (row.stockQty != null && Number(row.quantity) > row.stockQty + 1e-6) {
-      ElMessage.warning(`${line}数量不能超过现存量 ${row.stockQty}`)
-      return false
-    }
-    if (row.batchNo && Number(row.quantity) > batchQtyOf(row) + 1e-6) {
-      ElMessage.warning(`${line}数量不能超过该批余量 ${batchQtyOf(row)}`)
-      return false
+    const qty = Number(row.quantity)
+    if (!Number.isFinite(qty) || qty === 0) { ElMessage.warning(`${line}数量不能为0`); return false }
+    if (qty > 0) {
+      if (row.stockQty != null && qty > row.stockQty + 1e-6) {
+        ElMessage.warning(`${line}数量不能超过现存量 ${row.stockQty}`)
+        return false
+      }
+      if (row.batchNo && qty > batchQtyOf(row) + 1e-6) {
+        ElMessage.warning(`${line}数量不能超过该批余量 ${batchQtyOf(row)}`)
+        return false
+      }
     }
   }
   return true
@@ -222,6 +226,13 @@ function validateForm(): boolean {
 
 async function submit() {
   if (!validateForm()) return
+  try {
+    await ElMessageBox.confirm(`确定提交本次材料出库吗？共 ${form.items.length} 条明细。`, '确认出库', {
+      type: 'warning',
+      confirmButtonText: '提交',
+      cancelButtonText: '取消',
+    })
+  } catch { return }
   saving.value = true
   try {
     const items = form.items.map((row: any) => ({
@@ -239,6 +250,8 @@ async function submit() {
       orderNo: form.orderNo || undefined,
       departmentId: form.departmentId || undefined,
       handler: form.handler || undefined,
+      keeper: form.keeper || undefined,
+      approver: form.approver || undefined,
       items,
     })
     ElMessage.success(res.data?.documentNo ? `材料出库成功，单据号 ${res.data.documentNo}` : '材料出库成功')
@@ -256,21 +269,27 @@ function resetForm() {
     orderNo: '',
     departmentId: null,
     handler: '',
+    keeper: currentUserName,
+    approver: '',
     items: [newRow()],
   })
 }
 
 onMounted(async () => {
-  const [wRes, tRes, dRes, hRes]: any[] = await Promise.all([
+  const [wRes, tRes, dRes, hRes, kRes, aRes]: any[] = await Promise.all([
     warehouseApi.list({ pageSize: 200 }),
     stockTransactionTypeApi.list({ pageSize: 200 }),
     workshopApi.list(),
     stockApi.handlers(),
+    stockApi.handlers('keeper'),
+    stockApi.handlers('approver'),
   ])
   warehouses.value = wRes.data.items || []
   transactionTypes.value = (tRes.data.items || []).filter((t: any) => t.status === 1 && t.direction === 'out')
   departments.value = (dRes.data || []).filter((d: any) => d.status === 1)
   handlerOptions.value = hRes.data || []
+  keeperOptions.value = [...new Set([currentUserName, ...(kRes.data || [])].filter(Boolean))]
+  approverOptions.value = aRes.data || []
 })
 </script>
 
@@ -279,6 +298,7 @@ onMounted(async () => {
     <div class="page-card">
       <div class="search-bar">
         <span style="font-weight: 600">材料出库</span>
+        <el-button style="margin-left: 12px" @click="router.push('/inventory/material-out-maintain')"><el-icon><Back /></el-icon>返回</el-button>
         <el-button style="margin-left: auto" @click="resetForm">新增</el-button>
         <el-button type="primary" :loading="saving" @click="submit">提交出库</el-button>
       </div>
@@ -311,9 +331,23 @@ onMounted(async () => {
               </el-form-item>
             </div>
             <div class="kd-field">
-              <el-form-item label="经手人">
-                <el-select v-model="form.handler" filterable clearable allow-create default-first-option placeholder="选择或输入经手人" class="kd-flex">
+              <el-form-item label="领料人">
+                <el-select v-model="form.handler" filterable clearable allow-create default-first-option placeholder="选择或输入领料人" class="kd-flex">
                   <el-option v-for="h in handlerOptions" :key="h" :label="h" :value="h" />
+                </el-select>
+              </el-form-item>
+            </div>
+            <div class="kd-field">
+              <el-form-item label="仓管员">
+                <el-select v-model="form.keeper" filterable clearable allow-create default-first-option placeholder="选择或输入仓管员" class="kd-flex">
+                  <el-option v-for="k in keeperOptions" :key="k" :label="k" :value="k" />
+                </el-select>
+              </el-form-item>
+            </div>
+            <div class="kd-field">
+              <el-form-item label="审核人">
+                <el-select v-model="form.approver" filterable clearable allow-create default-first-option placeholder="选择或输入审核人" class="kd-flex">
+                  <el-option v-for="a in approverOptions" :key="a" :label="a" :value="a" />
                 </el-select>
               </el-form-item>
             </div>
@@ -323,6 +357,7 @@ onMounted(async () => {
         <div style="width: 100%">
           <el-button size="small" type="primary" plain @click="addRow"><el-icon><Plus /></el-icon>添加明细</el-button>
           <el-button size="small" type="primary" plain style="margin-left: 8px" :disabled="!currentRow" @click="removeSelected">删除选中</el-button>
+          <span style="margin-left: 12px; font-size: 12px; color: var(--el-text-color-secondary)">数量输入负数表示红单退库</span>
           <el-table class="items-editor" :data="form.items" size="small" border max-height="calc(100vh - 320px)" style="margin-top: 8px; width: 100%" highlight-current-row @current-change="onCurrentChange">
         <el-table-column label="行号" width="50" align="center">
           <template #default="{ $index }">{{ $index + 1 }}</template>
@@ -354,7 +389,10 @@ onMounted(async () => {
         <el-table-column label="型号规格" min-width="120" show-overflow-tooltip>
           <template #default="{ row }">{{ row.material?.specification || '-' }}</template>
         </el-table-column>
-        <el-table-column label="计量单位" width="80">
+        <el-table-column label="封装" width="70" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.material?.packageType || '-' }}</template>
+        </el-table-column>
+        <el-table-column label="单位" width="80">
           <template #default="{ row }">
             <el-select v-model="row.unit" filterable allow-create default-first-option clearable placeholder="基本单位" style="width: 100%">
               <el-option v-for="u in row.unitOptions" :key="u" :label="u" :value="u" />
@@ -376,9 +414,9 @@ onMounted(async () => {
             <span v-else>-</span>
           </template>
         </el-table-column>
-        <el-table-column label="批号" width="110">
+        <el-table-column label="批号" width="90">
           <template #default="{ row }">
-            <el-select v-model="row.batchNo" filterable clearable :placeholder="row.batchRequired ? '选择批号（必选）' : '选择批号'" style="width: 100%">
+            <el-select v-model="row.batchNo" filterable allow-create default-first-option clearable :placeholder="row.batchRequired ? '选择或输入批号（必选）' : '选择或输入批号'" style="width: 100%">
               <el-option v-for="b in row.batches" :key="b.batchNo" :label="`${b.batchNo}（余 ${b.quantity}）`" :value="b.batchNo" />
             </el-select>
           </template>
@@ -388,7 +426,7 @@ onMounted(async () => {
         </el-table-column>
         <el-table-column label="数量" width="80">
           <template #default="{ row }">
-            <el-input-number v-model="row.quantity" :min="0" :max="row.batchNo ? batchQtyOf(row) : undefined" :precision="2" :controls="false" style="width: 100%" @input="(v: number | undefined) => onQuantityInput(row, v)" @keydown="preventNegativeKey" />
+            <el-input-number v-model="row.quantity" :max="Number(row.quantity) > 0 && row.batchNo ? batchQtyOf(row) : undefined" :precision="2" :controls="false" style="width: 100%" />
           </template>
         </el-table-column>
         <el-table-column label="单价" width="100" align="right">
@@ -396,6 +434,12 @@ onMounted(async () => {
         </el-table-column>
         <el-table-column label="金额" width="100" align="right">
           <template #default="{ row }">{{ row.material ? rowAmount(row).toFixed(2) : '-' }}</template>
+        </el-table-column>
+        <el-table-column label="品牌" width="100" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.material?.brand || '-' }}</template>
+        </el-table-column>
+        <el-table-column label="物料备注" min-width="140" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.material?.remark || '-' }}</template>
         </el-table-column>
         <el-table-column label="备注" width="120">
           <template #default="{ row }">

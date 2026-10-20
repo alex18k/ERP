@@ -57,6 +57,8 @@ async function main() {
     { code: "dashboard:view", name: "查看看板", module: "dashboard", action: "view" },
     { code: "user:manage", name: "用户管理", module: "user", action: "manage" },
     { code: "role:manage", name: "角色管理", module: "role", action: "manage" },
+    { code: "company:view", name: "查看公司信息", module: "company", action: "view" },
+    { code: "company:edit", name: "维护公司信息", module: "company", action: "edit" },
   ];
 
   for (const p of permissions) {
@@ -190,6 +192,16 @@ async function main() {
     if (pid) {
       const exists = await prisma.rolePermission.findFirst({ where: { roleId: roleWarehouse.id, permissionId: pid } });
       if (!exists) await prisma.rolePermission.create({ data: { roleId: roleWarehouse.id, permissionId: pid } });
+    }
+  }
+
+  // 公司信息为公共只读数据：所有非管理员角色均可查看
+  const companyViewId = permMap.get("company:view");
+  if (companyViewId) {
+    const nonAdminRoles = await prisma.role.findMany({ where: { code: { not: "ADMIN" } } });
+    for (const role of nonAdminRoles) {
+      const exists = await prisma.rolePermission.findFirst({ where: { roleId: role.id, permissionId: companyViewId } });
+      if (!exists) await prisma.rolePermission.create({ data: { roleId: role.id, permissionId: companyViewId } });
     }
   }
 
