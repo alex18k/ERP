@@ -15,6 +15,7 @@ router.get("/detail", requirePermission("stock:view"), stockController.detailHan
 router.get("/summary", requirePermission("stock:view"), stockController.summaryHandler);
 router.get("/records", requirePermission("stock:view"), stockController.recordsHandler);
 router.get("/records/by-document", requirePermission("stock:view"), stockController.recordsByDocumentHandler);
+router.put("/records/by-document", requirePermission("stock:edit"), operationLog("stock", "edit-document"), stockController.recordsUpdateByDocumentHandler);
 router.get("/handlers", requirePermission("stock:view"), stockController.handlersHandler);
 router.get("/batches", requirePermission("stock:view"), stockController.batchesHandler);
 router.post("/in", requirePermission("stock:edit"), operationLog("stock", "in"), stockController.inHandler);

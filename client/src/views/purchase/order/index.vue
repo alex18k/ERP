@@ -140,7 +140,7 @@ onMounted(async () => {
   <div class="page-container">
     <div class="page-card">
       <div class="search-bar">
-        <el-input v-model="query.orderNo" placeholder="采购单号" clearable style="width: 150px" />
+        <el-input v-model="query.orderNo" placeholder="采购单号" clearable style="width: 150px" @keyup.enter="query.page = 1, loadData()" />
         <el-select v-model="query.supplierId" placeholder="供应商" clearable filterable style="width: 180px">
           <el-option v-for="s in suppliers" :key="s.id" :label="s.name" :value="s.id" />
         </el-select>
@@ -156,10 +156,10 @@ onMounted(async () => {
       </div>
 
       <el-table :data="rows" v-loading="loading" stripe max-height="calc(100vh - 260px)" highlight-current-row @current-change="onCurrentChange">
-        <el-table-column prop="orderNo" label="采购单号" width="150" />
+        <el-table-column prop="orderNo" label="采购单号" width="120" />
         <el-table-column prop="line" label="行号" width="60" align="center" />
-        <el-table-column prop="supplierName" label="供应商" min-width="140" />
-        <el-table-column prop="buyer" label="采购员" width="100" />
+        <el-table-column prop="supplierName" label="供应商" min-width="200" show-overflow-tooltip />
+        <el-table-column prop="buyer" label="采购员" width="80" />
         <el-table-column label="订货日期" width="110">
           <template #default="{ row }">{{ row.orderDate?.slice(0, 10) || '-' }}</template>
         </el-table-column>
@@ -167,8 +167,8 @@ onMounted(async () => {
         <el-table-column prop="materialCode" label="物料编码" width="110" />
         <el-table-column prop="materialName" label="物料名称" min-width="150" />
         <el-table-column prop="specification" label="型号规格" min-width="140" />
-        <el-table-column prop="quantity" label="数量" width="90" />
-        <el-table-column label="已收" width="80">
+        <el-table-column prop="quantity" label="数量" width="90" align="right" />
+        <el-table-column label="已收" width="80" align="right">
           <template #default="{ row }">
             <span :class="receivedClass(row)">{{ row.receivedQty ?? 0 }}</span>
           </template>
@@ -178,13 +178,13 @@ onMounted(async () => {
             <span :class="{ 'qty-return': Number(row.returnedQty) > 0 }">{{ row.returnedQty ?? 0 }}</span>
           </template>
         </el-table-column>
-        <el-table-column label="单价" width="80">
+        <el-table-column label="单价" width="80" align="right">
           <template #default="{ row }">{{ fmtPrice(row.unitPrice) }}</template>
         </el-table-column>
-        <el-table-column label="不含税单价" width="120">
+        <el-table-column label="不含税单价" width="120" align="right">
           <template #default="{ row }">{{ netPrice(row) }}</template>
         </el-table-column>
-        <el-table-column label="金额" width="100">
+        <el-table-column label="金额" width="100" align="right">
           <template #default="{ row }">¥{{ (row.amount ?? (row.quantity * (row.unitPrice || 0))).toLocaleString() }}</template>
         </el-table-column>
         <el-table-column label="截止日期" width="110">
@@ -201,6 +201,11 @@ onMounted(async () => {
             <el-tag :type="itemStatusType(row.status)" size="small">{{ itemStatusLabel(row.status) }}</el-tag>
           </template>
         </el-table-column>
+        <template #empty>
+          <el-empty description="没有符合条件的采购订单" :image-size="56">
+            <div class="empty-tip">可清空采购单号/供应商/状态后重试；一行 = 一条采购明细</div>
+          </el-empty>
+        </template>
       </el-table>
 
       <div class="pagination-wrap" style="justify-content: space-between">

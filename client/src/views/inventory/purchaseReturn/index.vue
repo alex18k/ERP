@@ -221,7 +221,7 @@ async function submitReturn() {
       handler: returnForm.handler || undefined,
       remark: returnForm.remark || undefined,
     })
-    ElMessage.success(res.data?.documentNo ? `退货成功，退货单号 ${res.data.documentNo}` : '退货成功')
+    ElMessage.success(res.data?.documentNo ? `退货已提交，退货单号 ${res.data.documentNo}` : '退货已提交')
     returnVisible.value = false
     await loadData()
   } catch { /* error shown by interceptor */ } finally {
@@ -238,11 +238,11 @@ onMounted(async () => {
   <div class="page-container">
     <div class="page-card">
       <div class="search-bar">
-        <el-input v-model="query.orderNo" placeholder="采购单号" clearable style="width: 160px" />
-        <el-input v-model="query.supplierKeyword" placeholder="供应商编码/名称" clearable style="width: 170px" />
-        <el-input v-model="query.materialKeyword" placeholder="物料编码/名称/规格" clearable style="width: 190px" />
-        <el-input v-model="query.startDate" type="date" placeholder="订货开始" clearable style="width: 150px" />
-        <el-input v-model="query.endDate" type="date" placeholder="订货结束" clearable style="width: 150px" />
+        <el-input v-model="query.orderNo" placeholder="采购单号" clearable style="width: 160px" @keyup.enter="query.page = 1, loadData()" />
+        <el-input v-model="query.supplierKeyword" placeholder="供应商编码/名称" clearable style="width: 170px" @keyup.enter="query.page = 1, loadData()" />
+        <el-input v-model="query.materialKeyword" placeholder="物料编码/名称/规格" clearable style="width: 190px" @keyup.enter="query.page = 1, loadData()" />
+        <el-input v-model="query.startDate" type="date" placeholder="订货开始" clearable style="width: 150px" @keyup.enter="query.page = 1, loadData()" />
+        <el-input v-model="query.endDate" type="date" placeholder="订货结束" clearable style="width: 150px" @keyup.enter="query.page = 1, loadData()" />
         <el-button type="primary" @click="query.page = 1, loadData()"><el-icon><Search /></el-icon>查询</el-button>
         <el-button @click="Object.assign(query, { orderNo: '', supplierKeyword: '', materialKeyword: '', startDate: '', endDate: '', page: 1 }), loadData()">重置</el-button>
       </div>
@@ -318,7 +318,12 @@ onMounted(async () => {
             <el-button type="danger" link size="small" :disabled="fmtQty(row.returnableQty) <= 0" @click="openReturn(row)">退货</el-button>
           </template>
         </el-table-column>
-      </el-table>
+              <template #empty>
+          <el-empty description="没有符合条件的采购单" :image-size="56">
+            <div class="empty-tip">仅已确认且存在可退数量的采购单可退货；可清空单号/供应商/日期条件后重试</div>
+          </el-empty>
+        </template>
+</el-table>
 
       <div class="pagination-wrap">
         <el-pagination v-model:current-page="query.page" v-model:page-size="query.pageSize" :total="total" :page-sizes="[10, 20, 50]" layout="total, sizes, prev, pager, next" @change="loadData" />
@@ -365,10 +370,14 @@ onMounted(async () => {
       <div class="table-toolbar">
         <span class="toolbar-title">退货明细</span>
         <div style="flex: 1" />
-        <el-button size="small" @click="toggleFill">{{ returnLines.some((l: any) => Number(l.returnQty) > 0) ? '清空' : '自动' }}</el-button>
+        <span class="doc-summary" style="margin-right: 10px">
+          已填 <b>{{ returnLines.filter((l: any) => Number(l.returnQty) > 0).length }}</b> 行 · 退货数量合计
+          <b>{{ returnLines.reduce((s: number, l: any) => s + (Number(l.returnQty) || 0), 0) }}</b>
+        </span>
+        <el-button size="small" @click="toggleFill">{{ returnLines.some((l: any) => Number(l.returnQty) > 0) ? '清空数量' : '填充可退数量' }}</el-button>
       </div>
 
-      <el-table :data="returnLines" size="small" border max-height="420">
+      <el-table class="grid-items" :data="returnLines" size="small" border max-height="420" :row-class-name="({ row }: any) => (Number(row.returnQty) > 0 ? 'row-red' : '')">
         <el-table-column label="行号" width="55" align="center">
           <template #default="{ row }">{{ row.line ?? '-' }}</template>
         </el-table-column>
@@ -449,7 +458,7 @@ onMounted(async () => {
 
       <template #footer>
         <el-button @click="returnVisible = false">取消</el-button>
-        <el-button type="danger" :loading="returning" @click="submitReturn">确认退货</el-button>
+        <el-button type="danger" :loading="returning" @click="submitReturn">提交退货</el-button>
       </template>
     </el-dialog>
   </div>

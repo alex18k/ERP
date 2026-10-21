@@ -91,6 +91,33 @@ function statusType(val: string) {
   return statusOptions.find(o => o.value === val)?.type || 'info'
 }
 
+function todayStr() {
+  const d = new Date()
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+}
+
+// 交期信息编码：未完工订单逾期红色、今日琥珀色
+function dueDateOf(row: any): string {
+  const d = row._lineDeliveryDate || row.deliveryDate
+  return d ? String(d).slice(0, 10) : ''
+}
+function dueClass(row: any): string {
+  if (['completed', 'shipped', 'cancelled'].includes(row.status)) return ''
+  const d = dueDateOf(row)
+  if (!d) return ''
+  if (d < todayStr()) return 'due-overdue'
+  if (d === todayStr()) return 'due-today'
+  return ''
+}
+
+const unfinishedCount = computed(() => list.value.filter((o: any) => ['draft', 'confirmed', 'in_production'].includes(o.status)).length)
+const overdueOrders = computed(() => list.value.filter((o: any) => {
+  if (!['draft', 'confirmed', 'in_production'].includes(o.status)) return false
+  const d = o.deliveryDate ? String(o.deliveryDate).slice(0, 10) : ''
+  return !!d && d < todayStr()
+}).length)
+
 async function openDialog(row?: any) {
   isEdit.value = !!row
   if (row) {
@@ -341,7 +368,14 @@ const flatRows = computed(() =>
         <el-button @click="orderApi.exportCsv()"><el-icon><Download /></el-icon>导出</el-button>
       </div>
 
-      <el-table :data="flatRows" v-loading="loading" stripe max-height="calc(100vh - 260px)">
+      <div class="list-summary">
+        <span>销售订单 <b>{{ total }}</b> 张</span>
+        <span v-if="list.length">· 本页未完成 <b>{{ unfinishedCount }}</b> 张</span>
+        <span v-if="overdueOrders">· <b class="due-overdue">{{ overdueOrders }}</b> 张已过交货日期</span>
+        <span class="list-summary-tip">一行 = 一条订单明细；交期逾期仅标记草稿/已确认/生产中的订单</span>
+      </div>
+
+      <el-table :data="flatRows" v-loading="loading" stripe max-height="calc(100vh - 300px)">
         <el-table-column label="行号" width="62" align="center">
           <template #default="{ row }">{{ row.line || '-' }}</template>
         </el-table-column>
@@ -372,7 +406,7 @@ const flatRows = computed(() =>
         </el-table-column>
         <el-table-column label="交期" width="110">
           <template #default="{ row }">
-            <span :class="{ 'text-overdue': (row._lineDeliveryDate || row.deliveryDate) && new Date(row._lineDeliveryDate || row.deliveryDate) < new Date() && !['completed','shipped'].includes(row.status) }">
+            <span :class="dueClass(row)">
               {{ (row._lineDeliveryDate || row.deliveryDate || '-').toString().slice(0, 10) }}
             </span>
           </template>
@@ -391,6 +425,11 @@ const flatRows = computed(() =>
             <el-button v-if="['draft','confirmed','in_production'].includes(row.status)" size="small" type="danger" link @click="openCancelDialog(row)">取消</el-button>
           </template>
         </el-table-column>
+        <template #empty>
+          <el-empty description="没有符合条件的销售订单" :image-size="56">
+            <div class="empty-tip">可清空订单号/客户名称/状态后重试，或点右上角「新增订单」</div>
+          </el-empty>
+        </template>
       </el-table>
 
       <div class="pagination-wrap">

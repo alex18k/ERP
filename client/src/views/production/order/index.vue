@@ -197,6 +197,22 @@ function statusType(s: string) {
   return statusOptions.find(o => o.value === s)?.type || 'info'
 }
 
+// 未完工订单（待办语义）：计划结束/下达日期逾期红色、今日琥珀
+function isOpenOrder(row: any) {
+  return row.status === 'planned' || row.status === 'in_progress'
+}
+
+function dueClassOf(value: string | null | undefined, open: boolean) {
+  if (!open || !value) return ''
+  const d = String(value).slice(0, 10)
+  if (d < todayStr()) return 'due-overdue'
+  if (d === todayStr()) return 'due-today'
+  return ''
+}
+
+const openCount = computed(() => list.value.filter((r: any) => isOpenOrder(r)).length)
+const overdueCount = computed(() => list.value.filter((r: any) => dueClassOf(r.planEndDate, isOpenOrder(r)) === 'due-overdue').length)
+
 async function openCreateDialog() {
   const res: any = await mrpApi.shortage()
   const latest = res.data.latestRun
@@ -369,8 +385,8 @@ onMounted(() => {
   <div class="page-container">
     <div class="page-card">
       <div class="search-bar">
-        <el-input v-model="query.orderNo" placeholder="生产订单号" clearable style="width: 160px" />
-        <el-input v-model="query.materialName" placeholder="物料名称" clearable style="width: 160px" />
+        <el-input v-model="query.orderNo" placeholder="生产订单号" clearable style="width: 160px" @keyup.enter="query.page = 1, loadData()" />
+        <el-input v-model="query.materialName" placeholder="物料名称" clearable style="width: 160px" @keyup.enter="query.page = 1, loadData()" />
         <el-select v-model="query.status" placeholder="状态" clearable style="width: 130px">
           <el-option v-for="o in statusOptions" :key="o.value" :label="o.label" :value="o.value" />
         </el-select>
@@ -386,12 +402,19 @@ onMounted(() => {
         <el-button @click="loadData"><el-icon><Refresh /></el-icon>刷新</el-button>
       </div>
 
-      <el-table :data="list" v-loading="loading" stripe max-height="calc(100vh - 260px)">
+      <div class="list-summary">
+        <span>生产订单 <b>{{ total }}</b> 张</span>
+        <span v-if="list.length">· 本页在制 <b>{{ openCount }}</b> 张</span>
+        <span v-if="overdueCount">· <b class="due-overdue">{{ overdueCount }}</b> 张已过计划结束日期</span>
+        <span class="list-summary-tip">计划/已下达/生产中视为在制；逾期按订单计划结束日期判断</span>
+      </div>
+
+      <el-table :data="list" v-loading="loading" stripe max-height="calc(100vh - 300px)">
         <el-table-column prop="orderNo" label="生产订单号" width="140" />
         <el-table-column label="物料" min-width="160">
           <template #default="{ row }">{{ row.material?.code }} - {{ row.material?.name }}</template>
         </el-table-column>
-        <el-table-column prop="quantity" label="数量" width="90" />
+        <el-table-column prop="quantity" label="数量" width="90" align="right" />
         <el-table-column label="来源订单" min-width="130">
           <template #default="{ row }">
             <span v-if="row.salesOrder">{{ row.salesOrder.orderNo }}<br /><small>{{ row.salesOrder.customerName }}</small></span>
@@ -401,7 +424,7 @@ onMounted(() => {
         </el-table-column>
         <el-table-column label="计划周期" min-width="190">
           <template #default="{ row }">
-            <span v-if="row.planStartDate">{{ row.planStartDate?.slice(0, 10) }} ~ {{ row.planEndDate?.slice(0, 10) }}</span>
+            <span v-if="row.planStartDate">{{ row.planStartDate?.slice(0, 10) }} ~ <span :class="dueClassOf(row.planEndDate, isOpenOrder(row))">{{ row.planEndDate?.slice(0, 10) }}</span></span>
             <span v-else>-</span>
           </template>
         </el-table-column>
@@ -432,6 +455,11 @@ onMounted(() => {
             <el-button v-if="['planned', 'in_progress'].includes(row.status)" size="small" type="danger" link @click="handleCancel(row)">取消</el-button>
           </template>
         </el-table-column>
+        <template #empty>
+          <el-empty description="没有符合条件的生产订单" :image-size="56">
+            <div class="empty-tip">可清空订单号/物料名称/状态后重试，或从 MRP 建议下达生产订单</div>
+          </el-empty>
+        </template>
       </el-table>
 
       <div class="pagination-wrap">

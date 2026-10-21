@@ -77,6 +77,7 @@ export const warehouseBinApi = {
 
 export const customerApi = {
   list: (params: PageParams) => request.get('/customers', { params }),
+  options: (params?: any) => request.get('/customers/options', { params }),
   create: (data: any) => request.post('/customers', data),
   update: (id: number, data: any) => request.put(`/customers/${id}`, data),
   remove: (id: number) => request.delete(`/customers/${id}`),
@@ -199,6 +200,7 @@ export const stockApi = {
   summary: (params: PageParams) => request.get('/stocks/summary', { params }),
   records: (params: PageParams) => request.get('/stocks/records', { params }),
   recordsByDocument: (documentNo: string) => request.get('/stocks/records/by-document', { params: { documentNo } }),
+  updateRecordsByDocument: (documentNo: string, data: any) => request.put('/stocks/records/by-document', data, { params: { documentNo } }),
   handlers: (field?: string) => request.get('/stocks/handlers', { params: field ? { field } : undefined }),
   in: (data: any) => request.post('/stocks/in', data),
   out: (data: any) => request.post('/stocks/out', data),
@@ -242,5 +244,10 @@ export const systemApi = {
   departments: () => request.get('/system/departments'),
   logs: (params: PageParams) => request.get('/system/logs', { params }),
   company: () => request.get('/system/company'),
+  companies: () => request.get('/system/companies'),
+  createCompany: (data: any) => request.post('/system/company', data),
   updateCompany: (data: any) => request.put('/system/company', data),
+  updateCompanyById: (id: number, data: any) => request.put(`/system/company/${id}`, data),
+  setDefaultCompany: (id: number) => request.put(`/system/company/${id}/default`),
+  deleteCompany: (id: number) => request.delete(`/system/company/${id}`),
 }

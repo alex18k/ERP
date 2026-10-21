@@ -89,7 +89,12 @@ onMounted(loadData)
             <el-button size="small" type="danger" link @click="handleDelete(row)">删除</el-button>
           </template>
         </el-table-column>
-      </el-table>
+              <template #empty>
+          <el-empty description="还没有维护车间/部门" :image-size="56">
+            <div class="empty-tip">点右上角「新增」维护车间编码、名称与负责人</div>
+          </el-empty>
+        </template>
+</el-table>
     </div>
 
     <el-dialog v-model="dialogVisible" :title="isEdit ? '编辑部门' : '新增部门'" width="520px" destroy-on-close>

@@ -58,7 +58,7 @@ onMounted(async () => {
   <div class="page-container">
     <div class="page-card">
       <div class="search-bar">
-        <el-input v-model="query.materialKeyword" placeholder="物料编码/名称" clearable style="width: 160px" />
+        <el-input v-model="query.materialKeyword" placeholder="物料编码/名称" clearable style="width: 160px" @keyup.enter="query.page = 1, loadData()" />
         <el-select v-model="query.warehouseId" placeholder="仓库" clearable style="width: 160px">
           <el-option v-for="w in warehouses" :key="w.id" :label="w.name" :value="w.id" />
         </el-select>
@@ -120,7 +120,12 @@ onMounted(async () => {
         <el-table-column label="最近更新时间" width="170">
           <template #default="{ row }">{{ row.updatedAt?.slice(0, 19)?.replace('T', ' ') }}</template>
         </el-table-column>
-      </el-table>
+              <template #empty>
+          <el-empty description="当前筛选范围内没有 0 库存记录" :image-size="56">
+            <div class="empty-tip">只删除现存量/批次库存为 0 的行（按当前物料/仓库筛选范围），负库存不会被清理</div>
+          </el-empty>
+        </template>
+</el-table>
 
       <el-pagination
         v-model:current-page="query.page"

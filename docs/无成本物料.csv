@@ -1,0 +1,678 @@
+物料编码,名称,规格,分类,物料类别,状态
+555-PWM-V02-abc,BOM,- -,manufacture,BOM,1
+B00027,变压器,卧式（5+5P) 8-9脚 -,purchase,变压器,1
+B00037,变压器,卧式（5+5P) BSX-BLT-N3 50TS*0.51 158TS*0.27 -,purchase,变压器,1
+B00040,变压器,卧式（5+5P) BSX-IQHT-A4 -,purchase,变压器,1
+B00056,变压器,EE19（卧式5+5P） -IQLT-N2 -,purchase,变压器,1
+B00061,变压器,立式（5+5P） BSX-QHP-N8 -,purchase,变压器,1
+B00067,变压器,卧式（4+4P) BSX-IQHT-A6-V01 10W 450MA -,purchase,变压器,1
+B00068,变压器,卧式（4+4P) BSX-IQHT-A5-V01 -,purchase,变压器,1
+B00080,变压器,BSX-IQHT-B1-V01 -,purchase,变压器,1
+B00086,变压器,（5+5P） QHR-C1/C1-Z -,purchase,变压器,1
+B00112,变压器,EE16（卧式5+5P）(无库存） -,purchase,变压器,1
+B00147,变压器,立式5+5P -,purchase,变压器,1
+B00252,变压器,-,purchase,变压器,1
+B00253,变压器,-,purchase,变压器,1
+B00261,变压器,总高度不能超过14.0mm -,purchase,变压器,1
+B00262,变压器,- -,purchase,变压器,1
+B00266,变压器,- -,purchase,变压器,1
+B00267,变压器,-,purchase,变压器,1
+B00269,变压器,- -,purchase,变压器,1
+B20001,磁芯,6+6 -,purchase,磁芯,1
+B20002,磁芯,- -,purchase,磁芯,1
+B20003,磁芯,- -,purchase,磁芯,1
+B20004,磁芯,- -,purchase,磁芯,1
+B20005,磁芯,- -,purchase,磁芯,1
+B20006,磁芯,- -,purchase,磁芯,1
+B20007,磁芯,- -,purchase,磁芯,1
+B20008,磁芯,- -,purchase,磁芯,1
+B20009,磁芯,- -,purchase,磁芯,1
+B20010,磁芯,立式 -,purchase,磁芯,1
+B20011,磁芯,- -,purchase,磁芯,1
+B20012,磁芯,- -,purchase,磁芯,1
+B20013,磁芯,- -,purchase,磁芯,1
+B20014,磁芯,- -,purchase,磁芯,1
+B20015,磁芯,- -,purchase,磁芯,1
+B20016,磁芯,- -,purchase,磁芯,1
+B20017,磁芯,- -,purchase,磁芯,1
+B20018,磁芯,5+5 -,purchase,磁芯,1
+B20019,磁芯,- -,purchase,磁芯,1
+B20020,磁芯,- -,purchase,磁芯,1
+B20021,磁芯,- -,purchase,磁芯,1
+B20022,磁芯,- -,purchase,磁芯,1
+B20023,磁芯,- -,purchase,磁芯,1
+B20024,磁芯,卧式 -,purchase,磁芯,1
+B20025,生产辅材,- -,purchase,生产辅材,1
+B20026,骨架,- -,purchase,骨架,1
+B20027,骨架,立式插件6+6P -,purchase,骨架,1
+B20028,骨架,- -,purchase,骨架,1
+B20029,骨架,立式插件5+5 -,purchase,骨架,1
+B20030,骨架,卧式插件4+4P -,purchase,骨架,1
+B20031,骨架,卧式5+5 -,purchase,骨架,1
+B20032,骨架,立式插件6+8P -,purchase,骨架,1
+B20033,骨架,卧式5+5 -,purchase,骨架,1
+B20034,骨架,卧式4+4 -,purchase,骨架,1
+B20035,骨架,- -,purchase,骨架,1
+B20036,骨架,卧式插件 -,purchase,骨架,1
+B20037,骨架,立式5+5P -,purchase,骨架,1
+B20038,骨架,立式4+4 -,purchase,骨架,1
+B20039,骨架,立式4+4 -,purchase,骨架,1
+B20040,骨架,卧式插件 -,purchase,骨架,1
+B20041,骨架,贴片卧式5+5 -,purchase,骨架,1
+B20042,骨架,插件4+4P -,purchase,骨架,1
+B20043,骨架,卧式插件5+5 -,purchase,骨架,1
+B20044,骨架,- -,purchase,骨架,1
+B20045,骨架,卧式5+5P -,purchase,骨架,1
+B20046,骨架,5+5P -,purchase,骨架,1
+B20047,骨架,5+5 -,purchase,骨架,1
+B20048,骨架,卧式5+5P -,purchase,骨架,1
+B20049,骨架,卧式4+4P -,purchase,骨架,1
+B20050,骨架,5+5P -,purchase,骨架,1
+B20051,骨架,5+5P -,purchase,骨架,1
+B20052,骨架,立式5+5P -,purchase,骨架,1
+B20053,工字骨架,- -,purchase,工字骨架,1
+B20054,工字骨架,- -,purchase,工字骨架,1
+B20055,工字骨架,立式6+6 -,purchase,工字骨架,1
+B20056,工字骨架,立式6+6 -,purchase,工字骨架,1
+B20057,磁芯,- -,purchase,磁芯,1
+B20058,磁芯,- -,purchase,磁芯,1
+C00005,贴片电容,0805 -,purchase,贴片电容,1
+C10021,贴片电容,1206 -,purchase,贴片电容,1
+C10062,贴片电解电容,220UF/10V-φ6.3*5.4 - -,purchase,贴片电容,1
+C10068,贴片电容,- -,purchase,贴片电容,1
+C10071,贴片电容,-,purchase,贴片电容,1
+C10072,贴片电解电容,22UF/16V-φ4*5.4 - -,purchase,贴片电容,1
+C30032,CBB电容,- -,purchase,CBB电容,1
+C60006,瓷片电容,- -,purchase,瓷片电容,1
+C60007,瓷片电容,- -,purchase,瓷片电容,1
+C60008,瓷片电容,- -,purchase,瓷片电容,1
+C60009,瓷片电容,- -,purchase,瓷片电容,1
+C60010,瓷片电容,- -,purchase,瓷片电容,1
+C70004,安规电容,-,purchase,安规电容,1
+C70007,安规电容,-,purchase,安规电容,1
+C70008,安规电容,- -,purchase,安规电容,1
+C70012,安规电容,-,purchase,安规电容,1
+C70013,安规电容,- -,purchase,安规电容,1
+C70016,安规电容,223/275V -,purchase,安规电容,1
+C70017,安规电容,- -,purchase,安规电容,1
+C70018,安规电容,- -,purchase,安规电容,1
+C70019,安规电容,- -,purchase,安规电容,1
+C70020,安规电容,- -,purchase,安规电容,1
+C70025,安规电容,- -,purchase,安规电容,1
+C70032,安规电容,- -,purchase,安规电容,1
+CP00038,成品,- 佛山佛雷司退货20190402,manufacture,成品,1
+CP00079,成品,DC：75V/350MA HMY6010风扇11-12V/0.07A EE13 BP2836DJ 10UF/400V 输入白色硅胶线130MM 剥线5+20MM（带压敏电阻、绕线电阻） 中山尚宁返修品退货20190827,manufacture,成品,1
+CP00080,成品,DC：150V/180-200MA HMY6010风扇11-12V/0.05A 输入白色硅胶线130MM 剥线5+20MM 不带安规电容、压敏电阻与绕线电阻 中山尚宁返修品退货20190827,manufacture,成品,1
+CP00081,成品,DC：106V/265MA HMY6010风扇11-12V/0.05A 输入白色硅胶线110MM 一条剥线5+5MM 另一条剥线15+5MM 中山尚宁返修品退货20190827,manufacture,成品,1
+CP00082,成品,中山尚宁返修品退货 按客来灯珠电压132V/265-275MA HMY6010风扇11-12V/0.05A 输入白色硅胶线110MM 剥线5+15MM 20190827,manufacture,成品,1
+CP00131,成品,72-80V/370-390MA 深圳智通明20180903,manufacture,成品,1
+CP00132,成品,- 广东风华研究院20190629,manufacture,成品,1
+CP00133,成品,江门歌的144V/110MA 20190629,manufacture,成品,1
+CP00134,成品,江门歌的36V/210MA 20190629,manufacture,成品,1
+CP00135,成品,118V/350MA 佛山广色20190701,manufacture,成品,1
+CP00136,成品,118V/350MA 佛山广色20190701,manufacture,成品,1
+CP00137,成品,51V/31-34W 深圳普尔思20190702,manufacture,成品,1
+CP00138,成品,21V/750MA 佛山广色20190702,manufacture,成品,1
+CP00139,成品,74-76V/340-360MA 绍兴品龙20190702,manufacture,成品,1
+CP00140,成品,佛山广色150V/190-210MA 20190702,manufacture,成品,1
+CP00141,成品,74V/395MA 中山欧之帝20190702,manufacture,成品,1
+CP00142,成品,- 广东风华研究院20190703,manufacture,成品,1
+CP00143,成品,50V/580MA 中山尚宁20190703,manufacture,成品,1
+CP00144,成品,63V/42W 深圳美芯20190703,manufacture,成品,1
+CP00145,成品,50V/32-34W 陈春朋20190703,manufacture,成品,1
+CP00146,成品,50V/580MA 中山尚宁20190704,manufacture,成品,1
+CP00147,成品,150V/180-200MA 佛山申烨20190704,manufacture,成品,1
+CP00148,成品,- 广东风华研究院20190705,manufacture,成品,1
+CP00149,成品,36V/550MA 佛山莱力仕20190705,manufacture,成品,1
+CP00150,成品,中山全统96V/400MA 20190705,manufacture,成品,1
+CP00151,成品,96V/265-275MA 中山仁乐20190705,manufacture,成品,1
+CP00152,成品,120-130V/240MA 佛山广色20190705,manufacture,成品,1
+CP00153,成品,21V/750MA 佛山广色20190706,manufacture,成品,1
+CP00154,成品,50V/32-34W 深圳普尔思20190706,manufacture,成品,1
+CP00155,成品,36V/35W 深圳普尔思20190706,manufacture,成品,1
+CP00156,成品,36V/750MA 江门歌的20190706,manufacture,成品,1
+CP00157,成品,74V/390MA 江门歌的20190706,manufacture,成品,1
+CP00158,成品,江门歌的75V/405MA 20190706,manufacture,成品,1
+CP00160,成品,江门歌的144V/110MA 20190706,manufacture,成品,1
+CP00161,成品,中山新伟科75V/380MA 20190706,manufacture,成品,1
+CP00162,成品,150V/180-200MA 中山保生20190708,manufacture,成品,1
+CP00163,成品,150V/180-200MA 佛山申烨20190708,manufacture,成品,1
+CP00164,成品,50V/32-34W 陈春朋20190708,manufacture,成品,1
+CP00166,成品,150V/180-200MA 佛山豪野20190708,manufacture,成品,1
+CP00167,成品,- 广东风华研究院20190708,manufacture,成品,1
+CP00168,成品,36V/850MA 佛山广色20190709,manufacture,成品,1
+CP00169,成品,36V/55W 佛山广色20190709,manufacture,成品,1
+CP00170,成品,50V/32-34W 中山维刚20190709,manufacture,成品,1
+CP00171,成品,50-155V/290MA 广东特优仕20190709,manufacture,成品,1
+CP00172,成品,- 广东风华研究院20190710,manufacture,成品,1
+CP00173,成品,深圳三德士126V/200MA 20190710,manufacture,成品,1
+CP00174,成品,12-12.5V≦400MA 中山金玉20190710,manufacture,成品,1
+CP00176,成品,75V/19W 中山尚宁20190711,manufacture,成品,1
+CP00177,成品,50V/580MA 中山尚宁20190711,manufacture,成品,1
+CP00178,成品,50V/580MA 中山尚宁20190711,manufacture,成品,1
+CP00180,成品,50V/32-34W 中山聚科达20190711,manufacture,成品,1
+CP00182,成品,74V/395MA 中山欧之帝20190711,manufacture,成品,1
+CP00183,成品,36V/6W 江门歌的20190712,manufacture,成品,1
+CP00184,成品,112V/260-270MA 佛山昌盛华光20190712,manufacture,成品,1
+CP00186,成品,45V/655MA 苏州弥光20190712,manufacture,成品,1
+CP00188,成品,120V/255MA 中山熠龙20190712,manufacture,成品,1
+CP00189,成品,- 广东风华研究院20190712,manufacture,成品,1
+CP00190,成品,63V/560-590MA 中山顾的20190713,manufacture,成品,1
+CP00191,成品,96V/410MA 中山朗龙20190713,manufacture,成品,1
+CP00192,成品,96V/390MA 中山聚科达20190713,manufacture,成品,1
+CP00193,成品,120V/46W 佛山旗声20190713,manufacture,成品,1
+CP00194,成品,120V/46W 佛山旗声20190713,manufacture,成品,1
+CP00195,成品,江门歌的144V/110MA 20190714,manufacture,成品,1
+CP00197,成品,36V/500MA 广东特优仕20190714,manufacture,成品,1
+CP00198,成品,佛山申烨94V/265-285MA 20190717,manufacture,成品,1
+CP00199,成品,96V/270-290MA 佛山申烨20190714,manufacture,成品,1
+CP00202,成品,佛山朗普仕21-36V/265-285MA 20190715,manufacture,成品,1
+CP00203,成品,- 广东风华研究院20190715,manufacture,成品,1
+CP00204,成品,- 广东风华研究院20190716,manufacture,成品,1
+CP00207,成品,75V/380-400MA 中山维刚20190717,manufacture,成品,1
+CP00208,成品,36V/55W 佛山广色20190717,manufacture,成品,1
+CP00209,成品,75V/380-400MA 佛山申烨20190714,manufacture,成品,1
+CP00210,成品,中山全统96V/400MA 20190717,manufacture,成品,1
+CP00211,成品,75V/390MA 中山彦铭20190717,manufacture,成品,1
+CP00212,成品,36V/400MA 佛山康晖20190717,manufacture,成品,1
+CP00213,成品,31V/6.5-7W 江门好久亮20190717,manufacture,成品,1
+CP00214,成品,36V/600MA 广东特优仕20190720,manufacture,成品,1
+CP00215,成品,36V/600MA 广东特优仕20190721,manufacture,成品,1
+CP00217,成品,74V/380MA 中山博鑫胜20190721,manufacture,成品,1
+CP00219,成品,64V/560-580MA 中山国亚20190722,manufacture,成品,1
+CP00221,成品,- 广东风华研究院20190723,manufacture,成品,1
+CP00223,成品,50V/32-34W 中山聚科达20190723,manufacture,成品,1
+CP00224,成品,佛山广色150V/190-210MA 20190724,manufacture,成品,1
+CP00225,成品,佛山朗普仕21-36V/265-285MA 20190724,manufacture,成品,1
+CP00226,成品,深圳豪亮93V/235MA 20190725,manufacture,成品,1
+CP00227,成品,中山凯尔斯75V/350MA 20190725,manufacture,成品,1
+CP00228,成品,36V/450MA 江门歌的20190725,manufacture,成品,1
+CP00230,成品,36V/30W 中山雷裕20190725,manufacture,成品,1
+CP00231,成品,36V/30W 中山雷裕20190725,manufacture,成品,1
+CP00233,成品,96V/390MA 中山古州20190726,manufacture,成品,1
+CP00234,成品,150V/180-200MA 中山保生20190726,manufacture,成品,1
+CP00235,成品,74V/400MA 中山国亚20190726,manufacture,成品,1
+CP00236,成品,96V/300MA 中山展领20190726,manufacture,成品,1
+CP00237,成品,江门歌的36V/210MA 20190726,manufacture,成品,1
+CP00238,成品,108V/250MA 中山亮烁20190726,manufacture,成品,1
+CP00239,成品,108V/300MA 中山亮烁20190726,manufacture,成品,1
+CP00240,成品,- 广东风华研究院20190726,manufacture,成品,1
+CP00243,成品,96V/400MA 中山展领20190727,manufacture,成品,1
+CP00244,成品,50V/580MA 中山兰谱20190727,manufacture,成品,1
+CP00245,成品,64V/40-43W 中山维刚20190729,manufacture,成品,1
+CP00246,成品,145V/200MA 中山熠龙20190729,manufacture,成品,1
+CP00247,成品,江门歌的108V/220MA 20190729,manufacture,成品,1
+CP00249,成品,36V/600MA 广东特优仕20190729,manufacture,成品,1
+CP00250,成品,深圳三德仕126V/25W 20190729,manufacture,成品,1
+CP00251,成品,中山古州150V/200MA 20190729,manufacture,成品,1
+CP00252,成品,36V/600MA 佛山莱力仕20190729,manufacture,成品,1
+CP00256,成品,江门歌的75V/405MA 20190730,manufacture,成品,1
+CP00257,成品,中山仁乐74V/320-330MA 20190731,manufacture,成品,1
+CP00258,成品,中山朗龙75V/255-265MA 20190731,manufacture,成品,1
+CP00260,成品,中山古州93V/250MA 20190731,manufacture,成品,1
+CP00261,成品,144V/120MA 江门歌的20190801,manufacture,成品,1
+CP00262,成品,36V/600MA 广东特优仕20190801,manufacture,成品,1
+CP00263,成品,50-155V/290MA 广东特优仕20190801,manufacture,成品,1
+CP00264,成品,50V/580MA 佛山申烨20190801,manufacture,成品,1
+CP00266,成品,150V/180-200MA 佛山申烨20190802,manufacture,成品,1
+CP00267,成品,36V/700-730MA 深圳普尔思20190802,manufacture,成品,1
+CP00268,成品,96V/390MA 中山聚科达20190802,manufacture,成品,1
+CP00270,成品,中山智强94V/380-400MA 20190802,manufacture,成品,1
+CP00271,成品,- 广东风华研究院20190802,manufacture,成品,1
+CP00273,成品,佛山申烨114V/24-25W 20190806,manufacture,成品,1
+CP00275,成品,36V/700-730MA 深圳普尔思20190805,manufacture,成品,1
+CP00276,成品,36V/580-600MA 深圳美芯20190805,manufacture,成品,1
+CP00277,成品,36V/6W 江门歌的20190805,manufacture,成品,1
+CP00278,成品,50V/32-34W 江门歌的20190805,manufacture,成品,1
+CP00279,成品,72V/180-200MA 佛山康晖20190806,manufacture,成品,1
+CP00280,成品,50V/580MA 佛山申烨20190806,manufacture,成品,1
+CP00281,成品,100V/250-270MA 佛山广色20190806,manufacture,成品,1
+CP00282,成品,120-130V/220-240MA 佛山广色20190806,manufacture,成品,1
+CP00283,成品,118V/350MA 佛山广色20190806,manufacture,成品,1
+CP00284,成品,150V/180-200MA 佛山申烨20190803,manufacture,成品,1
+CP00285,成品,- 广东风华研究院20190806,manufacture,成品,1
+CP00286,成品,126V/210MA 江门好久亮20190807,manufacture,成品,1
+CP00287,成品,72V/390MA 中山亮烁20190808,manufacture,成品,1
+CP00288,成品,96V/380-400MA 中山蓝林20190808,manufacture,成品,1
+CP00289,成品,108V/280MA 中山亮烁20190808,manufacture,成品,1
+CP00290,成品,64V/580MA 中山尚宁20190808,manufacture,成品,1
+CP00291,成品,74V/32W 中山翰凌20190808,manufacture,成品,1
+CP00292,成品,75V/350MA 中山彦铭20190808,manufacture,成品,1
+CP00293,成品,75V/270MA 中山彦铭20190808,manufacture,成品,1
+CP00294,成品,120-130V/220-240MA 佛山广色20190808,manufacture,成品,1
+CP00295,成品,45V/630MA 深圳普尔思20190808,manufacture,成品,1
+CP00296,成品,150V/180-200MA 佛山申烨20190813,manufacture,成品,1
+CP00298,成品,36V/30W 中山雷裕20190809,manufacture,成品,1
+CP00299,成品,中山二度150V/160MA 20190809,manufacture,成品,1
+CP00300,成品,72V/390MA 中山亮烁20190809,manufacture,成品,1
+CP00302,成品,96V/380-400MA 中山瑞曼博20190809,manufacture,成品,1
+CP00304,成品,96V/380-400MA 佛山申烨20190809,manufacture,成品,1
+CP00305,成品,50V/32-34W 中山维刚20190810,manufacture,成品,1
+CP00306,成品,74V/330MA 中山博鑫胜20190810,manufacture,成品,1
+CP00307,成品,中山朗龙96V/40MA 20190810,manufacture,成品,1
+CP00308,成品,50V/30W 中山仁乐20190810,manufacture,成品,1
+CP00311,成品,36V/30W 中山雷裕20190812,manufacture,成品,1
+CP00312,成品,118V/350MA 佛山广色20190812,manufacture,成品,1
+CP00314,成品,96V/380-400MA 佛山申烨20190809,manufacture,成品,1
+CP00315,成品,120V/255MA 中山熠龙20190813,manufacture,成品,1
+CP00316,成品,36V/31-33W 江门歌的20190814,manufacture,成品,1
+CP00317,成品,36V/730MA 郑州坤东20190814,manufacture,成品,1
+CP00318,成品,74V/380-390MA 中山国亚20190814,manufacture,成品,1
+CP00319,成品,中山全统96V/400MA 20190814,manufacture,成品,1
+CP00320,成品,36V/600MA 广东特优仕20190814,manufacture,成品,1
+CP00321,成品,150V/180-200MA 佛山申烨20190814,manufacture,成品,1
+CP00322,成品,37V/32-35W 佛山广色20190814,manufacture,成品,1
+CP00323,成品,中山二度150V/180-200MA 20190815,manufacture,成品,1
+CP00324,成品,50V/32-34W 张艺玲20190815,manufacture,成品,1
+CP00325,成品,85V/260MA 广州贺喜鸟20190815,manufacture,成品,1
+CP00326,成品,37.8V/140-150MA 江门好久亮20190816,manufacture,成品,1
+CP00327,成品,36V/750MA 江门歌的20190816,manufacture,成品,1
+CP00328,成品,72V/390MA 中山亮烁20190816,manufacture,成品,1
+CP00329,成品,江门好久亮95V/36-37W 20190816,manufacture,成品,1
+CP00330,成品,96V/380-400MA 江门好久亮20190816,manufacture,成品,1
+CP00331,成品,75V/400MA 中山仁乐20190816,manufacture,成品,1
+CP00332,成品,50-155V/290MA 广东特优仕20190817,manufacture,成品,1
+CP00333,成品,50-155V/290MA 广东特优仕20190817,manufacture,成品,1
+CP00335,成品,108V/280MA 中山亮烁20190817,manufacture,成品,1
+CP00336,成品,36V/350MA 广东特优仕20190817,manufacture,成品,1
+CP00337,成品,36V/600MA 广东特优仕20190817,manufacture,成品,1
+CP00338,成品,120-130V/230-250MA 佛山广色20190817,manufacture,成品,1
+CP00339,成品,- 深圳豪亮20190817,manufacture,成品,1
+CP00341,成品,中山纵横96V/390MA 20190817,manufacture,成品,1
+CP00342,成品,36V/6W 江门歌的20190819,manufacture,成品,1
+CP00343,成品,中山纵横150V/180-190MA 20190819,manufacture,成品,1
+CP00344,成品,36V/750MA 中山居盛20190819,manufacture,成品,1
+CP00345,成品,74V/330MA 中山博鑫胜20190819,manufacture,成品,1
+CP00347,成品,150V/180-200MA 佛山申烨,manufacture,成品,1
+CP00348,成品,中山全统96V/400MA 20190819,manufacture,成品,1
+CP00349,成品,65V/41W 广州贺喜鸟20190819,manufacture,成品,1
+CP00351,成品,31V/6.5-7W 江门好久亮20190820,manufacture,成品,1
+CP00352,成品,150V/190-210MA 佛山广色20190820,manufacture,成品,1
+CP00353,成品,110V/260MA 中山智强20190820,manufacture,成品,1
+CP00354,成品,74V/395-405MA 中山国亚20190820,manufacture,成品,1
+CP00355,成品,36V/500MA 广东特优仕20190820,manufacture,成品,1
+CP00357,成品,- 广东风华研究院20190820,manufacture,成品,1
+CP00358,成品,74V/375MA 中山博鑫胜20190821,manufacture,成品,1
+CP00361,成品,74V/375MA 中山博鑫胜20190821,manufacture,成品,1
+CP00362,成品,144V/300MA 中山亮烁20190821,manufacture,成品,1
+CP00363,成品,72V/400MA 江门歌的20190821,manufacture,成品,1
+CP00364,成品,96V/380-400MA 江门好久亮20190821,manufacture,成品,1
+CP00365,成品,96V/390MA 中山古州20190822,manufacture,成品,1
+CP00366,成品,96V/300-330MA 中山澳特浦20190822,manufacture,成品,1
+CP00368,成品,155V/190MA 佛山伊加20190822,manufacture,成品,1
+CP00369,成品,15-30V/240MA 广东特优仕20190822,manufacture,成品,1
+CP00370,成品,深圳三德仕126V/25W 20190823,manufacture,成品,1
+CP00371,成品,72V/250MA 江门歌的20190823,manufacture,成品,1
+CP00372,成品,48V/580-600MA 深圳欧上品20190823,manufacture,成品,1
+CP00373,成品,50V/29-31W 绍兴品龙20190824,manufacture,成品,1
+CP00374,成品,108V/350MA 中山亮烁20190824,manufacture,成品,1
+CP00375,成品,36V/30W 中山雷裕20190824,manufacture,成品,1
+CP00376,成品,50V/580MA 中山兰谱20190824,manufacture,成品,1
+CP00379,成品,36V/30W 中山雷裕20190826,manufacture,成品,1
+CP00381,成品,150V/280MA 佛山佛雷司20190826,manufacture,成品,1
+CP00382,成品,36V/600MA 广东特优仕20190827,manufacture,成品,1
+CP00383,成品,96V/380-400MA 中山智强20190827,manufacture,成品,1
+CP00384,成品,60V/590MA 江门歌的20190827,manufacture,成品,1
+CP00385,成品,60V/590MA 江门歌的20190827,manufacture,成品,1
+CP00386,成品,30-42V/880MA 广东特优仕20190827,manufacture,成品,1
+CP00390,成品,108V/280MA 上海瀚祚20190828,manufacture,成品,1
+CP00391,成品,90V/260-280MA 江门好久亮20190828,manufacture,成品,1
+CP00392,成品,37V/32-35W 佛山广色20190828,manufacture,成品,1
+CP00393,成品,75V/380-400MA 江门好久亮20190828,manufacture,成品,1
+CP00394,成品,50V/580MA 中山西欧碧20190828,manufacture,成品,1
+CP00395,成品,中山仁乐138V/38W 20190829,manufacture,成品,1
+CP00396,成品,36V/730MA 郑州坤东20190829,manufacture,成品,1
+CP00397,成品,96V/345MA 中山仁乐20190829,manufacture,成品,1
+CP00399,成品,36V/790-820MA 佛山广色20190829,manufacture,成品,1
+CP00401,成品,96V/410MA 中山朗龙20190830,manufacture,成品,1
+CP00402,成品,96V/390MA 中山聚科达20190830,manufacture,成品,1
+CP00403,成品,72V/410MA 江门歌的20190831,manufacture,成品,1
+CP00404,成品,117V/200-210MA 江门歌的20190831,manufacture,成品,1
+CP00405,成品,96V/390MA 江门华威20190831,manufacture,成品,1
+CP00407,成品,72V/400MA 江门歌的,manufacture,成品,1
+CP00411,成品,原参数：AC：175-265V 90-95W DC：150V MY7015风扇9.5-10.5V/0.1A BP2836D 22UF/400V+33UF/400V 输入不带线 输出国标0.3平方红白色硅胶线195mm 剥线浸锡5+2mm 正极为红色1条 负极为白色2条 带压敏电阻绕线电阻 浸三防漆 改为：AC：175-265V 按客来灯珠调DC：145-154V/535MA MY7015风扇9.5-10.5V/0.1A 浸三防漆 佛山佛雷司,manufacture,成品,1
+CP00465,成品,中山亮烁 36V 275MA,manufacture,成品,1
+CP00488,成品,54V/160MA 江门凯登,manufacture,成品,1
+CP00521,成品,中山正乙12V/3000MA -,manufacture,成品,1
+CP00545,成品,佛山昌盛华光 112V/250MA -,manufacture,成品,1
+CP00650,成品,中山正乙 12V/3000MA -,manufacture,成品,1
+CP00841,成品,-24V/2.5A -,manufacture,成品,1
+CP00844,成品,24V/4A UT-305 涂鸦TY-WIFI-JK -,manufacture,成品,1
+CP00854,成品,-1.2R+2.2R -,manufacture,成品,1
+D00005,端子线,- -,purchase,端子线,1
+D00006,端子线,- -,purchase,端子线,1
+D00007,端子线,- -,purchase,端子线,1
+D00018,端子线,- -,purchase,端子线,1
+D00055,排线,8拼软排线 同向 长100mm - -,purchase,端子线,1
+D20079,电子线,- -,purchase,电子线,1
+D20080,电子线,- -,purchase,电子线,1
+D20081,端子线,- -,purchase,端子线,1
+D30003,护套线,- -,purchase,护套线,1
+D30041,护套线,-KGDY-DX303-B -宁海局部JV10客来线,purchase,护套线,1
+D30042,护套线,-佛山佛雷司客来线,purchase,护套线,1
+D60001,端子,- -,purchase,端子,1
+D60002,端子,- -,purchase,端子,1
+D60003,端子,- -,purchase,端子,1
+D60004,端子,- -,purchase,端子,1
+D60005,端子,- -,purchase,端子,1
+D60006,端子,- -,purchase,端子,1
+D60014,排针,6P 90度角P.2.5 - -,purchase,端子,1
+D60023,端子,- -,purchase,端子,1
+D60067,端子,-端子母座 -,purchase,端子,1
+D60068,端子,-端子母座 -,purchase,端子,1
+D60076,跳线,直径0.5MM -4.3*4-铜 -,purchase,端子,1
+D60113,拨档开关,SK24D02VG6 双排10针 -,purchase,端子,1
+D60118,PH2.0直插座,5pin 2.0间距 - -,purchase,端子,1
+D60119,单排直插针,2Pin 2.54间距 - -,purchase,端子,1
+D60120,单排直插针,4Pin 2.54间距 - -,purchase,端子,1
+D60121,电位器,直插式旋转编码器 EC1201G - -,purchase,端子,1
+G00001,工字电感,2.5MH -,purchase,工字电感,1
+G00004,工字电感,2.2MH -,purchase,工字电感,1
+G00005,工字电感,2.2MH -,purchase,工字电感,1
+G00006,工字电感,2.0MH -,purchase,工字电感,1
+G00007,工字电感,3.5MH -,purchase,工字电感,1
+G00008,工字电感,4.7MH -,purchase,工字电感,1
+G00009,工字电感,1.5MH -,purchase,工字电感,1
+G00014,工字电感,270UH -,purchase,工字电感,1
+G00015,工字电感,4.5MH -,purchase,工字电感,1
+G00016,工字电感,3.8MH -,purchase,工字电感,1
+G00017,工字电感,3.9MH -,purchase,工字电感,1
+G00019,工字电感,2.9MH -,purchase,工字电感,1
+G00028,工字电感,68UH -,purchase,工字电感,1
+G10001,共模电感,UU10.5 -,purchase,共模电感,1
+G10002,共模电感,UU10.5 -,purchase,共模电感,1
+G10003,共模电感,UU9.8 -,purchase,共模电感,1
+G10007,共模电感,EE10 -,purchase,共模电感,1
+G10008,共模电感,EE15 -,purchase,共模电感,1
+G10009,共模电感,EE15 -,purchase,共模电感,1
+G10014,共模电感,T14*9*5 -,purchase,共模电感,1
+G10015,共模电感,T9*5*3 -,purchase,共模电感,1
+G20005,磁环电感,1.3MH -,purchase,磁环电感,1
+G20013,磁环电感,2.5MH-T14*9*5 2.5MH -,purchase,电感,1
+G20014,磁环电感,11MH-T14*9*5 11MH -,purchase,电感,1
+G20026,贴片电感,- -,purchase,贴片电感,1
+GY0001,浸三防漆,- - -,purchase,生产工艺,1
+GY0002,铝壳打标,- - -,purchase,生产工艺,1
+GY0010,灌胶用量,- - -,purchase,生产工艺,1
+GY0011,非常规生产测试,- - -,purchase,生产工艺,1
+GY0012,塑胶壳打标,- - -,purchase,生产工艺,1
+GY0013,外壳组装,- - -,purchase,生产工艺,1
+GY0014,灌胶,- - -,purchase,生产工艺,1
+GY0015,清洁包装,- - -,purchase,生产工艺,1
+I00012,插件IC,DIP -,purchase,插件IC,1
+I00013,插件IC,DIP -,purchase,插件IC,1
+I00014,插件IC,DIP -,purchase,插件IC,1
+I00015,插件IC,DIP -,purchase,插件IC,1
+I00016,插件IC,DIP -,purchase,插件IC,1
+I00017,插件IC,DIP -,purchase,插件IC,1
+I00018,插件IC,DIP -,purchase,插件IC,1
+I00019,插件IC,DIP -,purchase,插件IC,1
+I200028,贴片IC,- -,purchase,贴片IC,1
+I20006,贴片IC,SOT23-6 -,purchase,贴片IC,1
+I20007,贴片IC,SOT-23 -,purchase,贴片IC,1
+I20008,贴片IC,- -,purchase,贴片IC,1
+I20009,贴片IC,- -,purchase,贴片IC,1
+I20017,贴片IC,- -,purchase,贴片IC,1
+I20018,贴片IC,OCP8164ASAD -,purchase,贴片IC,1
+I20112,贴片IC,- -,purchase,贴片IC,1
+I20138,贴片IC,- -,purchase,贴片IC,1
+I20162,贴片IC,- -,purchase,贴片IC,1
+I20163,贴片IC,同步整流芯片 -,purchase,贴片IC,1
+I20164,贴片IC,不用 -,purchase,贴片IC,0
+I20171,贴片IC,- -,purchase,贴片IC,1
+I20173,贴片IC,SOT23-5 -,purchase,贴片IC,1
+I20174,贴片光耦,6N137S SOP8 -,purchase,贴片IC,1
+I20175,贴片IC,SOT23-5 SOP-16,purchase,贴片IC,1
+I20176,贴片IC,SSOP-48 SOP-16,purchase,贴片IC,1
+I20177,贴片IC,QFN-32,purchase,贴片IC,1
+I20178,贴片IC,SOT89-3,purchase,贴片IC,1
+I20179,贴片IC,SOP16,purchase,贴片IC,1
+IQHP-N1-V05-001,BOM,-,manufacture,BOM,1
+J00244,电解电容,- -,purchase,电解电容,1
+J00295,电解电容,- -,purchase,电解电容,1
+JZ0001,贴片晶振,32M SMD2520-4P - -,purchase,晶振,1
+JZ0002,贴片晶振,无源晶振 32.768KHz SMD3512-2P - -,purchase,晶振,1
+K00058,客来外壳,20开关电源主体/ 氧化哑黑/二/100W -20DY-ZT-223-2-YB -宁海局部客来JV10外壳,purchase,外壳,1
+K00120,外壳,- -,purchase,外壳,1
+K00145,客来磁吸头,SZ-05白色- 带180mm长线，剥线浸锡5mm - Q20-JK用,purchase,外壳,1
+K00146,客来磁吸头,SZ-05白色- 不带线 - Q20-JK用,purchase,外壳,1
+K00147,客来磁吸头,SZ-05黑色- 带180mm长线，剥线浸锡5mm - Q20-JK用,purchase,外壳,1
+K00148,客来磁吸头,SZ-05黑色- 不带线 - Q20-JK用,purchase,外壳,1
+K00154,客来磁吸头,局部2010磁吸头不带线 - IQLT-Q10-JK用,purchase,外壳,1
+K00156,客来磁吸头,-,purchase,外壳,1
+M00001,MOS管,铁封 -,purchase,MOS管,1
+M00006,MOS管,铁封（旧） -,purchase,MOS管,1
+M00007,MOS管,铁封（新） -,purchase,MOS管,1
+M00008,MOS管,-,purchase,MOS管,1
+M00009,MOS管,-,purchase,MOS管,1
+M00011,MOS管,- -,purchase,MOS管,1
+M00013,MOS管,铁封 -,purchase,MOS管,1
+M00015,MOS管,- -,purchase,MOS管,1
+M-002,冷轧钢板,3mm×1000×2000,purchase,,1
+M-003,六角螺栓,M6×20,purchase,,1
+M-004,六角螺母,M6,purchase,,1
+M-005,包装纸箱,600×400×300,purchase,,1
+M10043,贴片MOS管,,purchase,贴片MOS管,1
+M10044,MOS管,TO-220F -,purchase,MOS管,1
+M10045,贴片MOS管,,purchase,贴片MOS管,1
+MK00035,背光源,DSL-53942 -,purchase,模块,1
+MK00036,LCD,GHO16426NT-P DIP -,purchase,模块,1
+P000123,PCB板,115*14*1.2mm -,purchase,PCB板,1
+P00014,PCB板,- -,purchase,PCB板,1
+P00016,PCB板,- -,purchase,PCB板,1
+P00020,PCB板,- -,purchase,PCB板,1
+P00042,PCB板,- -,purchase,PCB板,1
+P00052,PCB板,- -,purchase,PCB板,1
+P00053,PCB板,- -,purchase,PCB板,1
+P00061,PCB板,- -,purchase,PCB板,1
+P00079,PCB板,- -,purchase,PCB板,1
+P00125,PCB板样品,- -汇易通,purchase,样品,1
+P00126,PCB板,- -,purchase,PCB板,1
+P00127,PCB板,- -,purchase,PCB板,1
+P00128,PCB板,,purchase,PCB板,1
+P00129,PCB板,- -,purchase,PCB板,1
+P00140,PCB板,- -,purchase,PCB板,1
+P00141,PCB板,- -,purchase,PCB板,1
+P00146,PCB板,- -,purchase,PCB板,1
+P00208,PCB板,1.2厚 22F单面绿油 OSP 绿油面白字/非铜面黑字 铜厚1oz 112*144MM/2*3-单面板 无铅 崇正,purchase,PCB板,1
+P00218,PCB板,- -,purchase,PCB板,1
+P00227,PCB板,-,purchase,PCB板,1
+P00316,PCB板,- -,purchase,PCB板,1
+P00443,PCB板,- -,purchase,PCB板,1
+P00506,PCB板,- -,purchase,PCB板,1
+P00533,PCB板,- -,purchase,PCB板,1
+P00569,PCB板,- -,purchase,PCB板,1
+P00610,PCB板,150X34-0.8 10方——2060PCS,purchase,PCB板,1
+P00622,PCB板,105*20 -,purchase,PCB板,1
+P00623,PCB板,140-20MM -,purchase,PCB板,1
+P00632,PCB板,"AC 100-240V,200W,275*34mm -",purchase,PCB板,1
+P00639,PCB板,- -,purchase,PCB板,1
+P00640,PCB板,- -,purchase,PCB板,1
+P00644,PCB板,- -,purchase,PCB板,1
+P00646,PCB板,单面板 43*16*1.2mm -,purchase,PCB板,1
+P00648,PCB板,单面板 50*20*1.2mm -,purchase,PCB板,1
+P00651,PCB板,双面板 21*16*1.0mm -,purchase,PCB板,1
+P00652,PCB板,单面板 41.5*15.5*1.0mm -,purchase,PCB板,1
+P00653,PCB板,单面板 50*21*1.2 -,purchase,PCB板,1
+P00669,PCB板,双面板 62.5*23.8*1.2mm -,purchase,PCB板,1
+P00670,PCB板,双面板 28*15.5*1.0mm -,purchase,PCB板,1
+P00671,PCB板,单面板 74*36*1.2mm -,purchase,PCB板,1
+P00673,PCB板,62.5*23.8*1.2 单面板,purchase,PCB板,1
+P00674,PCB板,45.8*19.8*1.2MM 双面板 -,purchase,PCB板,1
+P00679,PCB板,双面板 35*13.45*1.0mm -,purchase,PCB板,1
+P00680,PCB板,双面板 90*65*1.2mm -,purchase,PCB板,1
+P00682,PCB板,双面板 159*44*1.2 -,purchase,PCB板,1
+P00686,PCB板,双面板 142*13.3*1.2mm -,purchase,PCB板,1
+P00688,PCB板,- -,purchase,PCB板,1
+P00689,PCB板,- -,purchase,PCB板,1
+P00690,PCB板,1.0mm厚 -,purchase,PCB板,1
+P00691,PCB板,1.6mm厚 -,purchase,PCB板,1
+Q00006,整流桥,- -,purchase,整流桥,1
+Q00017,整流桥,插件 -,purchase,整流桥,1
+Q10001,光耦,-DIP -,purchase,光耦,1
+R20267,贴片电阻,- -,purchase,贴片电阻,1
+R40001,碳膜电阻,±5% -,purchase,碳膜电阻,1
+R40002,碳膜电阻,±5% -,purchase,碳膜电阻,1
+R40003,碳膜电阻,±5% -,purchase,碳膜电阻,1
+R40004,碳膜电阻,±5% -,purchase,碳膜电阻,1
+R40005,碳膜电阻,±5% -,purchase,碳膜电阻,1
+R40006,碳膜电阻,±5% -,purchase,碳膜电阻,1
+R40007,碳膜电阻,±5% -,purchase,碳膜电阻,1
+R40008,碳膜电阻,±5% -,purchase,碳膜电阻,1
+R40009,碳膜电阻,±5% -,purchase,碳膜电阻,1
+R40010,碳膜电阻,±5% -,purchase,碳膜电阻,1
+R40011,碳膜电阻,±5% -,purchase,碳膜电阻,1
+R40012,碳膜电阻,±5% -,purchase,碳膜电阻,1
+R40013,碳膜电阻,±5% -,purchase,碳膜电阻,1
+R40014,碳膜电阻,±5% -,purchase,碳膜电阻,1
+R40015,碳膜电阻,±5% -,purchase,碳膜电阻,1
+R40016,碳膜电阻,±5% -,purchase,碳膜电阻,1
+R40017,碳膜电阻,±5% -,purchase,碳膜电阻,1
+R40018,碳膜电阻,±5% -,purchase,碳膜电阻,1
+R40019,碳膜电阻,±5% -,purchase,碳膜电阻,1
+R40020,碳膜电阻,±5% -,purchase,碳膜电阻,1
+R40021,碳膜电阻,±5% -,purchase,碳膜电阻,1
+R40022,碳膜电阻,±5% -,purchase,碳膜电阻,1
+R40023,碳膜电阻,±5% -,purchase,碳膜电阻,1
+R40024,碳膜电阻,±5% -,purchase,碳膜电阻,1
+R40025,碳膜电阻,±5% -,purchase,碳膜电阻,1
+R40026,碳膜电阻,±5% -,purchase,碳膜电阻,1
+R40027,碳膜电阻,±5% -,purchase,碳膜电阻,1
+R50019,色环电阻,-,purchase,色环电阻,1
+R50021,色环电阻,-,purchase,色环电阻,1
+R50024,色环电阻,-,purchase,色环电阻,1
+R50040,色环电阻,-,purchase,色环电阻,1
+R50042,色环电阻,-,purchase,色环电阻,1
+R50049,色环电阻,- -,purchase,色环电阻,1
+R70002,压敏电阻,DIP -,purchase,压敏电阻,1
+R70003,压敏电阻,DIP -,purchase,压敏电阻,1
+S00024,散热片,带卡位 -,purchase,散热片,1
+T00589,贴片品,中山正乙12V/3000MA 0.51R+0.51R+0.51R 47K,manufacture,贴片品,1
+T00611,贴片品,30-42V/950MA 1.0R+1.0R+1.0R 30K,manufacture,贴片品,1
+T00613,贴片品,佛山广色72V/260MA BP2867FJ 1.3R+1.6R 27K,manufacture,贴片品,1
+T00614,贴片品,佛山广色72V/130MA BP2867FJ 2.1R+4.7R 47K,manufacture,贴片品,1
+T00678,贴片品,佛山广色72V/150MA BP2867FJ 2.0R+3.3R 39K,manufacture,贴片品,1
+T00679,贴片品,佛山广色72V/300MA BP2867FJ 1.1R+1.4R 24K,manufacture,贴片品,1
+T00687,贴片品,佛山广色120V/24-36W 0.91R+2.0R 24K,manufacture,贴片品,1
+T00696,贴片品,佛山佛雷司24V/60W 0.56R+0.56R+0.56R+1.4R 47K 3.6K,manufacture,贴片品,1
+T00706,贴片品,广东特优仕30-42V/800MA 0.82R+0.82R+1.3R 13K 220K,manufacture,贴片品,1
+T00752,贴片品,广东特优仕30-42V/880MA 0.82R+0.82R+0.91R 13K 220K,manufacture,贴片品,1
+T00760,贴片品,广东特优仕30-40V/600MA 0.82R+1.0R+10R 13K 220K,manufacture,贴片品,1
+T00774,贴片品,佛山集牌50-120V/300MA 1.0R+1.0R+1.0R+1.1R,manufacture,贴片品,1
+T00775,贴片品,佛山集牌50-120V/250MA 1.0R+1.0R+1.2R+1.8R,manufacture,贴片品,1
+T00820,贴片品,155V/315MA 1.1R+1.6R 68K,manufacture,贴片品,1
+T00840,贴片品,广东特优仕50-155V/290MA 1.0R+1.1R+1.5R 24K,manufacture,贴片品,1
+T00842,贴片品,佛山广色120V/34-36W 0.91R+2.2R 24K,manufacture,贴片品,1
+T00843,贴片品,佛山佛雷司150V/510MA HA5836DE 1.4R+0.91R+1.4R+3.0R 68K,manufacture,贴片品,1
+T00875,贴片品,12V/3000MA 0.47R+0.47R+0.47R 3.9K 30K 47K,manufacture,贴片品,1
+T00885,贴片品,12V/2000MA 0.51R+0.51R 2.2K 39K 20K,manufacture,贴片品,1
+T00961,贴片品,0.47R 39K 120K,manufacture,贴片品,1
+T00982,贴片品,佛山英田38V/1050MA 1.0R+0.56R+2.0R 47K 3.6K,manufacture,贴片品,1
+T01100,贴片品,佛山佛雷司130W/150V BP2857D 0.91R+1.0R 2K 340K,manufacture,贴片品,1
+T01180,贴片品,技术 0.82R+0.82R+0.91R 20K,manufacture,贴片品,1
+T01240,贴片品,江门原野 72V/280-300MA 空贴+1.0R,manufacture,贴片品,1
+T01256,贴片品,佛山登工 36V/180MA H5521L 2.4R+3.0R+3.0R,manufacture,贴片品,1
+T01257,贴片品,佛山登工 36V/330MA H5521L 1.5R+1.6R+1.6R,manufacture,贴片品,1
+T01271,贴片品,中山智强 36V/1400MA 0.56R+0.56R+1.2R+1.5R,manufacture,贴片品,1
+T01276,贴片品,中山智强 36V/1950MA 0.51R+0.56R+0.56R+0.56R,manufacture,贴片品,1
+T01284,贴片品,- -,manufacture,贴片品,1
+T01307,贴片品,宁海局部 36V/250MA OC5021B AP4N10MI 2.0R+2.2R+4.7R,manufacture,贴片品,1
+T01308,贴片品,中山天向 36V/350MA OC5021B AP4N10MI 1.2R+2.7R+2.7R,manufacture,贴片品,1
+T01309,贴片品,中山天向 36V/500MA OC5021B AP4N10MI 1.2R+1.2R+1.8R,manufacture,贴片品,1
+T01339,贴片品,佛山煌乐 86V/160MA QX6012 2.0R+3.3R 150K 1.2K,manufacture,贴片品,1
+T01352,贴片品,佛山煌乐 61V/225MA QX6012 1.6R+2.0R 150K 1K,manufacture,贴片品,1
+T01356,贴片品,江门原野 36V/780MA 1.0R+1.1R+1.3R+0.47R+0.47R+0.47R,manufacture,贴片品,1
+T01418,贴片品,宁海局部 36V/250MA OC5021B 2.2R+2.7R+3.0R,manufacture,贴片品,1
+T01419,贴片品,宁海局部 36V/400MA OC5021B AP4N10MI 1.4R+1.4R+3.0R,manufacture,贴片品,1
+T01420,贴片品,宁海局部 36V/250MA OC5021B AP4N10MI 2.2R+2.7R+3.0R,manufacture,贴片品,1
+T01452,贴片品,宁海局部 36V/150MA H5521L 2.7R+2.7R+6.8R,manufacture,贴片品,1
+T01460,贴片品,宁海局部 36V/550MA H5521L 0.82R+0.82R+1.3R,manufacture,贴片品,1
+T01499,贴片品,中山中宜 144V/630MA 1.8R*8,manufacture,贴片品,1
+T01500,贴片品,中山中宜 144V/630MA 1.8R*4,manufacture,贴片品,1
+T01502,贴片品,佛山登工 36V/350MA 1.5R+2.0R+2.2R,manufacture,贴片品,1
+T01518,贴片品,中山圣火马丁 48V/500MA 0.47R+1.0R,manufacture,贴片品,1
+T01539,贴片品,中山中宜 146V/835MA 1.8R*6,manufacture,贴片品,1
+T01550,贴片品,江门极点 36V/500MA OC5021 1.2R+1.2R+1.8R,manufacture,贴片品,1
+T01554,贴片品,佛山迴龙 36V/450MA 0.68R+0.68R+1.3R+1.3R,manufacture,贴片品,1
+T01555,贴片品,佛山迴龙 36V/550MA 0.56R+0.56R+0.91R+0.91R,manufacture,贴片品,1
+T01556,贴片品,佛山迴龙 36V/250MA 1.5R+1.5R+1.8R+1.8R,manufacture,贴片品,1
+T01557,贴片品,中山彥铭 1.3R*5,manufacture,贴片品,1
+T01558,贴片品,佛山登工 36V/420MA OC5021B 1.4R+1.4R+2.4R,manufacture,贴片品,1
+T01559,贴片品,佛山登工 36V/180MA OC5021B 3.3R+3.3R+3.3R,manufacture,贴片品,1
+T01560,贴片品,佛山登工 36V/275MA OC5021B 2.0R+2.2R+3.3R,manufacture,贴片品,1
+T01649,贴片品,佛山佛雷司 150V/290-300MA BP2958D 1.8R+2.1R,manufacture,贴片品,1
+W00002,稳压管,LL34-13V -,purchase,稳压件,1
+W00003,稳压管,LL34-15V -,purchase,稳压件,1
+W00005,稳压管,LL34-22V -,purchase,稳压件,1
+W00006,稳压管,LL34-24V -,purchase,稳压件,1
+W00007,稳压管,LL34-27V -,purchase,稳压件,1
+W00008,稳压管,LL34-33V -,purchase,稳压件,1
+W00009,稳压管,2MM5V1 - -,purchase,稳压件,1
+W00017,贴片二极管,- -,purchase,贴片二极管,1
+W00018,贴片二极管,SOD-123 -,purchase,贴片二极管,1
+W00025,插件二极管,- -,purchase,插件二极管,1
+W00027,插件二极管,- -,purchase,插件二极管,1
+W00028,插件二极管,- -,purchase,插件二极管,1
+W00030,插件二极管,- -,purchase,插件二极管,1
+W00033,插件二极管,- -,purchase,插件二极管,1
+W00034,插件二极管,- -,purchase,插件二极管,1
+W00035,插件二极管,- -,purchase,插件二极管,1
+W00036,插件二极管,- -,purchase,插件二极管,1
+W00038,三极管,- -,purchase,三极管,1
+W00039,三极管,- -,purchase,三极管,1
+W00041,三极管,- -,purchase,三极管,1
+W00042,三极管,TO-92-小芯片 -,purchase,三极管,1
+W00044,贴片三极管,- -,purchase,贴片三极管,1
+W00045,贴片三极管,SOT-23 -,purchase,贴片三极管,1
+W00047,稳压件,- -,purchase,稳压件,1
+W00134,稳压块,UTC7805 1A TO-220 -,purchase,稳压件,1
+W00135,瞬态电压抑制二极管,TVS管 SMAJ5.0 SMA -,purchase,贴片二极管,1
+WL00162,电位器,2W 68K -,purchase,生产辅材,1
+WL00227,端子线,2P头 XH2.54 AWG22红黑正负线 线长210mm - -,purchase,贸易与加工,1
+WL00386,青稞纸,单面背3M胶 15.5*7.5*0.15 8拍无孔 -,purchase,生产辅材,1
+WL00436,青稞纸,19.7*9.7MM D1.5 孔距 14.9MM 10拍两侧开孔 -,purchase,生产辅材,1
+WL00543,青稞纸,19.7*9.7*0.28-无孔 适用于10x2B的PCB板 -,purchase,生产辅材,1
+WL00638,生产辅材,-MC10-2B -,purchase,生产辅材,1
+WL00691,生产辅材,- -,purchase,生产辅材,1
+WL00813,IBLT-Q10-Z绝缘片,透明PeT 215*(17+44+17)*0.18 邮票孔 邮票孔,purchase,生产辅材,1
+WL00817,客来内盒,-,purchase,生产辅材,1
+WL00821,温控探头,NTC HKW9700-B105℃ 线长270mm -,purchase,生产辅材,1
+WL00844,IQHT-Q20-JK绝缘片,透明PeT 279*(17+44+17)*0.18 邮票孔 -,purchase,生产辅材,1
+X00013,保险丝,电阻式保险丝 12V2A 绿色 -,purchase,保险,1
+YP00127,PCB板样品,嘉立创,purchase,样品,1
+YP00129,PCB板样品,嘉立创,purchase,样品,1
+YP00142,PCB板样品,嘉立创,purchase,样品,1
+YP00143,PCB板样品,嘉立创,purchase,样品,1
+YP00153,PCB板样品,嘉立创,purchase,样品,1
+YP00155,PCB板样品,嘉立创,purchase,样品,1
+YP00168,PCB板样品,- -嘉立创,purchase,样品,1
+YP00169,PCB板样品,嘉立创,purchase,样品,1
+YP00178,PCB板样品,-嘉立创,purchase,样品,1
+YP00181,PCB板样品,-嘉立创,purchase,样品,1
+YP00194,PCB板样品,-嘉立创,purchase,样品,1
+YP00195,PCB板样品,-嘉立创,purchase,样品,1
+YP00207,PCB板样品,-嘉立创,purchase,样品,1
+YP00208,PCB板样品,-嘉立创,purchase,样品,1
+YP00209,PCB板样品,-嘉立创,purchase,样品,1
+YP00210,PCB板样品,-嘉立创,purchase,样品,1
+YP00217,PCB板样品,-嘉立创,purchase,样品,1
+YP00230,PCB板样品,-嘉立创,purchase,样品,1
+YP00231,PCB板样品,-嘉立创,purchase,样品,1
+YP00244,PCB板样品,- -,purchase,样品,1
+YP00246,PCB板样品,- -,purchase,样品,1
+YP00269,PCB板样品,-嘉立创,purchase,样品,1
+YP00661,PCB板样品,- -,purchase,PCB板样品,1
+YP00662,PCB板样品,- -,purchase,PCB板样品,1
+YP00663,PCB板样品,- -,purchase,PCB板样品,1
+YP00664,PCB板样品,- -,purchase,PCB板样品,1
+YP00665,PCB板样品,- -,purchase,PCB板样品,1
+YP00666,PCB板样品,- -,purchase,PCB板样品,1
+ZGY0000,非常规生产测试,- - -,purchase,生产工艺,1
+ZGY0001--,浸三防漆,- - -,purchase,生产工艺,1
+ZGY0008,外壳组装,- - -,purchase,生产工艺,1
+ZGY0009,灌胶,- - -,purchase,生产工艺,1
+ZGY0012,塑料壳打标,- - -,purchase,生产工艺,1
+ZGY0013,铝壳打标,- - -,purchase,生产工艺,1
+ZGY0014,清洁包装,- - -,purchase,生产工艺,1
+ZGY0015,客来外壳安装,- - -,purchase,生产工艺,1
+ZGY0019,JZCX-220外壳两端加螺丝柱,- -,purchase,生产工艺,1

@@ -129,7 +129,12 @@ onMounted(loadData)
             <el-button size="small" type="primary" link @click="viewResult(row)">查看结果</el-button>
           </template>
         </el-table-column>
-      </el-table>
+              <template #empty>
+          <el-empty description="还没有 MRP 运算历史" :image-size="56">
+            <div class="empty-tip">点上方「开始运算」后会记录每次运算的时间、范围与结果</div>
+          </el-empty>
+        </template>
+</el-table>
 
       <div class="pagination-wrap">
         <el-pagination v-model:current-page="query.page" v-model:page-size="query.pageSize" :total="total" layout="total, prev, pager, next" @change="loadData" />

@@ -119,10 +119,58 @@ export async function getCompanyInfoHandler(_req: Request, res: Response) {
   }
 }
 
+export async function listCompaniesHandler(_req: Request, res: Response) {
+  try {
+    const data = await companyService.listCompanies();
+    return success(res, data);
+  } catch (error: any) {
+    return fail(res, 500, error.message, 500);
+  }
+}
+
+export async function createCompanyHandler(req: Request, res: Response) {
+  try {
+    const data = await companyService.createCompany(req.body);
+    return success(res, data, "公司创建成功");
+  } catch (error: any) {
+    return fail(res, 400, error.message);
+  }
+}
+
 export async function updateCompanyInfoHandler(req: Request, res: Response) {
   try {
-    const data = await companyService.updateCompanyInfo(req.body);
+    // 兼容旧页面的整页保存：更新当前默认公司
+    const current = await companyService.getCompanyInfo();
+    if (!current) throw new Error("请先创建公司信息");
+    const data = await companyService.updateCompany(current.id, req.body);
     return success(res, data, "公司信息保存成功");
+  } catch (error: any) {
+    return fail(res, 400, error.message);
+  }
+}
+
+export async function updateCompanyHandler(req: Request, res: Response) {
+  try {
+    const data = await companyService.updateCompany(Number(req.params.id), req.body);
+    return success(res, data, "公司信息保存成功");
+  } catch (error: any) {
+    return fail(res, 400, error.message);
+  }
+}
+
+export async function setDefaultCompanyHandler(req: Request, res: Response) {
+  try {
+    const data = await companyService.setDefaultCompany(Number(req.params.id));
+    return success(res, data, "默认公司已更新");
+  } catch (error: any) {
+    return fail(res, 400, error.message);
+  }
+}
+
+export async function deleteCompanyHandler(req: Request, res: Response) {
+  try {
+    const data = await companyService.deleteCompany(Number(req.params.id));
+    return success(res, data, "公司删除成功");
   } catch (error: any) {
     return fail(res, 400, error.message);
   }

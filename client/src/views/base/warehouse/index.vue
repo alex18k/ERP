@@ -105,7 +105,12 @@ onMounted(loadData)
             <el-button size="small" type="danger" link @click="handleDelete(row)">删除</el-button>
           </template>
         </el-table-column>
-      </el-table>
+              <template #empty>
+          <el-empty description="没有匹配的仓库" :image-size="56">
+            <div class="empty-tip">可清空编码/名称后重试；停用仓库不参与出入库与 MRP 现存量</div>
+          </el-empty>
+        </template>
+</el-table>
       <div class="pagination-wrap">
         <el-pagination v-model:current-page="query.page" v-model:page-size="query.pageSize" :total="total" :page-sizes="[10, 20, 50]" layout="total, sizes, prev, pager, next" @change="loadData" />
       </div>

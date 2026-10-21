@@ -40,6 +40,17 @@ function typeDocPrefix(type: { documentPrefix: string | null }, fallback = "ST")
   return String(type.documentPrefix ?? "").trim().toUpperCase() || fallback;
 }
 
+// 源单号对应的销售订单销售员快照（非销售订单号返回 null）
+async function salespersonByOrderNo(orderNo?: string | null) {
+  const no = String(orderNo ?? "").trim();
+  if (!no) return null;
+  const order = await prisma.salesOrder.findUnique({
+    where: { orderNo: no },
+    select: { seller1: true, seller2: true },
+  });
+  return [order?.seller1, order?.seller2].filter(Boolean).join("、") || null;
+}
+
 function buildStockFilters(where: any) {
   const { materialId, materialCode, materialName, warehouseId, binId } = where;
   const filters: any = { quantity: { gt: 0 } };
@@ -341,7 +352,7 @@ export async function listStocks(where: any) {
 }
 
 export async function listStockRecords(where: any) {
-  const { materialId, materialKeyword, warehouseId, type, direction, transactionTypeId, transactionTypeIds, startDate, endDate, documentNo, page = 1, pageSize = 20 } = where;
+  const { materialId, materialKeyword, warehouseId, type, direction, transactionTypeId, transactionTypeIds, address, startDate, endDate, documentNo, page = 1, pageSize = 20 } = where;
 
   const filters: any = {};
   const mid = Number(materialId);
@@ -352,6 +363,7 @@ export async function listStockRecords(where: any) {
     };
   }
   if (warehouseId) filters.warehouseId = Number(warehouseId);
+  if (address) filters.address = { contains: String(address).trim() };
   if (type) filters.type = type;
   if (direction) filters.transactionType = { direction };
   if (transactionTypeId) filters.transactionTypeId = Number(transactionTypeId);
@@ -412,10 +424,74 @@ export async function listStockRecordsByDocument(documentNo: string) {
       operator: { select: { id: true, realName: true, username: true } },
       department: { select: { id: true, code: true, name: true } },
       transactionType: { select: { id: true, code: true, description: true, direction: true } },
+      company: { select: { id: true, nameZh: true, nameEn: true, address: true, phone: true, fax: true, email: true, contact: true, website: true } },
     },
     orderBy: [{ lineNo: "asc" }, { id: "asc" }],
   });
   return { documentNo: no, items };
+}
+
+// 编辑整张库存事务单据（销售出库维护）：仅允许修改表头字段（随单各行统一覆盖）与各行备注；
+// 物料/仓库/货位/批号/数量/单价等库存相关字段一律不可改
+export async function updateStockDocument(
+  documentNo: string,
+  data: {
+    effectiveDate?: string | null;
+    orderNo?: string | null;
+    departmentId?: number | null;
+    handler?: string | null;
+    salesperson?: string | null;
+    keeper?: string | null;
+    approver?: string | null;
+    mainRemark?: string | null;
+    deliveryNo?: string | null;
+    contractNo?: string | null;
+    address?: string | null;
+    contactName?: string | null;
+    contactPhone?: string | null;
+    companyId?: number | null;
+    items?: { id: number; remark?: string }[];
+  },
+) {
+  const no = String(documentNo ?? "").trim();
+  if (!no) throw new Error("请提供单号");
+  const rows = await prisma.stockRecord.findMany({ where: { documentNo: no }, select: { id: true } });
+  if (rows.length === 0) throw new Error("单据不存在");
+
+  const header: any = {};
+  if (data.effectiveDate !== undefined) header.effectiveDate = data.effectiveDate ? new Date(data.effectiveDate) : null;
+  if (data.orderNo !== undefined) header.orderNo = data.orderNo?.trim() || null;
+  if (data.departmentId !== undefined) header.departmentId = data.departmentId ?? null;
+  if (data.handler !== undefined) header.handler = data.handler?.trim() || null;
+  if (data.salesperson !== undefined) header.salesperson = data.salesperson?.trim() || null;
+  if (data.keeper !== undefined) header.keeper = data.keeper?.trim() || null;
+  if (data.approver !== undefined) header.approver = data.approver?.trim() || null;
+  if (data.mainRemark !== undefined) header.mainRemark = data.mainRemark?.trim() || null;
+  if (data.deliveryNo !== undefined) header.deliveryNo = data.deliveryNo?.trim() || null;
+  if (data.contractNo !== undefined) header.contractNo = data.contractNo?.trim() || null;
+  if (data.address !== undefined) header.address = data.address?.trim() || null;
+  if (data.contactName !== undefined) header.contactName = data.contactName?.trim() || null;
+  if (data.contactPhone !== undefined) header.contactPhone = data.contactPhone?.trim() || null;
+  if (data.companyId !== undefined) {
+    if (data.companyId === null) header.companyId = null;
+    else {
+      const comp = await prisma.companyInfo.findUnique({ where: { id: Number(data.companyId) } });
+      if (!comp) throw new Error("所属公司不存在");
+      header.companyId = comp.id;
+    }
+  }
+
+  const remarkItems = (data.items || []).filter((it) => Number.isInteger(it.id) && rows.some((r) => r.id === it.id));
+
+  return prisma.$transaction(async (tx) => {
+    if (Object.keys(header).length > 0) {
+      await tx.stockRecord.updateMany({ where: { documentNo: no }, data: header });
+    }
+    for (const it of remarkItems) {
+      await tx.stockRecord.update({ where: { id: it.id }, data: { remark: it.remark?.trim() || null } });
+    }
+    return { documentNo: no, headerUpdated: Object.keys(header).length > 0, remarkUpdated: remarkItems.length, total: rows.length };
+  });
 }
 
 // 经手人/仓管员/审核人下拉：历史库存流水使用过的人员
@@ -679,6 +755,8 @@ export async function stockOut(data: { materialId: number; quantity: number; uni
     throw new Error(`库存不足，当前库存 ${stock?.quantity ?? 0}`);
   }
 
+  const salesperson = await salespersonByOrderNo(data.orderNo);
+
   return prisma.$transaction(async (tx) => {
     await lockOrderNo(tx, ORDER_NO_LOCK.ST);
     const docNo = await generateDocNo(tx, typeDocPrefix(transactionType));
@@ -710,6 +788,7 @@ export async function stockOut(data: { materialId: number; quantity: number; uni
         transactionTypeId: data.transactionTypeId,
         documentNo: docNo,
         orderNo: data.orderNo || null,
+        salesperson,
         lineNo: data.lineNo ?? 1,
         effectiveDate: data.effectiveDate ? new Date(data.effectiveDate) : new Date(),
         operatorId: userId,
@@ -732,8 +811,16 @@ export async function stockOutBatch(
     orderNo?: string;
     departmentId?: number;
     handler?: string;
+    salesperson?: string;
     keeper?: string;
     approver?: string;
+    mainRemark?: string;
+    deliveryNo?: string;
+    contractNo?: string;
+    address?: string;
+    contactName?: string;
+    contactPhone?: string;
+    companyId?: number;
     items: {
       materialId: number;
       warehouseId: number;
@@ -749,6 +836,14 @@ export async function stockOutBatch(
   if (!Array.isArray(data.items) || data.items.length === 0) throw new Error("请至少添加一条出库明细");
   const transactionType = await resolveManualTransactionType(data.transactionTypeId, "out");
   const departmentId = await resolveDepartmentId(data.departmentId);
+  let companyId: number | null = null;
+  if (data.companyId) {
+    const comp = await prisma.companyInfo.findUnique({ where: { id: Number(data.companyId) } });
+    if (!comp) throw new Error("所属公司不存在");
+    companyId = comp.id;
+  } else {
+    companyId = await getDefaultCompanyId();
+  }
 
   // 预校验：物料/仓库/货位/单位换算
   const prepared: {
@@ -773,6 +868,8 @@ export async function stockOutBatch(
     if (baseQty === 0) throw new Error(`第 ${idx + 1} 行数量不能为0`);
     prepared.push({ material, warehouse, binId, batchNo: line.batchNo, baseQty, remark: line.remark });
   }
+
+  const salesperson = String(data.salesperson ?? "").trim() || (await salespersonByOrderNo(data.orderNo));
 
   return prisma.$transaction(async (tx) => {
     await lockOrderNo(tx, ORDER_NO_LOCK.ST);
@@ -814,6 +911,7 @@ export async function stockOutBatch(
           transactionTypeId: data.transactionTypeId,
           documentNo,
           orderNo: data.orderNo || null,
+          salesperson,
           lineNo: idx + 1,
           effectiveDate,
           operatorId: userId,
@@ -821,6 +919,13 @@ export async function stockOutBatch(
           handler: data.handler || null,
           keeper: data.keeper || null,
           approver: data.approver || null,
+          mainRemark: data.mainRemark || null,
+          deliveryNo: data.deliveryNo || null,
+          contractNo: data.contractNo || null,
+          address: data.address || null,
+          contactName: data.contactName || null,
+          contactPhone: data.contactPhone || null,
+          companyId,
           remark: line.remark || null,
         },
       });
@@ -840,6 +945,7 @@ export async function stockInBatch(
     handler?: string;
     keeper?: string;
     approver?: string;
+    mainRemark?: string;
     items: {
       materialId: number;
       warehouseId: number;
@@ -908,6 +1014,7 @@ export async function stockInBatch(
           handler: data.handler || null,
           keeper: data.keeper || null,
           approver: data.approver || null,
+          mainRemark: data.mainRemark || null,
           remark: line.remark || null,
         },
       });
@@ -1174,4 +1281,9 @@ export async function getStockAlerts(where: any = {}) {
   }
 
   return alerts.sort((a, b) => a.shortageQty - b.shortageQty);
+}
+// 所属公司：库存流水归属的默认公司（销售出库等业务记录用）
+export async function getDefaultCompanyId(): Promise<number | null> {
+  const row = await prisma.companyInfo.findFirst({ where: { isDefault: true }, orderBy: { id: "asc" } });
+  return row?.id ?? null;
 }

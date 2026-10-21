@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { ElMessageBox } from 'element-plus'
 import type { MenuInstance } from 'element-plus'
+import { Fold, Expand } from '@element-plus/icons-vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -90,6 +91,7 @@ const menuItems: MenuNode[] = [
       { path: '/inventory/stock-query', title: '库存查询', icon: 'Search' },
       { path: '/inventory/record', title: '库存事务记录', icon: 'Clock' },
       { path: '/inventory/material-out-maintain', title: '材料出库维护', icon: 'Tickets' },
+      { path: '/inventory/sales-out-maintain', title: '销售出库维护', icon: 'Tickets' },
       { path: '/inventory/product-in-maintain', title: '产品入库维护', icon: 'Download' },
       {
         title: '采购收货/退货',
@@ -160,11 +162,13 @@ async function handleLogout() {
     router.push('/login')
   } catch { /* canceled */ }
 }
+
+const menuVisible = ref(true)
 </script>
 
 <template>
   <el-container class="layout">
-    <el-aside width="220px" class="aside">
+    <el-aside :width="menuVisible ? '220px' : '0px'" class="aside" :class="{ 'aside--hidden': !menuVisible }">
       <div class="logo">
         <div class="logo-mark">
           <el-icon :size="20"><Cpu /></el-icon>
@@ -215,6 +219,11 @@ async function handleLogout() {
     <el-container class="body-wrap">
       <el-header class="header">
         <div class="breadcrumb">
+          <el-tooltip :content="menuVisible ? '隐藏菜单' : '显示菜单'" placement="bottom">
+            <el-button text class="menu-toggle" @click="menuVisible = !menuVisible">
+              <el-icon :size="18"><component :is="menuVisible ? Fold : Expand" /></el-icon>
+            </el-button>
+          </el-tooltip>
           <el-breadcrumb separator="/">
             <el-breadcrumb-item :to="{ path: '/dashboard' }">首页</el-breadcrumb-item>
             <el-breadcrumb-item v-if="route.meta.title">{{ route.meta.title }}</el-breadcrumb-item>
@@ -256,6 +265,14 @@ async function handleLogout() {
   overflow-y: auto;
   display: flex;
   flex-direction: column;
+  transition: width 0.2s ease;
+  overflow-x: hidden;
+}
+
+/* 隐藏侧边栏：宽度过渡到 0，内容区随之铺满 */
+.aside--hidden {
+  overflow: hidden;
+  visibility: hidden;
 }
 
 .aside::-webkit-scrollbar { width: 4px; }
@@ -403,6 +420,24 @@ async function handleLogout() {
   background: var(--erp-surface);
   border-bottom: 1px solid var(--erp-hairline);
 }
+
+.menu-toggle {
+  margin-right: 8px;
+  height: 30px;
+  padding: 0 6px;
+  color: var(--erp-steel);
+}
+.menu-toggle:hover {
+  color: var(--erp-copper);
+}
+
+/* 面包屑行：菜单按钮与「首页」同行 */
+.breadcrumb {
+  display: flex;
+  align-items: center;
+}
+
+
 
 .header :deep(.el-breadcrumb) {
   font-size: 13px;

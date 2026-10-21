@@ -77,6 +77,22 @@ function statusType(s: string) {
   return map[s] || 'info'
 }
 
+
+function todayStr() {
+  const d = new Date()
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+}
+// 未完工订单交期：逾期红色、今日琥珀色
+function dueClass(row: any) {
+  if (['completed', 'shipped', 'cancelled'].includes(row.status)) return ''
+  const d = row.deliveryDate ? String(row.deliveryDate).slice(0, 10) : ''
+  if (!d) return ''
+  if (d < todayStr()) return 'due-overdue'
+  if (d === todayStr()) return 'due-today'
+  return ''
+}
+
 onMounted(() => {
   if (hasId.value) loadData()
   else loadOrders()
@@ -119,9 +135,11 @@ watch(() => route.query.id, (id) => {
             </template>
           </el-table-column>
           <el-table-column label="交期" width="120">
-            <template #default="{ row }">{{ row.deliveryDate?.slice(0, 10) || '-' }}</template>
+            <template #default="{ row }">
+              <span :class="dueClass(row)">{{ row.deliveryDate?.slice(0, 10) || '-' }}</span>
+            </template>
           </el-table-column>
-          <el-table-column label="金额" width="120">
+          <el-table-column label="金额" width="120" align="right">
             <template #default="{ row }">¥{{ row.totalAmount?.toLocaleString() }}</template>
           </el-table-column>
           <el-table-column label="操作" width="100" fixed="right">
@@ -129,7 +147,12 @@ watch(() => route.query.id, (id) => {
               <el-button size="small" type="primary" link @click="goto(row.id)">跟踪</el-button>
             </template>
           </el-table-column>
-        </el-table>
+                <template #empty>
+          <el-empty description="没有符合条件的订单" :image-size="56">
+            <div class="empty-tip">试试更短的订单号，或清空后重新查询</div>
+          </el-empty>
+        </template>
+</el-table>
 
         <div class="pagination-wrap">
           <el-pagination
@@ -168,8 +191,8 @@ watch(() => route.query.id, (id) => {
           <el-table-column label="产品" min-width="160">
             <template #default="{ row }">{{ row.material?.code }} - {{ row.material?.name }}</template>
           </el-table-column>
-          <el-table-column prop="quantity" label="数量" width="90" />
-          <el-table-column prop="unitPrice" label="单价" width="100" />
+          <el-table-column prop="quantity" label="数量" width="90" align="right" />
+          <el-table-column prop="unitPrice" label="单价" width="100" align="right" />
           <el-table-column label="小计" width="110">
             <template #default="{ row }">¥{{ (row.quantity * row.unitPrice).toLocaleString() }}</template>
           </el-table-column>
@@ -208,7 +231,7 @@ watch(() => route.query.id, (id) => {
           <el-table-column prop="productionOrderNo" label="生产订单号" width="140" />
           <el-table-column prop="materialCode" label="物料编码" width="110" />
           <el-table-column prop="materialName" label="物料名称" min-width="140" />
-          <el-table-column prop="quantity" label="计划数量" width="90" />
+          <el-table-column prop="quantity" label="计划数量" width="90" align="right" />
           <el-table-column label="计划周期" min-width="190">
             <template #default="{ row }">
               <span v-if="row.planStartDate">{{ row.planStartDate?.slice(0, 10) }} ~ {{ row.planEndDate?.slice(0, 10) }}</span>
@@ -242,7 +265,7 @@ watch(() => route.query.id, (id) => {
           <el-table-column label="仓库" min-width="130">
             <template #default="{ row }">{{ row.warehouseName ? `${row.warehouseCode} - ${row.warehouseName}` : '-' }}</template>
           </el-table-column>
-          <el-table-column prop="quantity" label="入库数量" width="100" />
+          <el-table-column prop="quantity" label="入库数量" width="100" align="right" />
           <el-table-column prop="operatorName" label="操作员" width="100" />
           <el-table-column prop="remark" label="备注" min-width="140" show-overflow-tooltip />
         </el-table>

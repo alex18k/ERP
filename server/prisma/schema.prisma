@@ -597,6 +597,8 @@ model StockRecord {
   departmentId      Int?
   department        Workshop?             @relation("StockRecordDepartment", fields: [departmentId], references: [id])
   handler           String? // 经手人（手工库存事务录入）
+  salesperson       String? // 销售员（销售订单/销售发运带出）
+  buyer             String? // 采购员（采购单收货带出）
   lineNo            Int? // 行号
   location          String? // 库位
   effectiveDate     DateTime? // 生效日期
@@ -605,7 +607,18 @@ model StockRecord {
   relatedId         Int?
   operatorId        Int?
   operator          User?                 @relation("StockOperator", fields: [operatorId], references: [id])
+  companyId         Int? // 所属公司（销售出库业务归属；随单据各行流水保存）
+  company           CompanyInfo?          @relation("StockRecordCompany", fields: [companyId], references: [id])
+  mainRemark        String? // 主备注（单据表头录入，随单据各行流水保存）
   remark            String?
+  address           String? // 客户/供应商代码（销售发运/采购收货）
+  price             Float? // 事务单价（销售发运/采购收货）
+  um                String? // 事务计量单位
+  site              String? // 预留
+  domain            String? // 预留
+  contractNo        String? // 合同号（销售发运/采购收货）
+  contactName       String? // 联系人（备用；销售发运取订单联系人快照）
+  contactPhone      String? // 联系电话（备用）
   batchNo           String? // 批号（批号管理物料的入出库流水必带）
   createdAt         DateTime              @default(now())
 
@@ -617,6 +630,7 @@ model StockRecord {
   @@index([createdAt])
   @@index([type, createdAt])
   @@index([departmentId])
+  @@index([companyId])
 }
 
 // 物料批号库存：按 (物料, 仓库, 货位, 批号) 记录各批数量
@@ -713,18 +727,21 @@ model PurchaseSuggestion {
 }
 
 model CompanyInfo {
-  id        Int      @id @default(autoincrement())
-  nameZh    String   @default("")
-  nameEn    String?
-  region    String?
-  address   String?
-  phone     String?
-  fax       String?
-  email     String?
-  contact   String?
-  taxNo     String?
-  website   String?
-  remark    String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id          Int      @id @default(autoincrement())
+  nameZh      String   @default("")
+  nameEn      String?
+  region      String?
+  address     String?
+  phone       String?
+  fax         String?
+  email       String?
+  contact     String?
+  taxNo       String?
+  website     String?
+  remark      String?
+  isDefault   Boolean  @default(false) // 默认公司：其它页面引用其名称
+  defaultedAt DateTime? // 首次被设为默认的时间；非 null 即视为被引用过，禁止删除
+  stockRecords StockRecord[] @relation("StockRecordCompany")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }

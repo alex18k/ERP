@@ -109,7 +109,7 @@ async function submit() {
   submitting.value = true
   try {
     await productionApi.receiveBatch(current.value.id, { quantity: form.quantity, unit: form.unit || undefined, warehouseId: form.warehouseId, binId: binRequired.value ? form.binId : undefined, batchNo: form.batchNo || undefined })
-    ElMessage.success('生产入库成功')
+    ElMessage.success('入库已提交')
     dialogVisible.value = false
     loadData()
   } catch {
@@ -135,7 +135,7 @@ onMounted(async () => {
       </div>
 
       <div class="search-bar">
-        <el-input v-model="query.orderNo" placeholder="生产订单号" clearable style="width: 180px" />
+        <el-input v-model="query.orderNo" placeholder="生产订单号" clearable style="width: 180px" @keyup.enter="query.page = 1, loadData()" />
         <el-select v-model="query.onlyReceivable" placeholder="范围" style="width: 140px">
           <el-option label="仅未入库完" value="true" />
           <el-option label="全部" value="false" />
@@ -144,7 +144,13 @@ onMounted(async () => {
         <el-button @click="Object.assign(query, { orderNo: '', onlyReceivable: 'true', page: 1 }), loadData()">重置</el-button>
       </div>
 
-      <el-table :data="list" v-loading="loading" stripe max-height="calc(100vh - 260px)">
+      <div class="list-summary">
+        <span>可入库批次 <b>{{ total }}</b> 个</span>
+        <span v-if="list.length">· 本页剩余待入库 <b>{{ list.reduce((s: number, r: any) => s + Math.max(0, remaining(r)), 0) }}</b></span>
+        <span class="list-summary-tip">范围=「仅未入库完」时只显示还有剩余量的批次；成品/半成品按批次入库</span>
+      </div>
+
+      <el-table :data="list" v-loading="loading" stripe max-height="calc(100vh - 300px)">
         <el-table-column label="生产订单" width="150">
           <template #default="{ row }">{{ row.productionOrder?.orderNo }}</template>
         </el-table-column>
@@ -156,9 +162,9 @@ onMounted(async () => {
         <el-table-column label="批次" width="80">
           <template #default="{ row }">第{{ row.batchNo }}批</template>
         </el-table-column>
-        <el-table-column prop="quantity" label="批次数量" width="100" />
-        <el-table-column prop="receivedQty" label="已入库" width="90" />
-        <el-table-column label="剩余" width="90">
+        <el-table-column prop="quantity" label="批次数量" width="100" align="right" />
+        <el-table-column prop="receivedQty" label="已入库" width="90" align="right" />
+        <el-table-column label="剩余" width="90" align="right">
           <template #default="{ row }">{{ remaining(row) }}</template>
         </el-table-column>
         <el-table-column label="批次状态" width="100">
@@ -172,6 +178,11 @@ onMounted(async () => {
             <span v-else style="color: var(--el-text-color-secondary)">-</span>
           </template>
         </el-table-column>
+        <template #empty>
+          <el-empty description="没有可入库的批次" :image-size="56">
+            <div class="empty-tip">仅已排产且尚未入满的批次可入库；可切换范围为「全部」或清空订单号重试</div>
+          </el-empty>
+        </template>
       </el-table>
 
       <div class="pagination-wrap">
@@ -215,7 +226,7 @@ onMounted(async () => {
       </el-form>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="submitting" @click="submit">确认入库</el-button>
+        <el-button type="primary" :loading="submitting" @click="submit">提交入库</el-button>
       </template>
     </el-dialog>
   </div>

@@ -240,16 +240,21 @@ onMounted(async () => {
         <el-table-column label="员工" width="120">
           <template #default="{ row }">{{ row.reporter?.realName ?? '-' }}</template>
         </el-table-column>
-        <el-table-column prop="quantity" label="完成数量" width="90" align="center" />
+        <el-table-column prop="quantity" label="完成数量" width="90" align="right" />
         <el-table-column prop="scrapQty" label="不良" width="80" align="center">
           <template #default="{ row }">
             <span v-if="row.scrapQty > 0" style="color: var(--el-color-danger)">{{ row.scrapQty }}</span>
             <span v-else>0</span>
           </template>
         </el-table-column>
-        <el-table-column prop="workHours" label="工时(h)" width="90" align="center" />
+        <el-table-column prop="workHours" label="工时(h)" width="90" align="right" />
         <el-table-column prop="remark" label="备注" min-width="130" show-overflow-tooltip />
-      </el-table>
+              <template #empty>
+          <el-empty description="当前批次还没有报工流水" :image-size="56">
+            <div class="empty-tip">先在左侧选择批次并提交报工，记录会出现在这里</div>
+          </el-empty>
+        </template>
+</el-table>
 
       <div style="margin-top: 12px; display: flex; justify-content: flex-end">
         <el-pagination v-model:current-page="reportQuery.page" v-model:page-size="reportQuery.pageSize" :total="reportTotal" :page-sizes="[10, 20, 50]" layout="total, sizes, prev, pager, next" background @change="onReportQuery" />

@@ -112,7 +112,12 @@ onMounted(loadData)
             <el-button size="small" type="danger" link @click="handleDelete(row)">删除</el-button>
           </template>
         </el-table-column>
-      </el-table>
+              <template #empty>
+          <el-empty description="还没有维护角色" :image-size="56">
+            <div class="empty-tip">新增角色并勾选权限后，可在用户管理里分配</div>
+          </el-empty>
+        </template>
+</el-table>
     </div>
 
     <el-dialog v-model="dialogVisible" :title="isEdit ? '编辑角色' : '新增角色'" width="720px" destroy-on-close>

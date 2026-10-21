@@ -96,7 +96,12 @@ onMounted(loadData)
             <el-button size="small" type="danger" link @click="handleDelete(row)">删除</el-button>
           </template>
         </el-table-column>
-      </el-table>
+              <template #empty>
+          <el-empty description="没有匹配的事务类型" :image-size="56">
+            <div class="empty-tip">代码被库存流水引用时不能删除；可清空关键词后重试</div>
+          </el-empty>
+        </template>
+</el-table>
 
       <div class="pagination-wrap">
         <el-pagination

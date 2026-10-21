@@ -109,7 +109,7 @@ onMounted(loadData)
         <el-table-column label="含税" width="70">
           <template #default="{ row }">{{ row.taxIncluded ? '是' : '否' }}</template>
         </el-table-column>
-        <el-table-column label="税率" width="80">
+        <el-table-column label="税率" width="80" align="right">
           <template #default="{ row }">{{ row.taxRate ?? 0 }}%</template>
         </el-table-column>
         <el-table-column label="加入日期" width="110">
@@ -121,7 +121,12 @@ onMounted(loadData)
             <el-button size="small" type="danger" link @click="handleDelete(row)">删除</el-button>
           </template>
         </el-table-column>
-      </el-table>
+              <template #empty>
+          <el-empty description="没有匹配的供应商" :image-size="56">
+            <div class="empty-tip">试试更短的编码/名称，或点右上角「新增供应商」</div>
+          </el-empty>
+        </template>
+</el-table>
       <div class="pagination-wrap">
         <el-pagination v-model:current-page="query.page" v-model:page-size="query.pageSize" :total="total" :page-sizes="[10, 20, 50]" layout="total, sizes, prev, pager, next" @change="loadData" />
       </div>

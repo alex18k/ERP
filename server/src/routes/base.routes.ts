@@ -14,7 +14,11 @@ function crudRoutes(controller: any, perm: string, forbidGet?: boolean) {
 }
 
 export const supplierRoutes = crudRoutes(supplierController, "purchase");
-export const customerRoutes = crudRoutes(customerController, "order");
+// 收货单位下拉：数据来自客户主数据（销售出库等页面选择后自动带出联系人/电话）
+export const customerRoutes = Router();
+customerRoutes.use(authMiddleware);
+customerRoutes.get("/options", requirePermission("stock:view"), customerController.options);
+customerRoutes.use(crudRoutes(customerController, "order"));
 export const warehouseRoutes = crudRoutes(warehouseController, "stock");
 
 // 货位（仓库下的存放位置）：查看 stock:view，维护 stock:edit

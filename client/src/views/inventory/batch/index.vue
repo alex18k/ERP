@@ -32,7 +32,7 @@ onMounted(async () => {
   <div class="page-container">
     <div class="page-card">
       <div class="search-bar">
-        <el-input v-model="query.materialKeyword" placeholder="物料编码/名称" clearable style="width: 150px" />
+        <el-input v-model="query.materialKeyword" placeholder="物料编码/名称" clearable style="width: 150px" @keyup.enter="query.page = 1, loadData()" />
         <el-select v-model="query.warehouseId" placeholder="仓库" clearable style="width: 160px">
           <el-option v-for="w in warehouses" :key="w.id" :label="w.name" :value="w.id" />
         </el-select>
@@ -60,11 +60,16 @@ onMounted(async () => {
         <el-table-column label="基本单位" width="80">
           <template #default="{ row }">{{ row.material?.unit }}</template>
         </el-table-column>
-        <el-table-column label="现存量" width="100" prop="quantity" />
+        <el-table-column label="现存量" width="100" prop="quantity" align="right" />
         <el-table-column label="最近更新时间" width="170">
           <template #default="{ row }">{{ row.updatedAt?.slice(0, 19)?.replace('T', ' ') }}</template>
         </el-table-column>
-      </el-table>
+              <template #empty>
+          <el-empty description="没有符合条件的批号库存" :image-size="56">
+            <div class="empty-tip">仅显示仍有结存的批次；可清空物料关键词/仓库后重试</div>
+          </el-empty>
+        </template>
+</el-table>
 
       <el-pagination
         v-model:current-page="query.page"

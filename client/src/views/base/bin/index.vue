@@ -119,7 +119,12 @@ onMounted(async () => {
             <el-button size="small" type="danger" link @click="handleDelete(row)">删除</el-button>
           </template>
         </el-table-column>
-      </el-table>
+              <template #empty>
+          <el-empty description="没有匹配的货位" :image-size="56">
+            <div class="empty-tip">仅启用货位管理的仓库可维护货位；可清空关键词/仓库后重试</div>
+          </el-empty>
+        </template>
+</el-table>
       <div class="pagination-wrap">
         <el-pagination v-model:current-page="query.page" v-model:page-size="query.pageSize" :total="total" :page-sizes="[10, 20, 50]" layout="total, sizes, prev, pager, next" @change="loadData" />
       </div>

@@ -68,6 +68,16 @@ export async function recordsByDocumentHandler(req: Request, res: Response) {
   }
 }
 
+export async function recordsUpdateByDocumentHandler(req: Request, res: Response) {
+  try {
+    const documentNo = String(req.query.documentNo ?? req.body?.documentNo ?? "").trim();
+    const data = await stockService.updateStockDocument(documentNo, req.body || {});
+    return success(res, data, "保存成功");
+  } catch (error: any) {
+    return fail(res, 400, error.message);
+  }
+}
+
 export async function batchesHandler(req: Request, res: Response) {
   try {
     const data = await stockService.listBatches(req.query as any);

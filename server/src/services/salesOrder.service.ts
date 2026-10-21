@@ -2,7 +2,7 @@ import prisma from "../config/prisma";
 import { Prisma } from "@prisma/client";
 import { localDateCompact, parseLocalDateStart, parseLocalDateEnd } from "../utils/date";
 import { retryOnDuplicate, lockOrderNo, ORDER_NO_LOCK } from "../utils/retry";
-import { applyBatchOut, resolveBinId, generateDocNo } from "./stock.service";
+import { applyBatchOut, resolveBinId, generateDocNo, getDefaultCompanyId } from "./stock.service";
 import { resolveUnitRateMap, toBaseQty } from "../utils/unit";
 
 export interface SalesOrderCreateInput {
@@ -30,6 +30,11 @@ export interface SalesOrderCreateInput {
     remark?: string;
     line?: number;
   }[];
+}
+
+// 销售员快照：订单可填两个销售员，流水/报表合并展示
+export function sellerNamesOf(order?: { seller1?: string | null; seller2?: string | null } | null) {
+  return [order?.seller1, order?.seller2].filter(Boolean).join("、") || null;
 }
 
 // 单号 = 前缀 + 当日最大序号+1（配合 lockOrderNo 串行化，避免 count+1 并发撞号）
@@ -464,7 +469,9 @@ export async function shipOrder(id: number, userId: number) {
   if (!order) throw new Error("订单不存在");
   if (order.status !== "completed") throw new Error("仅已完工订单可以发货");
 
+  const salesperson = sellerNamesOf(order);
   const shipType = await prisma.stockTransactionType.findUnique({ where: { code: "ISS-SO" } });
+  const companyId = await getDefaultCompanyId();
 
   return prisma.$transaction(async (tx) => {
     await lockOrderNo(tx, ORDER_NO_LOCK.ST);
@@ -545,6 +552,13 @@ export async function shipOrder(id: number, userId: number) {
                   transactionTypeId: shipType?.id,
                   documentNo: docNo,
                   orderNo: order.orderNo,
+                  address: order.customerCode || null,
+                  salesperson,
+                                    contactName: order.contactPerson || null,
+                  contactPhone: order.contactPhone || null,
+                  price: item.unitPrice ?? null,
+                  um: item.unit || null,
+                  companyId,
                   lineNo: idx + 1,
                   operatorId: userId,
                   remark: "销售订单发货出库",
@@ -566,6 +580,13 @@ export async function shipOrder(id: number, userId: number) {
                 transactionTypeId: shipType?.id,
                 documentNo: docNo,
                 orderNo: order.orderNo,
+                address: order.customerCode || null,
+                salesperson,
+                                contactName: order.contactPerson || null,
+                contactPhone: order.contactPhone || null,
+                price: item.unitPrice ?? null,
+                um: item.unit || null,
+                companyId,
                 lineNo: idx + 1,
                 operatorId: userId,
                 remark: "销售订单发货出库",
@@ -611,7 +632,9 @@ export async function shipOrderItems(
     throw new Error("当前订单状态不能发运");
   }
 
+  const salesperson = sellerNamesOf(order);
   const shipType = await prisma.stockTransactionType.findUnique({ where: { code: "ISS-SO" } });
+  const companyId = await getDefaultCompanyId();
 
   // 校验明细归属与数量
   const itemMap = new Map(order.items.map((it) => [it.id, it]));
@@ -667,6 +690,13 @@ export async function shipOrderItems(
           documentNo: docNo,
           orderNo: order.orderNo,
           deliveryNo: data.deliveryNo?.trim() || null,
+          address: order.customerCode || null,
+          salesperson,
+                    contactName: order.contactPerson || null,
+          contactPhone: order.contactPhone || null,
+          price: item.unitPrice ?? null,
+          um: item.unit || null,
+          companyId,
           handler: data.handler?.trim() || null,
           keeper: data.keeper?.trim() || null,
           departmentId: data.departmentId ? Number(data.departmentId) : null,

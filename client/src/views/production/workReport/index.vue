@@ -199,7 +199,12 @@ onMounted(loadOrderOptions)
               <el-input v-model="row.remark" size="small" clearable />
             </template>
           </el-table-column>
-        </el-table>
+                <template #empty>
+          <el-empty description="还没有批次报工数据" :image-size="56">
+            <div class="empty-tip">选择生产订单后按批次/工序录入报工；最后一道工序累计达标后批次自动完工</div>
+          </el-empty>
+        </template>
+</el-table>
       </div>
     </div>
   </div>
