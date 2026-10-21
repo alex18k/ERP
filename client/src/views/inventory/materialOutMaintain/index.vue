@@ -58,7 +58,7 @@ function printSelected() {
 onMounted(async () => {
   const [wRes, tRes]: any[] = await Promise.all([
     warehouseApi.list({ pageSize: 200 }),
-    stockTransactionTypeApi.list({ pageSize: 200 }),
+    stockTransactionTypeApi.list({ pageSize: 200, status: 1 }),
   ])
   warehouses.value = wRes.data.items || []
   transactionTypes.value = (tRes.data.items || []).filter(

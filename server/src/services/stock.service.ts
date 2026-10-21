@@ -803,7 +803,7 @@ export async function stockOut(data: { materialId: number; quantity: number; uni
   });
 }
 
-// 材料出库：一张单据对应多条出库明细，共用一个系统单号，整单原子提交
+// 批量出库：一张单据对应多条出库明细，共用一个系统单号，整单原子提交
 export async function stockOutBatch(
   data: {
     transactionTypeId: number;
@@ -935,7 +935,7 @@ export async function stockOutBatch(
   });
 }
 
-// 成品入库：一张单据对应多条入库明细，共用一个系统单号，整单原子提交
+// 批量入库：一张单据对应多条入库明细，共用一个系统单号，整单原子提交
 export async function stockInBatch(
   data: {
     transactionTypeId: number;
@@ -974,7 +974,7 @@ export async function stockInBatch(
   for (const [idx, line] of data.items.entries()) {
     if (!line.materialId) throw new Error(`第 ${idx + 1} 行请选择物料`);
     if (!line.warehouseId) throw new Error(`第 ${idx + 1} 行请选择仓库`);
-    if (!Number.isFinite(line.quantity) || line.quantity <= 0) throw new Error(`第 ${idx + 1} 行数量必须大于0`);
+    if (!Number.isFinite(line.quantity) || line.quantity === 0) throw new Error(`第 ${idx + 1} 行数量不能为0`);
     const material = await prisma.material.findUnique({ where: { id: line.materialId } });
     if (!material) throw new Error(`第 ${idx + 1} 行物料不存在`);
     const warehouse = await prisma.warehouse.findUnique({ where: { id: line.warehouseId } });
@@ -982,7 +982,7 @@ export async function stockInBatch(
     const binId = await resolveBinId(prisma, warehouse, line.binId);
     const { rate } = await resolveUnitRate(line.materialId, line.unit);
     const baseQty = toBaseQty(line.quantity, rate);
-    if (baseQty <= 0) throw new Error(`第 ${idx + 1} 行数量必须大于0`);
+    if (baseQty === 0) throw new Error(`第 ${idx + 1} 行数量不能为0`);
     prepared.push({ material, warehouse, binId, batchNo: line.batchNo, baseQty, remark: line.remark });
   }
 
@@ -993,8 +993,26 @@ export async function stockInBatch(
 
     for (const [idx, line] of prepared.entries()) {
       const binId = await resolveBinId(tx, line.warehouse, line.binId);
-      await addStock(tx, line.material.id, line.warehouse.id, binId, line.baseQty);
-      const resolvedBatchNo = await applyBatchIn(tx, line.material, line.warehouse.id, binId, line.batchNo, line.baseQty);
+
+      let resolvedBatchNo: string | null;
+      if (line.baseQty > 0) {
+        await addStock(tx, line.material.id, line.warehouse.id, binId, line.baseQty);
+        resolvedBatchNo = await applyBatchIn(tx, line.material, line.warehouse.id, binId, line.batchNo, line.baseQty);
+      } else {
+        // 负数 = 红单冲销：按原仓库/货位/批次扣回库存，流水保留负数
+        const outQty = Math.abs(line.baseQty);
+        const updated = await tx.stock.updateMany({
+          where: { materialId: line.material.id, warehouseId: line.warehouse.id, binId, quantity: { gte: outQty } },
+          data: { quantity: { decrement: outQty }, lastOutDate: new Date() },
+        });
+        if (updated.count === 0) {
+          const fresh = await tx.stock.findFirst({
+            where: { materialId: line.material.id, warehouseId: line.warehouse.id, binId },
+          });
+          throw new Error(`第 ${idx + 1} 行物料 ${line.material.code} 库存不足，当前库存 ${fresh?.quantity ?? 0}`);
+        }
+        resolvedBatchNo = await applyBatchOut(tx, line.material, line.warehouse.id, binId, line.batchNo, outQty);
+      }
 
       await tx.stockRecord.create({
         data: {

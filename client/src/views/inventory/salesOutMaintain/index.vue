@@ -177,7 +177,7 @@ function customerName(code: string) {
 
 onMounted(async () => {
   const [tRes, dRes, cRes, cuRes]: any[] = await Promise.all([
-    stockTransactionTypeApi.list({ pageSize: 200 }),
+    stockTransactionTypeApi.list({ pageSize: 200, status: 1 }),
     workshopApi.list(),
     systemApi.companies(),
     customerApi.options({ keyword: '', limit: 50 }),

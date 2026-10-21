@@ -159,7 +159,7 @@ async function searchMaterials(keyword: string) {
 async function loadOptions() {
   const [mRes, tRes, dRes, hRes]: any[] = await Promise.all([
     materialApi.options({ limit: 50 }),
-    stockTransactionTypeApi.list({ pageSize: 200 }),
+    stockTransactionTypeApi.list({ pageSize: 200, status: 1 }),
     workshopApi.list(),
     stockApi.handlers(),
   ])
@@ -531,6 +531,13 @@ function printSelected() {
   })
 }
 
+function redSelected() {
+  const row = currentRow.value
+  if (!row?.documentNo) return
+  const path = row.type === 'in' ? '/inventory/stock-in' : '/inventory/stock-out'
+  router.push({ path, query: { red: row.documentNo } })
+}
+
 onMounted(async () => {
   const res: any = await warehouseApi.list({ pageSize: 200 })
   warehouses.value = res.data.items
@@ -556,19 +563,15 @@ onMounted(async () => {
         <el-button type="primary" @click="query.page = 1, loadData()"><el-icon><Search /></el-icon>查询</el-button>
         <el-button @click="Object.assign(query, { materialKeyword: '', warehouseId: '', transactionTypeId: '', startDate: '', endDate: '', documentNo: '', page: 1 }), loadData()">重置</el-button>
         <div class="row-actions">
-          <el-button type="success" plain @click="router.push('/inventory/product-in')"><el-icon><Download /></el-icon>入库</el-button>
-          <el-button type="danger" plain @click="router.push('/inventory/material-out')"><el-icon><Upload /></el-icon>出库</el-button>
+          <el-button type="success" plain @click="router.push('/inventory/stock-in')"><el-icon><Download /></el-icon>入库</el-button>
+          <el-button type="danger" plain @click="router.push('/inventory/stock-out')"><el-icon><Upload /></el-icon>出库</el-button>
           <el-button type="success" plain class="btn-add" @click="openDialog()"><el-icon><Plus /></el-icon>增加</el-button>
           <el-button type="warning" plain @click="openTransfer()"><el-icon><Switch /></el-icon>移库</el-button>
           <el-button type="primary" plain :disabled="!currentRow?.documentNo" title="先点击列表中的行，再打印该单号" @click="printSelected"><el-icon><Printer /></el-icon>打印</el-button>
+          <el-button type="danger" plain :disabled="!currentRow?.documentNo" title="先点击列表中的行，再生成红单冲销" @click="redSelected"><el-icon><DocumentRemove /></el-icon>红单</el-button>
         </div>
       </div>
 
-      <div class="list-summary">
-        <span>事务流水 <b>{{ total }}</b> 条</span>
-        <span v-if="list.length">· 本页 <b>{{ list.length }}</b> 行</span>
-        <span class="list-summary-tip">一行 = 一条库存流水；入库为正、出库为负；打印按整张事务单号</span>
-      </div>
 
       <el-table ref="tableRef" :data="list" v-loading="loading" stripe highlight-current-row max-height="calc(100vh - 260px)" @row-click="(row: any) => (currentRow = row)">
         <el-table-column label="生效日期" width="100">

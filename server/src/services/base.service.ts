@@ -253,8 +253,9 @@ function normalizeDocumentPrefix(value: any): string | null | undefined {
 
 export const stockTransactionTypeService = {
   list: async (where: any) => {
-    const { page = 1, pageSize = 20, keyword } = where;
+    const { page = 1, pageSize = 20, keyword, status } = where;
     const filters: Record<string, any> = {};
+    if (status !== undefined && status !== null && status !== "") filters.status = Number(status);
     if (keyword) {
       filters.OR = [
         { code: { contains: keyword } },

@@ -137,6 +137,12 @@ onMounted(loadData)
             <el-radio value="out">减</el-radio>
           </el-radio-group>
         </el-form-item>
+        <el-form-item label="启用">
+          <el-radio-group v-model="form.status">
+            <el-radio :value="1">启用</el-radio>
+            <el-radio :value="0">停用</el-radio>
+          </el-radio-group>
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>

@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { stockApi, warehouseApi, materialApi, stockTransactionTypeApi, warehouseBinApi, workshopApi } from '../../../api'
 import { warehouseIdByLocation } from '../../../utils/location'
 import { useAuthStore } from '../../../stores/auth'
 
 const router = useRouter()
+const route = useRoute()
 const authStore = useAuthStore()
 const currentUserName = authStore.user?.realName || authStore.user?.username || ''
 const saving = ref(false)
@@ -18,6 +19,8 @@ const keeperOptions = ref<string[]>([])
 const approverOptions = ref<string[]>([])
 const binMap = reactive<Record<number, any[]>>({})
 const currentRow = ref<any>(null)
+const redDocNo = ref('')
+const isRed = computed(() => !!redDocNo.value)
 
 const activeWarehouses = computed(() => warehouses.value.filter((w: any) => w.status === 1))
 
@@ -77,10 +80,11 @@ async function loadBins(warehouseId: number | null) {
 }
 
 function onQuantityInput(row: any, value: number | undefined) {
-  if (value != null && value < 0) row.quantity = 0
+  if (!isRed.value && value != null && value < 0) row.quantity = 0
 }
 
 function preventNegativeKey(e: KeyboardEvent) {
+  if (isRed.value) return
   if (e.key === '-' || e.key === '+' || e.key.toLowerCase() === 'e') e.preventDefault()
 }
 
@@ -102,13 +106,13 @@ function rowAmount(row: any) {
 }
 
 // 实时汇总：只统计已选物料且数量 > 0 的行
-const filledLines = computed(() => form.items.filter((r: any) => r.materialId && Number(r.quantity) > 0).length)
-const totalQty = computed(() => form.items.reduce((s: number, r: any) => (r.materialId && Number(r.quantity) > 0 ? s + Number(r.quantity) : s), 0))
-const totalAmount = computed(() => form.items.reduce((s: number, r: any) => (r.materialId && Number(r.quantity) > 0 ? s + rowAmount(r) : s), 0))
+const filledLines = computed(() => form.items.filter((r: any) => r.materialId && Number(r.quantity) !== 0).length)
+const totalQty = computed(() => form.items.reduce((s: number, r: any) => (r.materialId && Number(r.quantity) !== 0 ? s + Number(r.quantity) : s), 0))
+const totalAmount = computed(() => form.items.reduce((s: number, r: any) => (r.materialId && Number(r.quantity) !== 0 ? s + rowAmount(r) : s), 0))
 
 // 已填行的即时反馈：淡蓝底标识"本次将提交的行"
 function itemRowClass({ row }: any) {
-  return row.materialId && Number(row.quantity) > 0 ? 'row-shipping' : ''
+  return row.materialId && Number(row.quantity) !== 0 ? 'row-shipping' : ''
 }
 
 async function searchRowMaterials(row: any, keyword: string) {
@@ -197,6 +201,51 @@ async function loadRowBatches(row: any) {
   }
 }
 
+// 红单：按原入库单调出数据，数量自动取负（冲销），提交后扣回库存
+async function loadRedDocument(no: string) {
+  try {
+    const res: any = await stockApi.recordsByDocument(no)
+    const items = res.data.items || []
+    if (!items.length) {
+      ElMessage.warning(`红单：未找到单据 ${no} 的流水`)
+      return
+    }
+    redDocNo.value = no
+    const first = items[0]
+    Object.assign(form, {
+      transactionTypeId: first.transactionTypeId ?? null,
+      effectiveDate: todayStr(),
+      orderNo: first.orderNo || '',
+      departmentId: first.departmentId ?? null,
+      handler: first.handler || '',
+      keeper: first.keeper || '',
+      approver: first.approver || '',
+      remark: first.mainRemark || '',
+      items: [],
+    })
+    for (const r of items) {
+      const row = newRow()
+      row.quantity = -Math.abs(Number(r.quantity) || 0)
+      row.remark = `红单冲销 ${no}`
+      const mres: any = await materialApi.options({ keyword: r.material?.code || '', limit: 5 })
+      const m = (mres.data || []).find((x: any) => x.id === r.materialId) || null
+      row.materialId = r.materialId ?? null
+      row.material = m
+      row.materialOptions = m ? [m] : []
+      row.unit = r.um || m?.unit || ''
+      row.unitOptions = row.unit ? [row.unit] : []
+      row.warehouseId = r.warehouseId ?? null
+      row.binId = r.binId ?? null
+      await loadBins(row.warehouseId)
+      await loadRowBatches(row)
+      row.batchNo = r.batchNo || ''
+      await loadRowStock(row)
+      form.items.push(row)
+    }
+    ElMessage.info(`红单模式：已按 ${no} 调出明细，数量已取负`)
+  } catch { /* error shown by interceptor */ }
+}
+
 function addRow() {
   form.items.push(newRow())
 }
@@ -221,7 +270,10 @@ function validateForm(): boolean {
     if (!row.materialId) { ElMessage.warning(`${line}请选择物料`); return false }
     if (!row.warehouseId) { ElMessage.warning(`${line}请选择仓库`); return false }
     if (warehouseBinManaged(row.warehouseId) && !row.binId) { ElMessage.warning(`${line}所在仓库启用货位管理，请选择货位`); return false }
-    if (!(Number(row.quantity) > 0)) { ElMessage.warning(`${line}数量必须大于0`); return false }
+    if (isRed.value ? !(Number(row.quantity) < 0) : !(Number(row.quantity) > 0)) {
+      ElMessage.warning(isRed.value ? `${line}红单数量必须为负数` : `${line}数量必须大于0`)
+      return false
+    }
   }
   return true
 }
@@ -230,11 +282,11 @@ async function submit() {
   if (!validateForm()) return
   try {
     await ElMessageBox.confirm(
-      `已填 ${filledLines.value} 行，数量合计 ${totalQty.value}，金额 ¥${totalAmount.value.toFixed(2)}。提交后库存将增加且不可撤销，是否继续？`,
-      '提交入库',
+      `已填 ${filledLines.value} 行，数量合计 ${totalQty.value}，金额 ¥${totalAmount.value.toFixed(2)}。提交后库存将${isRed.value ? '减少（红单冲销）' : '增加'}且不可撤销，是否继续？`,
+      isRed.value ? '提交红单' : '提交入库',
       {
         type: 'warning',
-        confirmButtonText: '提交入库',
+        confirmButtonText: isRed.value ? '提交红单' : '提交入库',
         cancelButtonText: '取消',
       },
     )
@@ -261,7 +313,8 @@ async function submit() {
       mainRemark: form.remark || undefined,
       items,
     })
-    ElMessage.success(res.data?.documentNo ? `入库已提交，单据号 ${res.data.documentNo}` : '入库已提交')
+    const doneText = isRed.value ? '红单已提交' : '入库已提交'
+    ElMessage.success(res.data?.documentNo ? `${doneText}，单据号 ${res.data.documentNo}` : doneText)
     resetForm()
   } catch { /* error shown by interceptor */ } finally {
     saving.value = false
@@ -270,6 +323,8 @@ async function submit() {
 
 function resetForm() {
   currentRow.value = null
+  redDocNo.value = ''
+  if (route.query.red) router.replace({ path: route.path })
   Object.assign(form, {
     transactionTypeId: form.transactionTypeId,
     effectiveDate: todayStr(),
@@ -286,7 +341,7 @@ function resetForm() {
 onMounted(async () => {
   const [wRes, tRes, dRes, hRes, kRes, aRes]: any[] = await Promise.all([
     warehouseApi.list({ pageSize: 200 }),
-    stockTransactionTypeApi.list({ pageSize: 200 }),
+    stockTransactionTypeApi.list({ pageSize: 200, status: 1 }),
     workshopApi.list(),
     stockApi.handlers(),
     stockApi.handlers('keeper'),
@@ -294,10 +349,15 @@ onMounted(async () => {
   ])
   warehouses.value = wRes.data.items || []
   transactionTypes.value = (tRes.data.items || []).filter((t: any) => t.status === 1 && t.direction === 'in')
+  if (!form.transactionTypeId) {
+    form.transactionTypeId = transactionTypes.value.find((t: any) => t.code === 'RCT-MC' || t.description === '自制加工')?.id ?? transactionTypes.value[0]?.id ?? null
+  }
   departments.value = (dRes.data || []).filter((d: any) => d.status === 1)
   handlerOptions.value = hRes.data || []
   keeperOptions.value = [...new Set([currentUserName, ...(kRes.data || [])].filter(Boolean))]
   approverOptions.value = aRes.data || []
+  const red = String(route.query.red || '').trim()
+  if (red) await loadRedDocument(red)
 })
 </script>
 
@@ -312,7 +372,7 @@ onMounted(async () => {
           已填 <b>{{ filledLines }}</b> 行 · 数量 <b>{{ totalQty }}</b> · 金额 <b>¥{{ totalAmount.toFixed(2) }}</b>
         </span>
         <el-button @click="resetForm">新增</el-button>
-        <el-button type="primary" :loading="saving" @click="submit">提交入库</el-button>
+        <el-button type="primary" :loading="saving" @click="submit">{{ isRed ? '提交红单' : '提交入库' }}</el-button>
       </div>
 
       <el-form :model="form" label-width="72px" class="kd-header-form">
@@ -374,6 +434,7 @@ onMounted(async () => {
         <div style="width: 100%">
           <el-button size="small" type="primary" plain @click="addRow"><el-icon><Plus /></el-icon>添加明细</el-button>
           <el-button size="small" type="primary" plain style="margin-left: 8px" :disabled="!currentRow" @click="removeSelected">删除选中</el-button>
+          <el-tag v-if="isRed" type="danger" size="small" style="margin-left: 12px">红单：按 {{ redDocNo }} 生成负数冲销</el-tag>
           <el-table class="items-editor" :data="form.items" size="small" border max-height="calc(100vh - 320px)" style="margin-top: 8px; width: 100%" highlight-current-row :row-class-name="itemRowClass" @current-change="onCurrentChange">
         <el-table-column label="行号" width="50" align="center">
           <template #default="{ $index }">{{ $index + 1 }}</template>
@@ -445,7 +506,7 @@ onMounted(async () => {
         <el-table-column label="数量" width="80">
           <template #header><span class="req-th">数量</span></template>
           <template #default="{ row }">
-            <el-input-number v-model="row.quantity" :min="0" :precision="2" :controls="false" style="width: 100%" @input="(v: number | undefined) => onQuantityInput(row, v)" @keydown="preventNegativeKey" />
+            <el-input-number v-model="row.quantity" :min="isRed ? undefined : 0" :precision="2" :controls="false" style="width: 100%" @input="(v: number | undefined) => onQuantityInput(row, v)" @keydown="preventNegativeKey" />
           </template>
         </el-table-column>
         <el-table-column label="单价" width="100" align="right">

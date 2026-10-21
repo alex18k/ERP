@@ -108,7 +108,7 @@ export async function outHandler(req: AuthRequest, res: Response) {
 export async function inBatchHandler(req: AuthRequest, res: Response) {
   try {
     const data = await stockService.stockInBatch(req.body, req.user!.id);
-    return success(res, data, "成品入库成功");
+    return success(res, data, "入库成功");
   } catch (error: any) {
     return fail(res, 400, error.message);
   }
@@ -117,7 +117,7 @@ export async function inBatchHandler(req: AuthRequest, res: Response) {
 export async function outBatchHandler(req: AuthRequest, res: Response) {
   try {
     const data = await stockService.stockOutBatch(req.body, req.user!.id);
-    return success(res, data, "材料出库成功");
+    return success(res, data, "出库成功");
   } catch (error: any) {
     return fail(res, 400, error.message);
   }

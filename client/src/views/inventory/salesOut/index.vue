@@ -414,7 +414,7 @@ function resetForm() {
 onMounted(async () => {
   const [wRes, tRes, dRes, kRes, aRes, cRes, cuRes]: any[] = await Promise.all([
     warehouseApi.list({ pageSize: 200 }),
-    stockTransactionTypeApi.list({ pageSize: 200 }),
+    stockTransactionTypeApi.list({ pageSize: 200, status: 1 }),
     workshopApi.list(),
     stockApi.handlers('keeper'),
     stockApi.handlers('approver'),
