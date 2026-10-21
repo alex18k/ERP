@@ -46,8 +46,8 @@ onMounted(async () => {
   <div class="page-container">
     <div class="page-card">
       <div class="search-bar">
-        <el-input v-model="query.materialCode" placeholder="物料编码" clearable style="width: 150px" />
-        <el-input v-model="query.materialName" placeholder="物料名称/型号规格" clearable style="width: 170px" />
+        <el-input v-model="query.materialCode" placeholder="物料编码" clearable style="width: 150px" @keyup.enter="query.page = 1, loadData()" />
+        <el-input v-model="query.materialName" placeholder="物料名称/型号规格" clearable style="width: 170px" @keyup.enter="query.page = 1, loadData()" />
         <el-select v-model="query.warehouseId" placeholder="仓库" clearable style="width: 160px" @change="onWarehouseChange">
           <el-option v-for="w in warehouses" :key="w.id" :label="w.name" :value="w.id" />
         </el-select>
@@ -63,6 +63,12 @@ onMounted(async () => {
         <div style="flex: 1" />
         <el-button @click="loadData"><el-icon><Refresh /></el-icon>刷新</el-button>
         <el-button @click="stockApi.exportCsv(query)"><el-icon><Download /></el-icon>导出</el-button>
+      </div>
+
+      <div class="list-summary">
+        <span>库存汇总 <b>{{ total }}</b> 组</span>
+        <span v-if="list.length">· 本页 <b>{{ list.length }}</b> 行</span>
+        <span class="list-summary-tip">按「仓库 × 物料」分组，红色现存量 = 物料全仓合计低于安全库存</span>
       </div>
 
       <el-table :data="list" v-loading="loading" row-key="key" :tree-props="{ children: 'children' }" stripe max-height="calc(100vh - 260px)">
@@ -98,7 +104,7 @@ onMounted(async () => {
         </el-table-column>
         <el-table-column label="现存量" width="100" align="right">
           <template #default="{ row }">
-            <span v-if="row.material" :class="{ 'text-low': row.isLow }" style="font-weight: 600">{{ row.quantity }}</span>
+            <span v-if="row.material" :class="{ 'txt-danger': row.isLow }">{{ row.quantity }}</span>
             <span v-else>{{ row.quantity }}</span>
           </template>
         </el-table-column>
@@ -120,6 +126,11 @@ onMounted(async () => {
             <span v-else>-</span>
           </template>
         </el-table-column>
+        <template #empty>
+          <el-empty description="没有匹配的库存记录" :image-size="56">
+            <div class="empty-tip">仅统计库存数量大于 0 的「仓库 × 物料」分组，展开分组行可查看货位与批号</div>
+          </el-empty>
+        </template>
       </el-table>
 
       <div class="pagination-wrap">

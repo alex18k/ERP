@@ -106,8 +106,8 @@ onMounted(() => {
   <div class="page-container">
     <div class="page-card">
       <div class="search-bar">
-        <el-input v-model="query.orderNo" placeholder="生产订单号" clearable style="width: 160px" />
-        <el-input v-model="query.materialName" placeholder="物料名称" clearable style="width: 160px" />
+        <el-input v-model="query.orderNo" placeholder="生产订单号" clearable style="width: 160px" @keyup.enter="query.page = 1, loadData()" />
+        <el-input v-model="query.materialName" placeholder="物料名称" clearable style="width: 160px" @keyup.enter="query.page = 1, loadData()" />
         <el-select v-model="query.status" placeholder="状态" clearable style="width: 130px">
           <el-option v-for="o in statusOptions" :key="o.value" :label="o.label" :value="o.value" />
         </el-select>
@@ -125,7 +125,7 @@ onMounted(() => {
         <el-table-column label="物料" min-width="160">
           <template #default="{ row }">{{ row.material?.code }} - {{ row.material?.name }}</template>
         </el-table-column>
-        <el-table-column prop="quantity" label="数量" width="90" />
+        <el-table-column prop="quantity" label="数量" width="90" align="right" />
         <el-table-column label="来源订单" min-width="130">
           <template #default="{ row }">
             <span v-if="row.salesOrder">{{ row.salesOrder.orderNo }}<br /><small>{{ row.salesOrder.customerName }}</small></span>
@@ -159,7 +159,12 @@ onMounted(() => {
             <el-tag :type="statusType(row.status)" size="small">{{ statusLabel(row.status) }}</el-tag>
           </template>
         </el-table-column>
-      </el-table>
+              <template #empty>
+          <el-empty description="没有可转生产的订单" :image-size="56">
+            <div class="empty-tip">仅显示已确认/生产中、未转完的销售订单明细；可清空条件后重试</div>
+          </el-empty>
+        </template>
+</el-table>
 
       <div class="pagination-wrap">
         <el-pagination v-model:current-page="query.page" v-model:page-size="query.pageSize" :total="total" :page-sizes="[10, 20, 50]" layout="total, sizes, prev, pager, next" @change="loadData" />

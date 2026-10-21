@@ -99,7 +99,7 @@ export async function listPurchaseOrders(where: any) {
       where: filters,
       include: {
         supplier: { select: { id: true, name: true, code: true } },
-        items: { include: { material: { select: { id: true, code: true, name: true, specification: true, unit: true, location: true } } }, orderBy: { line: "asc" } },
+        items: { include: { material: { select: { id: true, code: true, name: true, specification: true, unit: true, location: true, batchManaged: true } } }, orderBy: { line: "asc" } },
       },
       orderBy: { createdAt: "desc" },
       skip: (Number(page) - 1) * Number(pageSize),
@@ -470,7 +470,7 @@ export async function receivePurchaseOrder(
 ) {
   const po = await prisma.purchaseOrder.findUnique({
     where: { id },
-    include: { items: { include: { material: true } } },
+    include: { items: { include: { material: true } }, supplier: { select: { code: true } } },
   });
   if (!po) throw new Error("采购单不存在");
 
@@ -626,6 +626,10 @@ export async function receivePurchaseOrder(
           documentNo: receiptNo,
           orderNo: po.orderNo,
           deliveryNo: options?.deliveryNo || null,
+          address: po.supplier?.code || null,
+          buyer: po.buyer || null,
+          price: item.unitPrice ?? null,
+          um: item.unit || null,
           keeper: options?.keeper || null,
           remark: options?.remark || null,
           lineNo: item.line ?? idx + 1,

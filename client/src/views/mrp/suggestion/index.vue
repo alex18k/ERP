@@ -104,6 +104,21 @@ async function handleSafetyCheck() {
   }
 }
 
+
+function todayStr() {
+  const d = new Date()
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+}
+// 未生成采购单的建议：需求日逾期红色、今日琥珀
+function dueClassOf(value: any) {
+  const d = value ? String(value).slice(0, 10) : ''
+  if (!d) return ''
+  if (d < todayStr()) return 'due-overdue'
+  if (d === todayStr()) return 'due-today'
+  return ''
+}
+
 onMounted(loadData)
 </script>
 
@@ -163,17 +178,19 @@ onMounted(loadData)
         <el-table-column label="来源" width="100">
           <template #default="{ row }">{{ row.source === 'safety' ? '安全库存' : 'MRP需求' }}</template>
         </el-table-column>
-        <el-table-column prop="suggestedQty" label="建议采购量" width="110" />
-        <el-table-column label="建议单价" width="100">
+        <el-table-column prop="suggestedQty" label="建议采购量" width="110" align="right" />
+        <el-table-column label="建议单价" width="100" align="right">
           <template #default="{ row }">{{ row.unitPrice ?? '-' }}</template>
         </el-table-column>
         <el-table-column label="建议下单日期" width="120">
           <template #default="{ row }">{{ row.orderDate?.slice?.(0, 10) || '-' }}</template>
         </el-table-column>
         <el-table-column label="建议需求日" width="120">
-          <template #default="{ row }">{{ row.needDate?.slice?.(0, 10) || '-' }}</template>
+          <template #default="{ row }">
+            <span :class="dueClassOf(row.needDate)">{{ row.needDate?.slice?.(0, 10) || '-' }}</span>
+          </template>
         </el-table-column>
-        <el-table-column prop="leadTime" label="采购提前期" width="100">
+        <el-table-column prop="leadTime" label="采购提前期" width="100" align="right">
           <template #default="{ row }">{{ row.leadTime ?? '-' }} 天</template>
         </el-table-column>
         <el-table-column label="下单状态" width="110">
@@ -182,7 +199,12 @@ onMounted(loadData)
             <el-tag v-else type="success" size="small">正常</el-tag>
           </template>
         </el-table-column>
-      </el-table>
+              <template #empty>
+          <el-empty description="没有待处理的采购建议" :image-size="56">
+            <div class="empty-tip">执行 MRP 运算或安全库存补货后会生成建议；已生成采购单的建议不再显示</div>
+          </el-empty>
+        </template>
+</el-table>
 
       <div class="pagination-wrap">
         <el-pagination v-model:current-page="page" v-model:page-size="pageSize" :total="filteredSuggestions.length" :page-sizes="[20, 50, 100]" layout="total, sizes, prev, pager, next" />

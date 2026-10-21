@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import { supplierService, warehouseService, warehouseBinService, customerService, workshopService, workstationService, stockTransactionTypeService, unitConversionService, materialCategoryService } from "../services/base.service";
 import { success, fail } from "../utils/response";
+import { prisma } from "../config/prisma";
 
 function makeController(service: any) {
   return {
@@ -51,7 +52,33 @@ function makeController(service: any) {
 export const supplierController = makeController(supplierService);
 export const warehouseController = makeController(warehouseService);
 export const warehouseBinController = makeController(warehouseBinService);
-export const customerController = makeController(customerService);
+const customerControllerRaw = makeController(customerService);
+export const customerController = {
+  ...customerControllerRaw,
+  options: async (req: Request, res: Response) => {
+    try {
+      const keyword = String(req.query.keyword || "").trim();
+      const limit = Math.min(Number(req.query.limit) || 50, 200);
+      const rows = await prisma.customer.findMany({
+        where: keyword
+          ? {
+              OR: [
+                { code: { contains: keyword } },
+                { name: { contains: keyword } },
+                { contactPerson: { contains: keyword } },
+              ],
+            }
+          : {},
+        select: { id: true, code: true, name: true, contactPerson: true, phone: true, seller: true },
+        orderBy: { code: "asc" },
+        take: limit,
+      });
+      return success(res, rows);
+    } catch (error: any) {
+      return fail(res, 500, error.message, 500);
+    }
+  },
+};
 export const workshopController = makeController(workshopService);
 export const stockTransactionTypeController = makeController(stockTransactionTypeService);
 export const unitConversionController = makeController(unitConversionService);

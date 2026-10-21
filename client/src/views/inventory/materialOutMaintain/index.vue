@@ -74,16 +74,16 @@ onMounted(async () => {
   <div class="page-container">
     <div class="page-card">
       <div class="search-bar">
-        <el-input v-model="query.documentNo" placeholder="事务单号/源单号" clearable style="width: 160px" />
-        <el-input v-model="query.materialKeyword" placeholder="物料编码/名称" clearable style="width: 180px" />
+        <el-input v-model="query.documentNo" placeholder="事务单号/源单号" clearable style="width: 160px" @keyup.enter="query.page = 1, loadData()" />
+        <el-input v-model="query.materialKeyword" placeholder="物料编码/名称" clearable style="width: 180px" @keyup.enter="query.page = 1, loadData()" />
         <el-select v-model="query.warehouseId" placeholder="仓库" clearable style="width: 150px">
           <el-option v-for="w in warehouses" :key="w.id" :label="w.name" :value="w.id" />
         </el-select>
         <el-select v-model="query.transactionTypeId" placeholder="事务类型" clearable filterable style="width: 160px">
           <el-option v-for="t in transactionTypes" :key="t.id" :label="t.description || t.code" :value="t.id" />
         </el-select>
-        <el-input v-model="query.startDate" type="date" placeholder="开始" clearable style="width: 150px" />
-        <el-input v-model="query.endDate" type="date" placeholder="结束" clearable style="width: 150px" />
+        <el-input v-model="query.startDate" type="date" placeholder="开始" clearable style="width: 150px" @keyup.enter="query.page = 1, loadData()" />
+        <el-input v-model="query.endDate" type="date" placeholder="结束" clearable style="width: 150px" @keyup.enter="query.page = 1, loadData()" />
         <el-button type="primary" @click="query.page = 1, loadData()"><el-icon><Search /></el-icon>查询</el-button>
         <el-button @click="Object.assign(query, { materialKeyword: '', warehouseId: '', transactionTypeId: transactionTypes[0]?.id || '', startDate: '', endDate: '', documentNo: '', page: 1 }), loadData()">重置</el-button>
         <el-button type="primary" plain style="margin-left: auto" :disabled="!currentRow?.documentNo" @click="printSelected"><el-icon><Printer /></el-icon>打印</el-button>
@@ -128,12 +128,18 @@ onMounted(async () => {
           <template #default="{ row }">{{ row.bin?.name || '-' }}</template>
         </el-table-column>
         <el-table-column prop="batchNo" label="批号" width="130" show-overflow-tooltip />
+        <el-table-column label="单位" width="70">
+          <template #default="{ row }">{{ row.um || row.material?.unit || '-' }}</template>
+        </el-table-column>
         <el-table-column label="数量" width="80" align="right">
           <template #default="{ row }">
             <span :style="{ color: Number(signedQty(row)) >= 0 ? 'var(--el-color-success)' : 'var(--el-color-danger)', fontWeight: 600 }">
               {{ signedQty(row) }}
             </span>
           </template>
+        </el-table-column>
+        <el-table-column label="单价" width="90" align="right">
+          <template #default="{ row }">{{ row.price != null ? Number(row.price).toFixed(6) : '-' }}</template>
         </el-table-column>
         <el-table-column label="部门" width="120" show-overflow-tooltip>
           <template #default="{ row }">{{ row.department?.name || '-' }}</template>
@@ -150,7 +156,12 @@ onMounted(async () => {
         <el-table-column label="时间" width="160" show-overflow-tooltip>
           <template #default="{ row }">{{ row.createdAt }}</template>
         </el-table-column>
-      </el-table>
+              <template #empty>
+          <el-empty description="没有匹配的材料出库流水" :image-size="56">
+            <div class="empty-tip">已限定「材料出库」类事务；可清空单号/物料/日期条件后重试</div>
+          </el-empty>
+        </template>
+</el-table>
 
       <div class="pagination-wrap">
         <el-pagination v-model:current-page="query.page" v-model:page-size="query.pageSize" :total="total" :page-sizes="[10, 20, 50]" layout="total, sizes, prev, pager, next" @change="loadData" />

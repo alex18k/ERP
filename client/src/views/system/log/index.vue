@@ -27,9 +27,9 @@ onMounted(loadData)
   <div class="page-container">
     <div class="page-card">
       <div class="search-bar">
-        <el-input v-model="query.keyword" placeholder="操作人/详情" clearable style="width: 180px" />
-        <el-input v-model="query.module" placeholder="模块" clearable style="width: 120px" />
-        <el-input v-model="query.action" placeholder="操作类型" clearable style="width: 120px" />
+        <el-input v-model="query.keyword" placeholder="操作人/详情" clearable style="width: 180px" @keyup.enter="query.page = 1, loadData()" />
+        <el-input v-model="query.module" placeholder="模块" clearable style="width: 120px" @keyup.enter="query.page = 1, loadData()" />
+        <el-input v-model="query.action" placeholder="操作类型" clearable style="width: 120px" @keyup.enter="query.page = 1, loadData()" />
         <el-button type="primary" @click="query.page = 1, loadData()"><el-icon><Search /></el-icon>查询</el-button>
         <el-button @click="Object.assign(query, { keyword: '', module: '', action: '', page: 1 }), loadData()">重置</el-button>
       </div>
@@ -63,7 +63,12 @@ onMounted(loadData)
         <el-table-column prop="ip" label="IP" width="130">
           <template #default="{ row }">{{ row.ip || '-' }}</template>
         </el-table-column>
-      </el-table>
+              <template #empty>
+          <el-empty description="没有匹配的操作日志" :image-size="56">
+            <div class="empty-tip">可清空操作人/模块/类型条件后重试</div>
+          </el-empty>
+        </template>
+</el-table>
 
       <div class="pagination-wrap">
         <el-pagination v-model:current-page="query.page" v-model:page-size="query.pageSize" :total="total" :page-sizes="[10, 20, 50]" layout="total, sizes, prev, pager, next" @change="loadData" />

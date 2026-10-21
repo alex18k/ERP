@@ -27,9 +27,14 @@ router.get("/permissions", requirePermission("role:manage"), systemController.li
 // 部门
 router.get("/departments", systemController.listDepartmentHandler);
 
-// 公司信息
+// 公司信息（多公司；GET /company 返回默认公司）
+router.get("/companies", requirePermission("company:view"), systemController.listCompaniesHandler);
+router.post("/company", requirePermission("company:edit"), systemController.createCompanyHandler);
 router.get("/company", requirePermission("company:view"), systemController.getCompanyInfoHandler);
 router.put("/company", requirePermission("company:edit"), systemController.updateCompanyInfoHandler);
+router.put("/company/:id", requirePermission("company:edit"), systemController.updateCompanyHandler);
+router.put("/company/:id/default", requirePermission("company:edit"), systemController.setDefaultCompanyHandler);
+router.delete("/company/:id", requirePermission("company:edit"), systemController.deleteCompanyHandler);
 
 // 操作日志
 router.get("/logs", requirePermission("user:manage"), systemController.listLogHandler);

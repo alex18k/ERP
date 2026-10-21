@@ -130,8 +130,8 @@ onMounted(loadData)
   <div class="page-container">
     <div class="page-card">
       <div class="search-bar">
-        <el-input v-model="query.code" placeholder="工艺路线编码" clearable style="width: 150px" />
-        <el-input v-model="query.name" placeholder="工艺名称" clearable style="width: 180px" />
+        <el-input v-model="query.code" placeholder="工艺路线编码" clearable style="width: 150px" @keyup.enter="query.page = 1, loadData()" />
+        <el-input v-model="query.name" placeholder="工艺名称" clearable style="width: 180px" @keyup.enter="query.page = 1, loadData()" />
         <el-button type="primary" @click="query.page = 1, loadData()"><el-icon><Search /></el-icon>查询</el-button>
         <el-button @click="Object.assign(query, { code: '', name: '', page: 1 }), loadData()">重置</el-button>
         <el-button style="margin-left: auto" type="success" plain class="btn-add" @click="openDialog()"><el-icon><Plus /></el-icon>新增工艺路线</el-button>
@@ -143,7 +143,7 @@ onMounted(loadData)
         <el-table-column label="工序数" width="80">
           <template #default="{ row }">{{ row.processes?.length ?? 0 }}</template>
         </el-table-column>
-        <el-table-column prop="totalTime" label="总工时" width="80" />
+        <el-table-column prop="totalTime" label="总工时" width="80" align="right" />
         <el-table-column label="工序明细">
           <template #default="{ row }">
             <el-tag v-for="p in row.processes" :key="p.id" size="small" style="margin-right: 4px; margin-bottom: 2px">
@@ -157,7 +157,12 @@ onMounted(loadData)
             <el-button size="small" type="danger" link @click="handleDelete(row)">删除</el-button>
           </template>
         </el-table-column>
-      </el-table>
+              <template #empty>
+          <el-empty description="没有符合条件的工艺路线" :image-size="56">
+            <div class="empty-tip">可清空编码/名称后重试，或点右上角「新增工艺路线」</div>
+          </el-empty>
+        </template>
+</el-table>
 
       <div class="pagination-wrap">
         <el-pagination

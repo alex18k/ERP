@@ -1,7 +1,7 @@
 import { ref } from 'vue'
 import { systemApi } from '../api'
 
-export const DEFAULT_COMPANY_NAME = '肇庆市博士芯电子科技有限公司'
+export const DEFAULT_COMPANY_NAME = ''
 
 const companyInfo = ref<any>({})
 let loaded = false

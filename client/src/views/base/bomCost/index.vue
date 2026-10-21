@@ -159,8 +159,8 @@ onMounted(loadData)
   <div class="page-container">
     <div class="page-card">
       <div class="search-bar">
-        <el-input v-model="query.code" placeholder="BOM编码" clearable style="width: 150px" />
-        <el-input v-model="query.name" placeholder="BOM名称" clearable style="width: 180px" />
+        <el-input v-model="query.code" placeholder="BOM编码" clearable style="width: 150px" @keyup.enter="handleSearch" />
+        <el-input v-model="query.name" placeholder="BOM名称" clearable style="width: 180px" @keyup.enter="handleSearch" />
         <el-button type="primary" @click="handleSearch"><el-icon><Search /></el-icon>查询</el-button>
         <el-button @click="resetQuery">重置</el-button>
       </div>
@@ -172,7 +172,7 @@ onMounted(loadData)
           <template #default="{ row }">{{ row.product?.code }} - {{ row.product?.name }}</template>
         </el-table-column>
         <el-table-column prop="version" label="版本" width="70" />
-        <el-table-column label="明细数" width="80">
+        <el-table-column label="明细数" width="80" align="right">
           <template #default="{ row }">{{ row._count?.items ?? 0 }}</template>
         </el-table-column>
         <el-table-column label="状态" width="90">
@@ -184,6 +184,11 @@ onMounted(loadData)
             <el-button v-if="row.status !== 'active'" size="small" type="primary" link @click="handleActivate(row)">启用</el-button>
           </template>
         </el-table-column>
+        <template #empty>
+          <el-empty description="没有符合条件的BOM" :image-size="56">
+            <div class="empty-tip">清空BOM编码/名称后重新查询；成本明细在「物料主文件」维护后自动带入打印</div>
+          </el-empty>
+        </template>
       </el-table>
 
       <div class="pagination-wrap">

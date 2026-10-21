@@ -28,6 +28,19 @@ app.use(express.json({ limit: "2mb" }));
 app.use(express.urlencoded({ extended: true }));
 app.use(morgan(config.nodeEnv === "production" ? "combined" : "dev"));
 
+// ===== 网络监控：请求耗时流水 + 慢请求告警（grep [NET]/[SLOW]）=====
+app.use((req, res, next) => {
+  const start = process.hrtime.bigint();
+  res.on("finish", () => {
+    const ms = Number(process.hrtime.bigint() - start) / 1_000_000;
+    console.log(`[NET] ${new Date().toISOString()} ${req.ip || "-"} ${req.method} ${req.originalUrl} ${res.statusCode} ${ms.toFixed(1)}ms`);
+    if (ms > 1000) {
+      console.error(`[SLOW] ${new Date().toISOString()} ${req.ip || "-"} ${req.method} ${req.originalUrl} ${res.statusCode} ${ms.toFixed(1)}ms`);
+    }
+  });
+  next();
+});
+
 // 注入 prisma 实例便于日志中间件使用
 app.set("prisma", prisma);
 

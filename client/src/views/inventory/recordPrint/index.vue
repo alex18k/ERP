@@ -40,7 +40,7 @@ const doc = computed(() => {
     keeper: uniq(records.value.map((r) => r.keeper)).join('、'),
     approver: uniq(records.value.map((r) => r.approver)).join('、'),
     operators: uniq(records.value.map((r) => r.operator?.realName || r.operator?.username)).join('、') || '-',
-    remark: records.value.find((r) => r.remark)?.remark || '',
+    remark: records.value.find((r) => r.mainRemark)?.mainRemark || '',
   }
 })
 
@@ -162,10 +162,10 @@ onMounted(() => {
           </tfoot>
         </table>
 
-        <div class="remark-block">
-          <div class="remark-title">备注：</div>
-          <div class="remark-text">{{ doc.remark }}</div>
-        </div>
+          <div class="remark-block">
+            <span class="remark-title">备注：</span>
+            <span class="remark-text">{{ doc.remark }}</span>
+          </div>
 
         <div class="sign-row">
           <span>仓管员：{{ doc.keeper || '____________' }}</span>
@@ -289,12 +289,13 @@ onMounted(() => {
 .remark-block {
   margin-top: 14px;
   min-height: 58px;
+  padding-left: 46px;
+  text-indent: -46px;
 }
 .remark-title {
   font-weight: 700;
 }
 .remark-text {
-  padding-left: 46px;
   white-space: pre-wrap;
 }
 .sign-row {

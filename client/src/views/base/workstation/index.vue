@@ -100,7 +100,12 @@ onMounted(loadData)
             <el-button size="small" type="danger" link @click="handleDelete(row)">删除</el-button>
           </template>
         </el-table-column>
-      </el-table>
+              <template #empty>
+          <el-empty description="没有匹配的工位" :image-size="56">
+            <div class="empty-tip">可切换部门筛选后重试，或点右上角「新增工位」</div>
+          </el-empty>
+        </template>
+</el-table>
     </div>
 
     <el-dialog v-model="dialogVisible" :title="isEdit ? '编辑工位' : '新增工位'" width="520px" destroy-on-close>

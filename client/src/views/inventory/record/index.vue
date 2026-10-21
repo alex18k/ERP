@@ -495,6 +495,16 @@ function confirmTransferLeave(done?: () => void) {
     })
 }
 
+
+// 流水时间按本地时区显示（后端返回 ISO/UTC 字符串）
+function fmtDateTime(v: any) {
+  if (!v) return '-'
+  const d = new Date(v)
+  if (Number.isNaN(d.getTime())) return String(v)
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
+}
+
 function signedQty(row: any) {
   const q = Number(row.quantity) || 0
   const signed = row.type === 'out' ? -q : q
@@ -533,16 +543,16 @@ onMounted(async () => {
   <div class="page-container">
     <div class="page-card">
       <div class="search-bar">
-        <el-input v-model="query.documentNo" placeholder="事务单号/源单号" clearable style="width: 160px" />
-        <el-input v-model="query.materialKeyword" placeholder="物料编码/名称" clearable style="width: 180px" />
+        <el-input v-model="query.documentNo" placeholder="事务单号/源单号" clearable style="width: 160px" @keyup.enter="query.page = 1, loadData()" />
+        <el-input v-model="query.materialKeyword" placeholder="物料编码/名称" clearable style="width: 180px" @keyup.enter="query.page = 1, loadData()" />
         <el-select v-model="query.warehouseId" placeholder="仓库" clearable style="width: 150px">
           <el-option v-for="w in warehouses" :key="w.id" :label="w.name" :value="w.id" />
         </el-select>
         <el-select v-model="query.transactionTypeId" placeholder="事务类型" clearable filterable style="width: 160px">
           <el-option v-for="t in transactionTypes" :key="t.id" :label="t.description || t.code" :value="t.id" />
         </el-select>
-        <el-input v-model="query.startDate" type="date" placeholder="开始" clearable style="width: 150px" />
-        <el-input v-model="query.endDate" type="date" placeholder="结束" clearable style="width: 150px" />
+        <el-input v-model="query.startDate" type="date" placeholder="开始" clearable style="width: 150px" @keyup.enter="query.page = 1, loadData()" />
+        <el-input v-model="query.endDate" type="date" placeholder="结束" clearable style="width: 150px" @keyup.enter="query.page = 1, loadData()" />
         <el-button type="primary" @click="query.page = 1, loadData()"><el-icon><Search /></el-icon>查询</el-button>
         <el-button @click="Object.assign(query, { materialKeyword: '', warehouseId: '', transactionTypeId: '', startDate: '', endDate: '', documentNo: '', page: 1 }), loadData()">重置</el-button>
         <div class="row-actions">
@@ -552,6 +562,12 @@ onMounted(async () => {
           <el-button type="warning" plain @click="openTransfer()"><el-icon><Switch /></el-icon>移库</el-button>
           <el-button type="primary" plain :disabled="!currentRow?.documentNo" title="先点击列表中的行，再打印该单号" @click="printSelected"><el-icon><Printer /></el-icon>打印</el-button>
         </div>
+      </div>
+
+      <div class="list-summary">
+        <span>事务流水 <b>{{ total }}</b> 条</span>
+        <span v-if="list.length">· 本页 <b>{{ list.length }}</b> 行</span>
+        <span class="list-summary-tip">一行 = 一条库存流水；入库为正、出库为负；打印按整张事务单号</span>
       </div>
 
       <el-table ref="tableRef" :data="list" v-loading="loading" stripe highlight-current-row max-height="calc(100vh - 260px)" @row-click="(row: any) => (currentRow = row)">
@@ -598,12 +614,18 @@ onMounted(async () => {
           <template #default="{ row }">{{ row.bin?.name || '-' }}</template>
         </el-table-column>
         <el-table-column prop="batchNo" label="批号" width="130" show-overflow-tooltip />
+        <el-table-column label="单位" width="70">
+          <template #default="{ row }">{{ row.um || row.material?.unit || '-' }}</template>
+        </el-table-column>
         <el-table-column label="数量" width="80" align="right">
           <template #default="{ row }">
             <span :style="{ color: Number(signedQty(row)) >= 0 ? 'var(--el-color-success)' : 'var(--el-color-danger)', fontWeight: 600 }">
               {{ signedQty(row) }}
             </span>
           </template>
+        </el-table-column>
+        <el-table-column label="单价" width="90" align="right">
+          <template #default="{ row }">{{ row.price != null ? Number(row.price).toFixed(6) : '-' }}</template>
         </el-table-column>
         <el-table-column label="部门" width="120" show-overflow-tooltip>
           <template #default="{ row }">{{ row.department?.name || '-' }}</template>
@@ -617,12 +639,20 @@ onMounted(async () => {
         <el-table-column label="操作员" width="90" show-overflow-tooltip>
           <template #default="{ row }">{{ row.operator?.realName || '-' }}</template>
         </el-table-column>
+        <el-table-column prop="mainRemark" label="主备注" min-width="110" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.mainRemark || '-' }}</template>
+        </el-table-column>
         <el-table-column prop="remark" label="备注" min-width="110" show-overflow-tooltip>
           <template #default="{ row }">{{ row.remark || '-' }}</template>
         </el-table-column>
         <el-table-column label="时间" width="160" show-overflow-tooltip>
-          <template #default="{ row }">{{ row.createdAt }}</template>
+          <template #default="{ row }">{{ fmtDateTime(row.createdAt) }}</template>
         </el-table-column>
+        <template #empty>
+          <el-empty description="没有符合条件的事务流水" :image-size="56">
+            <div class="empty-tip">「单号」同时匹配系统事务单号与手工源单号；可清空物料/仓库/日期条件后重试</div>
+          </el-empty>
+        </template>
       </el-table>
 
       <div class="pagination-wrap">

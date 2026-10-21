@@ -46,6 +46,12 @@ onMounted(loadData)
         <el-button type="success" @click="router.push('/mrp/purchase-suggestion')">查看采购建议</el-button>
       </div>
 
+      <div class="list-summary" v-if="shortages.length">
+        <span>缺料物料 <b>{{ shortages.length }}</b> 项</span>
+        <span>· 净需求合计 <b>{{ shortages.reduce((s: number, r: any) => s + (Number(r.netDemand) || 0), 0) }}</b></span>
+        <span class="list-summary-tip">按最近一次 MRP 运算结果统计；净需求 = 需求 − 可用库存 − 在途 + 安全库存</span>
+      </div>
+
       <el-alert
         v-if="shortages.length === 0"
         type="success" :closable="false" show-icon
@@ -62,11 +68,11 @@ onMounted(loadData)
         <el-table-column label="类别" width="90">
           <template #default="{ row }">{{ materialCategoryLabel(row.material.category) }}</template>
         </el-table-column>
-        <el-table-column prop="grossDemand" label="毛需求" width="90" />
-        <el-table-column prop="stockQuantity" label="可用库存" width="90" />
-        <el-table-column prop="inTransit" label="在途量" width="80" />
-        <el-table-column prop="safetyStock" label="安全库存" width="90" />
-        <el-table-column label="净需求" width="110">
+        <el-table-column prop="grossDemand" label="毛需求" width="90" align="right" />
+        <el-table-column prop="stockQuantity" label="可用库存" width="90" align="right" />
+        <el-table-column prop="inTransit" label="在途量" width="80" align="right" />
+        <el-table-column prop="safetyStock" label="安全库存" width="90" align="right" />
+        <el-table-column label="净需求" width="110" align="right">
           <template #default="{ row }">{{ row.netDemand }}</template>
         </el-table-column>
         <el-table-column label="受影响订单" min-width="180">

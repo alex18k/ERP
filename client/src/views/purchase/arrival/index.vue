@@ -31,9 +31,9 @@ onMounted(loadData)
         <el-table-column label="物料" min-width="160">
           <template #default="{ row }">{{ row.materialCode }} - {{ row.materialName }}</template>
         </el-table-column>
-        <el-table-column prop="quantity" label="订购量" width="90" />
-        <el-table-column prop="receivedQty" label="已收" width="80" />
-        <el-table-column prop="remainingQty" label="待收" width="80">
+        <el-table-column prop="quantity" label="订购量" width="90" align="right" />
+        <el-table-column prop="receivedQty" label="已收" width="80" align="right" />
+        <el-table-column prop="remainingQty" label="待收" width="80" align="right">
           <template #default="{ row }">
             <span :style="{ color: 'var(--el-color-danger)', fontWeight: 600 }">{{ row.remainingQty }}</span>
           </template>
@@ -51,9 +51,12 @@ onMounted(loadData)
             </el-tag>
           </template>
         </el-table-column>
+        <template #empty>
+          <el-empty description="没有待收货的采购明细" :image-size="56">
+            <div class="empty-tip">已确认且存在未收完明细的采购单才会在途；全部到货后此页为空</div>
+          </el-empty>
+        </template>
       </el-table>
-
-      <el-empty v-if="!loading && list.length === 0" description="没有待收货的采购明细，所有采购均已到货" />
     </div>
   </div>
 </template>

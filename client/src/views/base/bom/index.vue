@@ -307,7 +307,7 @@ onMounted(() => {
           <template #default="{ row }">{{ row.product?.specification || '-' }}</template>
         </el-table-column>
         <el-table-column prop="version" label="版本" width="70" />
-        <el-table-column label="明细数" width="80">
+        <el-table-column label="明细数" width="80" align="right">
           <template #default="{ row }">{{ row._count?.items ?? 0 }}</template>
         </el-table-column>
         <el-table-column label="状态" width="90">
@@ -321,6 +321,11 @@ onMounted(() => {
             <el-button size="small" type="primary" link @click="handleDelete(row)">删除</el-button>
           </template>
         </el-table-column>
+        <template #empty>
+          <el-empty description="没有符合条件的BOM" :image-size="56">
+            <div class="empty-tip">清空「BOM名称/物料规格名称」后重新查询，或点右上角新增BOM</div>
+          </el-empty>
+        </template>
       </el-table>
 
       <div class="pagination-wrap">

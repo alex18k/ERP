@@ -38,11 +38,11 @@ onMounted(loadData)
   <div class="page-container">
     <div class="page-card">
       <div class="search-bar">
-        <el-input v-model="query.receiptNo" placeholder="收货单号" clearable style="width: 170px" />
-        <el-input v-model="query.orderNo" placeholder="采购单号" clearable style="width: 160px" />
-        <el-input v-model="query.materialKeyword" placeholder="物料编码/名称/规格" clearable style="width: 200px" />
-        <el-input v-model="query.startDate" type="date" placeholder="开始" clearable style="width: 150px" />
-        <el-input v-model="query.endDate" type="date" placeholder="结束" clearable style="width: 150px" />
+        <el-input v-model="query.receiptNo" placeholder="收货单号" clearable style="width: 170px" @keyup.enter="query.page = 1, loadData()" />
+        <el-input v-model="query.orderNo" placeholder="采购单号" clearable style="width: 160px" @keyup.enter="query.page = 1, loadData()" />
+        <el-input v-model="query.materialKeyword" placeholder="物料编码/名称/规格" clearable style="width: 200px" @keyup.enter="query.page = 1, loadData()" />
+        <el-input v-model="query.startDate" type="date" placeholder="开始" clearable style="width: 150px" @keyup.enter="query.page = 1, loadData()" />
+        <el-input v-model="query.endDate" type="date" placeholder="结束" clearable style="width: 150px" @keyup.enter="query.page = 1, loadData()" />
         <el-button type="primary" @click="query.page = 1, loadData()"><el-icon><Search /></el-icon>查询</el-button>
         <el-button @click="Object.assign(query, { receiptNo: '', orderNo: '', materialKeyword: '', startDate: '', endDate: '', page: 1 }), loadData()">重置</el-button>
         <div style="flex: 1" />
@@ -82,7 +82,7 @@ onMounted(loadData)
         <el-table-column label="型号规格" min-width="130" show-overflow-tooltip>
           <template #default="{ row }">{{ row.material?.specification || '-' }}</template>
         </el-table-column>
-        <el-table-column :label="'收货/退货数量'" width="120">
+        <el-table-column :label="'收货/退货数量'" width="120" align="right">
           <template #default="{ row }">
             <span :style="{ color: row.isReturn ? 'var(--el-color-danger)' : 'var(--el-color-success)', fontWeight: 600 }">
               {{ row.isReturn ? '-' : '+' }}{{ row.quantity }}
@@ -128,7 +128,12 @@ onMounted(loadData)
         <el-table-column label="操作员" width="100">
           <template #default="{ row }">{{ row.operator?.realName || row.operator?.username || '-' }}</template>
         </el-table-column>
-      </el-table>
+              <template #empty>
+          <el-empty description="没有匹配的收货记录" :image-size="56">
+            <div class="empty-tip">同时包含采购收货与退货流水；可清空单号/日期/物料条件后重试</div>
+          </el-empty>
+        </template>
+</el-table>
 
       <div class="pagination-wrap">
         <el-pagination v-model:current-page="query.page" v-model:page-size="query.pageSize" :total="total" :page-sizes="[10, 20, 50]" layout="total, sizes, prev, pager, next" @change="loadData" />

@@ -264,7 +264,7 @@ onMounted(async () => {
         <el-select v-model="query.orderNo" filterable remote clearable reserve-keyword :remote-method="loadOrderOptions" :loading="orderOptionsLoading" placeholder="选择生产订单" style="width: 280px" @change="onOrderChange">
           <el-option v-for="o in orderOptions" :key="o.id" :label="`${o.orderNo}${o.material ? '（' + o.material.name + '）' : ''}`" :value="o.orderNo" />
         </el-select>
-        <el-input v-model="query.materialKeyword" placeholder="物料编码/名称" clearable style="width: 180px" />
+        <el-input v-model="query.materialKeyword" placeholder="物料编码/名称" clearable style="width: 180px" @keyup.enter="query.page = 1, loadData()" />
         <el-button type="primary" @click="query.page = 1, loadData()"><el-icon><Search /></el-icon>查询</el-button>
         <el-button @click="clearQuery">重置</el-button>
       </div>
@@ -318,7 +318,7 @@ onMounted(async () => {
         <el-table-column label="型号规格" min-width="120">
           <template #default="{ row }">{{ row.material?.specification || '-' }}</template>
         </el-table-column>
-        <el-table-column prop="requiredQty" label="需求量" width="100" />
+        <el-table-column prop="requiredQty" label="需求量" width="100" align="right" />
         <el-table-column prop="issuedQty" label="已领料" width="90" />
         <el-table-column prop="unit" label="单位" width="70" />
         <el-table-column label="状态" width="100">
@@ -335,7 +335,12 @@ onMounted(async () => {
             <el-button size="small" type="danger" link :disabled="row.issuedQty > 0" @click="handleDelete(row)">删除</el-button>
           </template>
         </el-table-column>
-      </el-table>
+              <template #empty>
+          <el-empty description="没有符合条件的物料清单" :image-size="56">
+            <div class="empty-tip">先选择生产订单；BOM 在排产后固化到该单，可清空物料关键词后重试</div>
+          </el-empty>
+        </template>
+</el-table>
 
       <div class="pagination-wrap">
         <el-pagination v-model:current-page="query.page" v-model:page-size="query.pageSize" :total="total" :page-sizes="[10, 20, 50]" layout="total, sizes, prev, pager, next" @change="loadData" />

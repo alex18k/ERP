@@ -285,11 +285,11 @@ onMounted(() => {
   <div class="page-container">
     <div class="page-card">
       <div class="search-bar">
-        <el-input v-model="query.code" placeholder="物料编码" clearable style="width: 160px" />
-        <el-input v-model="query.bomcode" placeholder="BOM编码" clearable style="width: 140px" />
-        <el-input v-model="query.name" placeholder="物料名称" clearable style="width: 160px" />
-        <el-input v-model="query.packageType" placeholder="封装" clearable style="width: 130px" />
-        <el-input v-model="query.brand" placeholder="品牌" clearable style="width: 130px" />
+        <el-input v-model="query.code" placeholder="物料编码" clearable style="width: 160px" @keyup.enter="handleSearch" />
+        <el-input v-model="query.bomcode" placeholder="BOM编码" clearable style="width: 140px" @keyup.enter="handleSearch" />
+        <el-input v-model="query.name" placeholder="物料名称" clearable style="width: 160px" @keyup.enter="handleSearch" />
+        <el-input v-model="query.packageType" placeholder="封装" clearable style="width: 130px" @keyup.enter="handleSearch" />
+        <el-input v-model="query.brand" placeholder="品牌" clearable style="width: 130px" @keyup.enter="handleSearch" />
         <el-select v-model="query.materialType" placeholder="物料类别" clearable filterable :fit-input-width="false" style="width: 150px">
           <el-option v-for="t in typeOptions" :key="t" :label="t" :value="t" />
         </el-select>
@@ -324,14 +324,14 @@ onMounted(() => {
           </template>
         </el-table-column>
         <el-table-column prop="unit" label="单位" width="70" />
-        <el-table-column prop="safetyStock" label="安全库存" width="90" />
-        <el-table-column prop="leadTime" label="采购提前期" width="110" />
-        <el-table-column prop="manufactureLeadTime" label="制造提前期" width="110" />
-        <el-table-column prop="orderCycleDays" label="订货周期(天)" width="110" />
-        <el-table-column prop="minOrderQty" label="最小订量" width="90" />
-        <el-table-column prop="cost" label="成本(加权平均)" width="120" />
-        <el-table-column prop="price" label="最近采购价" width="100" />
-        <el-table-column label="当前库存" width="100">
+        <el-table-column prop="safetyStock" label="安全库存" width="90" align="right" />
+        <el-table-column prop="leadTime" label="采购提前期" width="110" align="right" />
+        <el-table-column prop="manufactureLeadTime" label="制造提前期" width="110" align="right" />
+        <el-table-column prop="orderCycleDays" label="订货周期(天)" width="110" align="right" />
+        <el-table-column prop="minOrderQty" label="最小订量" width="90" align="right" />
+        <el-table-column prop="cost" label="成本(加权平均)" width="120" align="right" />
+        <el-table-column prop="price" label="最近采购价" width="100" align="right" />
+        <el-table-column label="当前库存" width="100" align="right">
           <template #default="{ row }">
             <span :class="{ 'text-overdue': row.stock && row.safetyStock > 0 && row.stock.quantity <= row.safetyStock }">
               {{ row.stock?.quantity ?? 0 }}
@@ -351,6 +351,11 @@ onMounted(() => {
           </template>
         </el-table-column>
         <el-table-column prop="createdAt" label="创建日期" width="150" :formatter="(row: any) => fmtDateTime(row.createdAt)" />
+        <template #empty>
+          <el-empty description="没有符合条件的物料" :image-size="56">
+            <div class="empty-tip">试试更短的关键词，或清空编码/名称/封装等条件后重新查询</div>
+          </el-empty>
+        </template>
       </el-table>
 
       <div class="pagination-wrap">

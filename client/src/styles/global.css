@@ -618,3 +618,151 @@ html, body, #app {
     padding: 0 !important;
   }
 }
+
+/* ===== 单据/事务页共享风格工具（参照 销售发运/采购收货/材料出库 基准，各页直接挂类名使用） ===== */
+.list-summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--erp-inktext);
+  padding: 2px 0 8px;
+}
+.list-summary b {
+  color: var(--erp-ink);
+  font-weight: 600;
+}
+.list-summary-tip {
+  margin-left: auto;
+  color: var(--erp-steel);
+  font-size: 12px;
+}
+.doc-summary {
+  font-size: 13px;
+  color: var(--erp-inktext);
+  margin-right: 12px;
+}
+.doc-summary b {
+  color: var(--erp-primary);
+  font-weight: 600;
+}
+.due-overdue {
+  color: var(--erp-red);
+  font-weight: 600;
+}
+.due-today {
+  color: var(--erp-amber);
+  font-weight: 600;
+}
+.txt-danger {
+  color: var(--erp-red);
+  font-weight: 600;
+}
+.empty-tip {
+  font-size: 12px;
+  color: var(--erp-steel);
+}
+/* 表格行状态高亮：配合 el-table :row-class-name；淡蓝=正数已填行，淡红=红字/红单行 */
+.el-table .row-shipping > td.el-table__cell {
+  background: var(--el-color-primary-light-9);
+}
+.el-table .row-red > td.el-table__cell {
+  background: var(--el-color-danger-light-9);
+}
+/* 单据表头：紧凑网格 + 金蝶式下划线字段 */
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr)) auto;
+  gap: 0 12px;
+  align-items: end;
+}
+.form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.form-field-btn {
+  justify-content: flex-end;
+}
+.form-label {
+  font-size: 12px;
+  color: var(--erp-inktext);
+  line-height: 20px;
+}
+.form-label.required::before {
+  content: '*';
+  color: var(--erp-red);
+  margin-right: 2px;
+}
+.form-field .el-input__wrapper,
+.form-field .el-select__wrapper {
+  box-shadow: 0 1px 0 0 var(--erp-hairline);
+  background: transparent;
+  border-radius: 0;
+}
+.form-field .el-input__wrapper:hover,
+.form-field .el-select__wrapper:hover {
+  box-shadow: 0 1px 0 0 var(--el-text-color-secondary);
+}
+.form-field .el-input__wrapper.is-focus,
+.form-field .el-select__wrapper.is-focused {
+  box-shadow: 0 1px 0 0 var(--erp-copper);
+  background: transparent;
+}
+/* 主从上下文行与底栏 */
+.form-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+.form-meta .form-cust {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--erp-ink);
+}
+.form-meta .form-sub {
+  font-size: 12px;
+  color: var(--erp-inktext);
+}
+.form-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.form-footer .form-summary {
+  font-size: 13px;
+  color: var(--erp-inktext);
+}
+.form-footer .form-summary b {
+  color: var(--erp-primary);
+  font-weight: 600;
+}
+/* 行内编辑表格：Excel 网格风——紧凑单元格 + 无边框控件、聚焦细描边、数量右对齐 */
+.grid-items .el-table__cell {
+  padding: 2px 0;
+}
+.grid-items .cell {
+  padding: 2px 4px;
+}
+.grid-items .el-input__wrapper,
+.grid-items .el-select__wrapper {
+  box-shadow: none;
+  background: transparent;
+  border-radius: 0;
+  padding: 0 2px;
+  min-height: 24px;
+}
+.grid-items .el-input__wrapper:hover,
+.grid-items .el-select__wrapper:hover {
+  box-shadow: none;
+}
+.grid-items .el-input__wrapper.is-focus,
+.grid-items .el-select__wrapper.is-focused {
+  box-shadow: 0 0 0 1px var(--erp-copper) inset;
+  background: var(--el-fill-color-blank);
+}
+.grid-items .el-input-number .el-input__inner {
+  text-align: right;
+}

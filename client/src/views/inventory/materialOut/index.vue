@@ -54,6 +54,7 @@ const form = reactive({
   handler: '',
   keeper: currentUserName,
   approver: '',
+  remark: '',
   items: [newRow()],
 })
 
@@ -104,6 +105,23 @@ function rowUnitCost(row: any) {
 
 function rowAmount(row: any) {
   return (Number(row.quantity) || 0) * rowUnitCost(row)
+}
+
+// 实时汇总：只统计已选物料且数量非 0 的行（红单为负数）
+const filledLines = computed(() => form.items.filter((r: any) => r.materialId && Number(r.quantity) !== 0).length)
+const totalQty = computed(() => form.items.reduce((s: number, r: any) => (r.materialId && Number(r.quantity) !== 0 ? s + Number(r.quantity) : s), 0))
+const totalAmount = computed(() => form.items.reduce((s: number, r: any) => (r.materialId && Number(r.quantity) !== 0 ? s + rowAmount(r) : s), 0))
+
+// 已填行的即时反馈：正数出库淡蓝底，红单退库淡红底
+function itemRowClass({ row }: any) {
+  const q = Number(row.quantity)
+  if (!row.materialId || q === 0) return ''
+  return q < 0 ? 'row-red' : 'row-shipping'
+}
+
+// 提交前预警：录入数量折算基本单位后超过现存量
+function stockShort(row: any) {
+  return Number(row.quantity) > 0 && row.stockQty != null && Number(row.quantity) * rowBaseRate(row) > row.stockQty + 1e-6
 }
 
 async function searchRowMaterials(row: any, keyword: string) {
@@ -240,11 +258,15 @@ function validateForm(): boolean {
 async function submit() {
   if (!validateForm()) return
   try {
-    await ElMessageBox.confirm(`确定提交本次材料出库吗？共 ${form.items.length} 条明细。`, '确认出库', {
-      type: 'warning',
-      confirmButtonText: '提交',
-      cancelButtonText: '取消',
-    })
+    await ElMessageBox.confirm(
+      `已填 ${filledLines.value} 行，数量合计 ${totalQty.value}，金额 ¥${totalAmount.value.toFixed(2)}。提交后库存将变动且不可撤销，是否继续？`,
+      '提交出库',
+      {
+        type: 'warning',
+        confirmButtonText: '提交出库',
+        cancelButtonText: '取消',
+      },
+    )
   } catch { return }
   saving.value = true
   try {
@@ -265,9 +287,10 @@ async function submit() {
       handler: form.handler || undefined,
       keeper: form.keeper || undefined,
       approver: form.approver || undefined,
+      mainRemark: form.remark || undefined,
       items,
     })
-    ElMessage.success(res.data?.documentNo ? `材料出库成功，单据号 ${res.data.documentNo}` : '材料出库成功')
+    ElMessage.success(res.data?.documentNo ? `出库已提交，单据号 ${res.data.documentNo}` : '出库已提交')
     resetForm()
   } catch { /* error shown by interceptor */ } finally {
     saving.value = false
@@ -284,6 +307,7 @@ function resetForm() {
     handler: '',
     keeper: currentUserName,
     approver: '',
+    remark: '',
     items: [newRow()],
   })
 }
@@ -310,15 +334,24 @@ onMounted(async () => {
   <div class="page-container">
     <div class="page-card">
       <div class="search-bar">
-        <span style="font-weight: 600">材料出库</span>
+        <span class="toolbar-title">材料出库</span>
         <el-button style="margin-left: 12px" @click="router.push('/inventory/material-out-maintain')"><el-icon><Back /></el-icon>返回</el-button>
-        <el-button style="margin-left: auto" @click="resetForm">新增</el-button>
+        <div style="flex: 1" />
+        <span class="doc-summary">
+          已填 <b>{{ filledLines }}</b> 行 · 数量 <b>{{ totalQty }}</b> · 金额 <b>¥{{ totalAmount.toFixed(2) }}</b>
+        </span>
+        <el-button @click="resetForm">新增</el-button>
         <el-button type="primary" :loading="saving" @click="submit">提交出库</el-button>
       </div>
 
       <el-form :model="form" label-width="72px" class="kd-header-form">
         <div class="erp-group">
           <div class="kd-grid">
+            <div class="kd-field">
+              <el-form-item label="生效日期">
+                <el-date-picker v-model="form.effectiveDate" type="date" value-format="YYYY-MM-DD" class="kd-flex kd-date" placeholder="选择日期" />
+              </el-form-item>
+            </div>
             <div class="kd-field">
               <el-form-item label="单号">
                 <el-input v-model="form.orderNo" class="kd-flex" placeholder="手工单号（可选）" clearable />
@@ -329,11 +362,6 @@ onMounted(async () => {
                 <el-select v-model="form.transactionTypeId" filterable placeholder="选择出库事务类型" class="kd-flex">
                   <el-option v-for="t in transactionTypes" :key="t.id" :label="t.description" :value="t.id" />
                 </el-select>
-              </el-form-item>
-            </div>
-            <div class="kd-field">
-              <el-form-item label="生效日期">
-                <el-date-picker v-model="form.effectiveDate" type="date" value-format="YYYY-MM-DD" class="kd-flex kd-date" placeholder="选择日期" />
               </el-form-item>
             </div>
             <div class="kd-field">
@@ -364,6 +392,11 @@ onMounted(async () => {
                 </el-select>
               </el-form-item>
             </div>
+            <div class="kd-field">
+              <el-form-item label="主备注">
+                <el-input v-model="form.remark" class="kd-flex" placeholder="主备注（表头，可选）" maxlength="500" clearable />
+              </el-form-item>
+            </div>
           </div>
         </div>
 
@@ -371,11 +404,12 @@ onMounted(async () => {
           <el-button size="small" type="primary" plain @click="addRow"><el-icon><Plus /></el-icon>添加明细</el-button>
           <el-button size="small" type="primary" plain style="margin-left: 8px" :disabled="!currentRow" @click="removeSelected">删除选中</el-button>
           <span style="margin-left: 12px; font-size: 12px; color: var(--el-text-color-secondary)">数量输入负数表示红单退库</span>
-          <el-table class="items-editor" :data="form.items" size="small" border max-height="calc(100vh - 320px)" style="margin-top: 8px; width: 100%" highlight-current-row @current-change="onCurrentChange">
+          <el-table class="items-editor" :data="form.items" size="small" border max-height="calc(100vh - 320px)" style="margin-top: 8px; width: 100%" highlight-current-row :row-class-name="itemRowClass" @current-change="onCurrentChange">
         <el-table-column label="行号" width="50" align="center">
           <template #default="{ $index }">{{ $index + 1 }}</template>
         </el-table-column>
-        <el-table-column label="物料编码" width="110">
+        <el-table-column width="110">
+          <template #header><span class="req-th">物料编码</span></template>
           <template #default="{ row }">
             <el-select
               v-model="row.materialId"
@@ -412,7 +446,8 @@ onMounted(async () => {
             </el-select>
           </template>
         </el-table-column>
-        <el-table-column label="仓库" width="100">
+        <el-table-column width="100">
+          <template #header><span class="req-th">仓库</span></template>
           <template #default="{ row }">
             <el-select v-model="row.warehouseId" placeholder="选择仓库" style="width: 100%" @change="onRowWarehouseChange(row)">
               <el-option v-for="w in activeWarehouses" :key="w.id" :label="w.name" :value="w.id" />
@@ -434,10 +469,8 @@ onMounted(async () => {
             </el-select>
           </template>
         </el-table-column>
-        <el-table-column label="现存量" width="80" align="right">
-          <template #default="{ row }">{{ row.stockQty ?? '-' }}</template>
-        </el-table-column>
-        <el-table-column label="数量" width="80">
+        <el-table-column width="80">
+          <template #header><span class="req-th">数量</span></template>
           <template #default="{ row }">
             <el-input-number v-model="row.quantity" :max="Number(row.quantity) > 0 && row.batchNo ? batchMaxOf(row) : undefined" :precision="2" :controls="false" style="width: 100%" />
           </template>
@@ -447,6 +480,9 @@ onMounted(async () => {
         </el-table-column>
         <el-table-column label="金额" width="100" align="right">
           <template #default="{ row }">{{ row.material ? rowAmount(row).toFixed(2) : '-' }}</template>
+        </el-table-column>
+        <el-table-column label="现存量" width="80" align="right">
+          <template #default="{ row }"><span :class="{ 'txt-danger': stockShort(row) }">{{ row.stockQty ?? '-' }}</span></template>
         </el-table-column>
         <el-table-column label="品牌" width="100" show-overflow-tooltip>
           <template #default="{ row }">{{ row.material?.brand || '-' }}</template>
@@ -467,6 +503,31 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+.doc-summary {
+  font-size: 13px;
+  color: var(--erp-inktext);
+  margin-right: 12px;
+}
+.doc-summary b {
+  color: var(--erp-primary);
+  font-weight: 600;
+}
+.txt-danger {
+  color: var(--erp-red);
+  font-weight: 600;
+}
+.items-editor :deep(.row-shipping) td.el-table__cell {
+  background: var(--el-color-primary-light-9);
+}
+.items-editor :deep(.row-red) td.el-table__cell {
+  background: var(--el-color-danger-light-9);
+}
+/* 明细必填列表头：红 * 前缀 */
+.req-th::before {
+  content: '*';
+  color: var(--erp-red);
+  margin-right: 2px;
+}
 .erp-group {
   border: 1px solid #d5dae2;
   border-radius: 6px;
