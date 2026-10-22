@@ -2,6 +2,7 @@
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { bomApi, materialApi } from '../../../api'
+import { printHtml } from '../../../utils/print'
 
 const loading = ref(false)
 const list = ref<any[]>([])
@@ -261,17 +262,11 @@ async function handlePrint(row: any) {
     </tr></thead>
     <tbody>${body}</tbody>
   </table>
-  <script>window.onload = function () { window.print(); }<\/script>
-</body></html>`
+  </body></html>`
 
-  const w = window.open('', '_blank')
-  if (!w) {
-    ElMessage.warning('浏览器拦截了打印窗口，请允许弹出窗口后重试')
-    return
+  if (!printHtml(html)) {
+    ElMessage.warning('打印视图创建失败，请刷新页面后重试')
   }
-  w.document.open()
-  w.document.write(html)
-  w.document.close()
 }
 
 // ===== 编辑对话框：标记有激活子BOM的物料 =====

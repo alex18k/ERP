@@ -107,6 +107,15 @@ export async function cancelHandler(req: Request, res: Response) {
   }
 }
 
+export async function deleteHandler(req: Request, res: Response) {
+  try {
+    const data = await orderService.deleteOrder(Number(req.params.id));
+    return success(res, data, "销售订单已删除");
+  } catch (error: any) {
+    return fail(res, 400, error.message);
+  }
+}
+
 export async function downstreamHandler(req: Request, res: Response) {
   try {
     const data = await orderService.getDownstreamInfo(Number(req.params.id));

@@ -222,9 +222,10 @@ async function openCreateDialog() {
   }
   const [detail, keysRes]: any[] = await Promise.all([mrpApi.getRun(latest.id), productionApi.issuedKeys()])
   mrpRun.value = detail.data
-  const issued = new Set((keysRes.data || []).map((k: any) => `${k.materialId}-${k.salesOrderId}`))
+  const issued = new Set((keysRes.data || []).map((k: any) => `${k.materialId}-${k.salesOrderId ?? 'null'}`))
   suggestions.value = (detail.data.result?.productionOrders || [])
-    .filter((s: any) => !issued.has(`${s.materialId}-${s.relatedOrderId}`))
+    // 手工加工单来源的建议 relatedOrderId 为负数，对应新建的生产订单 salesOrderId 为空
+    .filter((s: any) => !issued.has(`${s.materialId}-${s.relatedOrderId > 0 ? s.relatedOrderId : 'null'}`))
     .map((s: any) => ({ ...s, issued: false, planStartDate: s.orderDate?.slice?.(0, 10) || '', planEndDate: s.needDate?.slice?.(0, 10) || '' }))
   selectedProd.value = []
   createDialogVisible.value = true
@@ -250,7 +251,8 @@ async function handleCreateOrders() {
       .map((s) => ({
         materialId: s.materialId,
         quantity: s.quantity,
-        salesOrderId: s.relatedOrderId,
+        salesOrderId: s.relatedOrderId > 0 ? s.relatedOrderId : undefined,
+        salesOrderNo: s.relatedOrderId > 0 ? undefined : (s.orderNo || undefined),
         planStartDate: s.planStartDate || new Date().toISOString().slice(0, 10),
         planEndDate: s.planEndDate,
         remark: `来自MRP建议-${s.orderNo || ''}`,
@@ -367,6 +369,19 @@ async function handleCancel(row: any) {
   } catch { /* canceled */ }
 }
 
+async function handleDelete(row: any) {
+  try {
+    await ElMessageBox.confirm(
+      `确定删除已取消的生产订单 ${row.orderNo} ？仅允许删除没有发料、报工/工时和成品入库的订单。`,
+      '删除生产订单',
+      { type: 'warning' }
+    )
+    await productionApi.deleteOrder(row.id)
+    ElMessage.success('生产订单已删除')
+    loadData()
+  } catch { /* canceled or error shown */ }
+}
+
 const plannerOptions = ref<any[]>([])
 async function loadPlanners() {
   try {
@@ -443,16 +458,20 @@ onMounted(() => {
             <span v-else>-</span>
           </template>
         </el-table-column>
+        <el-table-column label="备注" min-width="160" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.remark || '-' }}</template>
+        </el-table-column>
         <el-table-column label="状态" width="90">
           <template #default="{ row }">
             <el-tag :type="statusType(row.status)" size="small">{{ statusLabel(row.status) }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="110" fixed="right">
+        <el-table-column label="操作" width="150" fixed="right">
           <template #default="{ row }">
             <el-button size="small" type="primary" link @click="openEditDialog(row)">编辑</el-button>
             <el-button v-if="canSchedule(row)" size="small" type="success" link @click="handleSchedule(row)">排产</el-button>
             <el-button v-if="['planned', 'in_progress'].includes(row.status)" size="small" type="danger" link @click="handleCancel(row)">取消</el-button>
+            <el-button v-if="row.status === 'cancelled'" size="small" type="danger" link @click="handleDelete(row)">删除</el-button>
           </template>
         </el-table-column>
         <template #empty>

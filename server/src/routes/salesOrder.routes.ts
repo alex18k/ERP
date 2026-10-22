@@ -20,6 +20,7 @@ router.post("/", requirePermission("order:create"), orderController.createHandle
 router.put("/:id", requirePermission("order:edit"), orderController.updateHandler);
 router.put("/:id/confirm", requirePermission("order:confirm"), orderController.confirmHandler);
 router.put("/:id/cancel", requirePermission("order:edit"), orderController.cancelHandler);
+router.delete("/:id", requirePermission("order:edit"), operationLog("sales-order", "delete"), orderController.deleteHandler);
 router.put("/:id/ship", requirePermission("order:ship"), operationLog("stock", "ship"), orderController.shipHandler);
 router.put("/:id/shipping", requirePermission("order:ship"), operationLog("stock", "shipping"), orderController.shippingHandler);
 

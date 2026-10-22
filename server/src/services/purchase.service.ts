@@ -243,6 +243,13 @@ export async function createPurchaseOrder(data: PurchaseOrderInput, userId: numb
   assertItemsPositive(data.items);
   assertDateOrder(data.orderDate, data.expectedDate);
   const supplier = await resolveActiveSupplier(data.supplierId);
+  assertConfirmable({
+    supplierId: data.supplierId,
+    orderDate: data.orderDate ? new Date(data.orderDate) : null,
+    expectedDate: data.expectedDate ? new Date(data.expectedDate) : null,
+    buyer: data.buyer || null,
+    items: data.items,
+  });
 
   const totalAmount = data.items.reduce((s, i) => s + i.quantity * (i.unitPrice ?? 0), 0);
   const settleMethod = data.settleMethod ?? supplier?.settleMethod ?? null;
@@ -266,7 +273,7 @@ export async function createPurchaseOrder(data: PurchaseOrderInput, userId: numb
           buyer: data.buyer || null,
           taxIncluded: data.taxIncluded ?? false,
           taxRate: data.taxRate ?? 0,
-          status: "draft",
+          status: "confirmed",
           remark: data.remark,
           createdBy: userId,
         },
@@ -313,6 +320,13 @@ export async function updatePurchaseOrder(id: number, data: PurchaseOrderInput) 
   assertDateOrder(data.orderDate, data.expectedDate);
 
   const supplier = await resolveActiveSupplier(data.supplierId);
+  assertConfirmable({
+    supplierId: data.supplierId,
+    orderDate: data.orderDate ? new Date(data.orderDate) : null,
+    expectedDate: data.expectedDate ? new Date(data.expectedDate) : null,
+    buyer: data.buyer || null,
+    items: data.items,
+  });
   if (exists.status !== "draft" && exists.supplierId !== data.supplierId) {
     throw new Error("已确认的采购单不能更换供应商");
   }
@@ -421,7 +435,7 @@ export async function updatePurchaseOrder(id: number, data: PurchaseOrderInput) 
       });
     }
 
-    // 主表状态不随明细编辑自动推算，仅由维护操作（确认/取消等）显式控制
+    // 保存即确认：采购单维护页保存后直接置为已确认（下面 update 中统一设置）
 
     await tx.purchaseOrder.update({
       where: { id },
@@ -435,6 +449,8 @@ export async function updatePurchaseOrder(id: number, data: PurchaseOrderInput) 
         taxIncluded: data.taxIncluded ?? false,
         taxRate: data.taxRate ?? 0,
         remark: data.remark,
+        // 保存即确认：编辑/保存后直接置为已确认
+        status: "confirmed",
       },
     });
 

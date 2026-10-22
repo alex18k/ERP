@@ -269,6 +269,81 @@ export async function runMrp(params: MrpParams = {}, userId?: number, existingRu
     }
   }
 
+  // 已排产的制造件已由自己的生产订单承担下层用料：父单不再递归展开它的 BOM，
+  // 否则“父单 BOM 展开”和“子件订单批次用料”会重复计算下层需求。
+  const scheduledProducedMaterialIds = new Set<number>(
+    (
+      await prisma.productionOrder.findMany({
+        where: {
+          status: { in: ["planned", "in_progress"] },
+          batches: { some: { status: { in: ["planned", "in_progress"] } } },
+        },
+        select: { materialId: true },
+        distinct: ["materialId"],
+      })
+    ).map((o) => o.materialId)
+  );
+
+  // 只有已排产（存在 planned/in_progress 批次）的手工加工单参与 MRP；
+  // 未排产的手工单不产生需求。已排产批次按用料清单的 requiredQty（BOM 快照，含损耗/单位换算）计入子件需求。
+  // 用负的生产订单 id 作为需求来源标识，避免与销售订单 id 冲突。
+  const manualProductionOrders = await prisma.productionOrder.findMany({
+    where: {
+      salesOrderId: null,
+      status: { in: ["planned", "in_progress"] },
+      batches: { some: { status: { in: ["planned", "in_progress"] } } },
+    },
+    select: {
+      id: true,
+      orderNo: true,
+      materialId: true,
+      planStartDate: true,
+      releaseDate: true,
+      batches: {
+        where: { status: { in: ["planned", "in_progress"] } },
+        select: {
+          quantity: true,
+          planStartDate: true,
+          materials: { select: { materialId: true, requiredQty: true } },
+        },
+      },
+    },
+  });
+  for (const po of manualProductionOrders) {
+    const sourceOrderId = -po.id;
+
+    // 已完成/已取消批次的用料已消耗，不再重复要料
+    for (const batch of po.batches) {
+      const needDate = batch.planStartDate ?? po.planStartDate ?? po.releaseDate ?? null;
+      if (batch.materials.length === 0) {
+        // 兼容历史/异常数据：已排产但缺用料清单的批次，按当前 BOM 展开
+        const expanded = await expandDemand(po.materialId, Number(batch.quantity || 0), sourceOrderId, po.orderNo, needDate, cache);
+        allDemands.push(...expanded);
+        continue;
+      }
+      for (const m of batch.materials) {
+        const requiredQty = Number(m.requiredQty || 0);
+        if (requiredQty <= 1e-6) continue;
+        const hasSubBom = cache.bomMap.has(m.materialId);
+        allDemands.push({
+          materialId: m.materialId,
+          quantity: requiredQty,
+          orderId: sourceOrderId,
+          orderNo: po.orderNo,
+          needDate,
+          isSemiProduct: hasSubBom,
+        });
+        // 制造类子件继续展开其 BOM：expandDemand 会按“子件需求日 − 子件制造提前期”
+        // 计算下下层需求日，采购件再按自身采购提前期倒推建议下单日。
+        // 若该子件已有已排产的生产订单，则由该订单的批次用料承担，父单不再展开，避免重复。
+        if (hasSubBom && !scheduledProducedMaterialIds.has(m.materialId)) {
+          const subDemands = await expandDemand(m.materialId, requiredQty, sourceOrderId, po.orderNo, needDate, cache);
+          allDemands.push(...subDemands);
+        }
+      }
+    }
+  }
+
   // 汇总毛需求（按物料 × 订单明细行分组：同一订单不同明细行交货期各算一行）
   interface LineDemand { orderId: number; orderNo: string; quantity: number; needDate: Date | null; }
   const demandMap = new Map<number, Map<string, LineDemand>>(); // materialId -> lineKey -> demand
@@ -340,7 +415,8 @@ export async function runMrp(params: MrpParams = {}, userId?: number, existingRu
     where: {
       materialId: { in: [...materialIds] },
       issuedQty: { gt: 0 },
-      batch: { status: { not: "cancelled" }, productionOrder: { status: { in: ["planned", "in_progress"] } } },
+      // 已完成批次的用料已经转化为成品/入库，不能再次冲抵需求
+      batch: { status: { in: ["planned", "in_progress"] }, productionOrder: { status: { in: ["planned", "in_progress"] } } },
     },
     select: { materialId: true, issuedQty: true },
   });
@@ -508,7 +584,8 @@ export async function runMrp(params: MrpParams = {}, userId?: number, existingRu
         materialName: material.name,
         quantity: suggestQty,
         relatedOrderId: orderId,
-        orderNo: order?.orderNo ?? "",
+        // 手工加工单（负 id）没有销售订单，需求来源单号取生产订单号
+        orderNo: line.orderNo || order?.orderNo || "",
         customerName: order?.customerName ?? "",
         needDate,
         orderDate,
@@ -749,7 +826,7 @@ export async function listShortages() {
     where: { status: "completed" },
     orderBy: { startedAt: "desc" },
   });
-  if (!latestRun) return { latestRun: null, shortages: [] };
+  if (!latestRun) return { latestRun: null, shortages: [], suggestions: [], issuedProductionKeys: [] };
 
   const shortages = await prisma.mrpShortage.findMany({
     where: { runId: latestRun.id },
@@ -844,6 +921,12 @@ export async function listShortages() {
     suggestions = suggestions.map((s: any) => ({ ...s, materialType: typeMap.get(s.materialId) ?? null }));
   }
 
+  // 已下达且未完工的生产订单：生产建议页据此隐藏已下达的物料，避免重复下达
+  const issuedProductionKeys = await prisma.productionOrder.findMany({
+    where: { status: { in: ["planned", "in_progress"] } },
+    select: { materialId: true, salesOrderId: true },
+  });
+
   return {
     latestRun: {
       id: latestRun.id,
@@ -857,6 +940,7 @@ export async function listShortages() {
       affectedOrders: s.affectedOrders ? JSON.parse(s.affectedOrders) : [],
     })),
     suggestions,
+    issuedProductionKeys,
   };
 }
 

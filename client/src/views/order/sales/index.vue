@@ -332,6 +332,19 @@ async function confirmCancel() {
   } catch { /* canceled */ }
 }
 
+async function handleDelete(row: any) {
+  try {
+    await ElMessageBox.confirm(
+      `确定删除已取消的销售订单 ${row.orderNo} ？仅允许删除没有排产、没有发运的订单。`,
+      '删除销售订单',
+      { type: 'warning' }
+    )
+    await orderApi.remove(row.id)
+    ElMessage.success('销售订单已删除')
+    loadData()
+  } catch { /* canceled or error shown */ }
+}
+
 async function handleShip(row: any) {
   try {
     await ElMessageBox.confirm(`确认订单 ${row.orderNo} 已完成生产并安排发货？`, '发货确认', { type: 'warning' })
@@ -416,13 +429,14 @@ const flatRows = computed(() =>
             <el-tag v-if="row._first" :type="statusType(row.status)">{{ formatStatus(row.status) }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="180" fixed="right">
+        <el-table-column label="操作" width="220" fixed="right">
           <template #default="{ row }">
             <el-button size="small" type="primary" link @click="router.push(`/order/print?id=${row.id}`)">打印</el-button>
             <el-button size="small" type="primary" link @click="router.push(`/order/tracking?id=${row.id}`)">跟踪</el-button>
             <el-button v-if="['draft','confirmed','in_production'].includes(row.status)" size="small" type="primary" link @click="openDialog(row)">编辑</el-button>
             <el-button v-if="row.status === 'completed'" size="small" type="primary" link @click="handleShip(row)">发货</el-button>
             <el-button v-if="['draft','confirmed','in_production'].includes(row.status)" size="small" type="danger" link @click="openCancelDialog(row)">取消</el-button>
+            <el-button v-if="row._first && row.status === 'cancelled'" size="small" type="danger" link @click="handleDelete(row)">删除</el-button>
           </template>
         </el-table-column>
         <template #empty>

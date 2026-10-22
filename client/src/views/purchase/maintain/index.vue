@@ -344,11 +344,11 @@ async function handleSave() {
   try {
     if (isEditLoad.value) {
       await purchaseApi.update(form.id, buildPayload())
-      ElMessage.success('采购单更新成功')
+      ElMessage.success('采购单已保存并确认')
       await loadOrder(form.id)
     } else {
       const res: any = await purchaseApi.create(buildPayload())
-      ElMessage.success('采购单创建成功')
+      ElMessage.success('采购单已保存并确认')
       form.id = res.data?.id ?? null
       form.orderNo = res.data?.orderNo || ''
       form.status = res.data?.status || ''

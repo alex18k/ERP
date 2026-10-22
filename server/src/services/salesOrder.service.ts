@@ -534,6 +534,32 @@ export async function cancelOrder(id: number, opts?: { cancelProduction?: boolea
   });
 }
 
+// 删除已取消的销售订单：仅允许没有排产（无生产订单）且没有发运记录的订单
+export async function deleteOrder(id: number) {
+  const order = await prisma.salesOrder.findUnique({
+    where: { id },
+    include: { items: { select: { deliveredQty: true } } },
+  });
+  if (!order) throw new Error("订单不存在");
+  if (order.status !== "cancelled") throw new Error("仅已取消的销售订单可以删除");
+
+  const [productionCount, stockRecordCount] = await Promise.all([
+    prisma.productionOrder.count({ where: { salesOrderId: id } }),
+    prisma.stockRecord.count({ where: { relatedType: "sales-order", relatedId: id } }),
+  ]);
+  if (productionCount > 0) throw new Error("该订单已有生产订单/排产记录，不能删除");
+  if (stockRecordCount > 0) throw new Error("该订单已有发运/出库记录，不能删除");
+  if (order.items.some((it) => (it.deliveredQty ?? 0) > 1e-6)) {
+    throw new Error("该订单已有发运记录，不能删除");
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.salesOrderItem.deleteMany({ where: { orderId: id } });
+    await tx.salesOrder.delete({ where: { id } });
+  });
+  return { success: true };
+}
+
 export async function shipOrder(id: number, userId: number) {
   const shipType = await prisma.stockTransactionType.findUnique({ where: { code: "ISS-SO" } });
   const companyId = await getDefaultCompanyId();

@@ -2,6 +2,7 @@
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { bomApi } from '../../../api'
+import { printHtml } from '../../../utils/print'
 
 const loading = ref(false)
 const list = ref<any[]>([])
@@ -139,17 +140,11 @@ async function handlePrint(row: any) {
       <td class="r">${totalCost.toFixed(4)}</td>
     </tr></tfoot>
   </table>
-  <script>window.onload = function () { window.print(); }<\/script>
-</body></html>`
+  </body></html>`
 
-  const w = window.open('', '_blank')
-  if (!w) {
-    ElMessage.warning('浏览器拦截了打印窗口，请允许弹出窗口后重试')
-    return
+  if (!printHtml(html)) {
+    ElMessage.warning('打印视图创建失败，请刷新页面后重试')
   }
-  w.document.open()
-  w.document.write(html)
-  w.document.close()
 }
 
 onMounted(loadData)

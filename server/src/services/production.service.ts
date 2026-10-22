@@ -238,6 +238,52 @@ export async function cancelProductionOrder(id: number) {
   });
 }
 
+// 删除已取消的生产订单：仅允许删除没有发料、报工/工时、成品入库和库存流水的订单
+export async function deleteProductionOrder(id: number) {
+  const order = await prisma.productionOrder.findUnique({
+    where: { id },
+    include: {
+      batches: { select: { id: true } },
+      orderRoute: { select: { id: true } },
+    },
+  });
+  if (!order) throw new Error("生产订单不存在");
+  if (order.status !== "cancelled") throw new Error("仅已取消的生产订单可以删除");
+
+  const batchIds = order.batches.map((b) => b.id);
+  const [issuedCount, workReportCount, receivedCount, stockRecordCount] = await Promise.all([
+    batchIds.length
+      ? prisma.productionBatchMaterial.count({
+          where: { batchId: { in: batchIds }, issuedQty: { gt: 1e-6 } },
+        })
+      : Promise.resolve(0),
+    batchIds.length
+      ? prisma.workReport.count({ where: { batchId: { in: batchIds } } })
+      : Promise.resolve(0),
+    prisma.productionBatch.count({ where: { productionOrderId: id, receivedQty: { gt: 1e-6 } } }),
+    batchIds.length
+      ? prisma.stockRecord.count({ where: { relatedType: "ProductionBatch", relatedId: { in: batchIds } } })
+      : Promise.resolve(0),
+  ]);
+  if (issuedCount > 0) throw new Error("该生产订单已有发料记录，不能删除");
+  if (workReportCount > 0) throw new Error("该生产订单已有报工/工时记录，不能删除");
+  if (receivedCount > 0) throw new Error("该生产订单已有成品入库记录，不能删除");
+  if (stockRecordCount > 0) throw new Error("该生产订单存在库存事务记录，不能删除");
+
+  await prisma.$transaction(async (tx) => {
+    if (batchIds.length > 0) {
+      await tx.productionBatchMaterial.deleteMany({ where: { batchId: { in: batchIds } } });
+      await tx.productionBatch.deleteMany({ where: { productionOrderId: id } });
+    }
+    if (order.orderRoute) {
+      await tx.productionOrderStep.deleteMany({ where: { orderRouteId: order.orderRoute.id } });
+      await tx.productionOrderRoute.delete({ where: { id: order.orderRoute.id } });
+    }
+    await tx.productionOrder.delete({ where: { id } });
+  });
+  return { success: true };
+}
+
 export async function updateProductionOrder(id: number, data: Partial<ProductionOrderInput>) {
   const exists = await prisma.productionOrder.findUnique({ where: { id } });
   if (!exists) throw new Error("生产订单不存在");

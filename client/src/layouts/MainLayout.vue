@@ -52,6 +52,7 @@ const menuItems: MenuNode[] = [
       { path: '/mrp/calculate', title: 'MRP运算', icon: 'Aim' },
       { path: '/mrp/shortage', title: '缺料预警', icon: 'Warning' },
       { path: '/mrp/purchase-suggestion', title: '采购建议', icon: 'ShoppingCart' },
+      { path: '/mrp/production-suggestion', title: '生产建议', icon: 'Box' },
     ],
   },
   {

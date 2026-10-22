@@ -250,6 +250,9 @@ onMounted(async () => {
 
       <el-table :data="list" v-loading="loading" stripe max-height="calc(100vh - 260px)">
         <el-table-column prop="orderNo" label="生产订单号" width="150" />
+        <el-table-column label="销售订单号" width="150">
+          <template #default="{ row }">{{ row.salesOrder?.orderNo || row.salesOrderNo || '-' }}</template>
+        </el-table-column>
         <el-table-column label="产品" min-width="180">
           <template #default="{ row }">
             <div>{{ row.material?.code }} - {{ row.material?.name }}</div>

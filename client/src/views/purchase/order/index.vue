@@ -45,8 +45,8 @@ const queryFields: QueryField[] = [
 ]
 
 const statusOptions = [
-  { label: '草稿', value: 'draft', type: 'info' },
-  { label: '已确认', value: 'confirmed', type: 'warning' },
+  { label: '草稿', value: 'draft', type: 'warning' },
+  { label: '已确认', value: 'confirmed', type: 'success' },
 ]
 
 // 明细行状态（采购单状态列取明细行）：空白(可收货/参与MRP)、关闭、取消
@@ -198,6 +198,11 @@ function netPrice(row: any) {
 }
 
 // 已收量配色：未收灰色、部分收货橙色、已收满绿色
+// 草稿采购单整行高亮，便于和已确认单据区分
+function rowClassName({ row }: any) {
+  return row.confirmStatus === 'draft' ? 'row-draft' : ''
+}
+
 function receivedClass(row: any) {
   const q = Number(row.quantity) || 0
   const r = Number(row.receivedQty) || 0
@@ -224,7 +229,7 @@ onMounted(async () => {
         <QueryConditionBuilder v-model="advancedConditions" :fields="queryFields" @query="submitAdvanced" @reset="resetAdvanced" />
       </div>
 
-      <el-table :data="rows" v-loading="loading" stripe max-height="calc(100vh - 260px)" highlight-current-row @current-change="onCurrentChange">
+      <el-table :data="rows" v-loading="loading" stripe max-height="calc(100vh - 260px)" highlight-current-row :row-class-name="rowClassName" @current-change="onCurrentChange">
         <el-table-column prop="orderNo" label="采购单号" width="120" />
         <el-table-column prop="line" label="行号" width="60" align="center" />
         <el-table-column prop="supplierName" label="供应商" min-width="200" show-overflow-tooltip />
@@ -310,5 +315,19 @@ onMounted(async () => {
 .qty-return {
   color: var(--el-color-danger);
   font-weight: 600;
+}
+/* 草稿采购单整行浅橙色标识 */
+:deep(.el-table__row.row-draft > td.el-table__cell) {
+  background-color: #fff7e6 !important;
+}
+:deep(.el-table__row.row-draft:hover > td.el-table__cell) {
+  background-color: #ffefd1 !important;
+}
+:deep(.el-table__row.row-draft > td.el-table__cell:first-child) {
+  box-shadow: inset 3px 0 0 var(--el-color-warning);
+}
+/* 选中行仍使用 Element Plus 的当前行颜色 */
+:deep(.el-table__row.row-draft.current-row > td.el-table__cell) {
+  background-color: var(--el-color-primary-light-9) !important;
 }
 </style>

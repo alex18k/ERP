@@ -89,6 +89,15 @@ export async function cancelOrderHandler(req: Request, res: Response) {
   }
 }
 
+export async function deleteOrderHandler(req: Request, res: Response) {
+  try {
+    const data = await productionService.deleteProductionOrder(Number(req.params.id));
+    return success(res, data, "生产订单已删除");
+  } catch (error: any) {
+    return fail(res, 400, error.message);
+  }
+}
+
 export async function scheduleHandler(req: AuthRequest, res: Response) {
   try {
     const batches = Array.isArray(req.body?.batches) ? req.body.batches : undefined;

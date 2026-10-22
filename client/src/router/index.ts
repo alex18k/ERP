@@ -48,6 +48,7 @@ const routes = [
       { path: 'mrp/calculate', name: 'MrpCalculate', component: () => import('../views/mrp/calculate/index.vue'), meta: { title: 'MRP运算' } },
       { path: 'mrp/shortage', name: 'MrpShortage', component: () => import('../views/mrp/shortage/index.vue'), meta: { title: '缺料预警' } },
       { path: 'mrp/purchase-suggestion', name: 'MrpSuggestion', component: () => import('../views/mrp/suggestion/index.vue'), meta: { title: '采购建议' } },
+      { path: 'mrp/production-suggestion', name: 'MrpProductionSuggestion', component: () => import('../views/mrp/productionSuggestion/index.vue'), meta: { title: '生产建议' } },
       // 生产
       { path: 'production/order', name: 'ProductionOrder', component: () => import('../views/production/order/index.vue'), meta: { title: '生产订单' } },
       { path: 'production/batch-materials', name: 'ProductionBatchMaterials', component: () => import('../views/production/batchMaterials/index.vue'), meta: { title: '加工单物料清单' } },

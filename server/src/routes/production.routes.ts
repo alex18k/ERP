@@ -15,6 +15,7 @@ router.get("/orders/issued-keys", requirePermission("production:view"), producti
 router.post("/orders", requirePermission("production:manage"), productionController.createOrderHandler);
 router.put("/orders/:id", requirePermission("production:manage"), productionController.updateOrderHandler);
 router.put("/orders/:id/cancel", requirePermission("production:manage"), productionController.cancelOrderHandler);
+router.delete("/orders/:id", requirePermission("production:manage"), operationLog("production", "delete"), productionController.deleteOrderHandler);
 router.post("/orders/:id/schedule", requirePermission("production:manage"), productionController.scheduleHandler);
 
 // 报工（直接挂批次 + 订单级工序）
