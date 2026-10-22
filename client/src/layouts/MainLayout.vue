@@ -90,9 +90,6 @@ const menuItems: MenuNode[] = [
       { path: '/inventory/query', title: '库存明细查询', icon: 'Search' },
       { path: '/inventory/stock-query', title: '库存查询', icon: 'Search' },
       { path: '/inventory/record', title: '库存事务记录', icon: 'Clock' },
-      { path: '/inventory/material-out-maintain', title: '材料出库维护', icon: 'Tickets' },
-      { path: '/inventory/sales-out-maintain', title: '销售出库维护', icon: 'Tickets' },
-      { path: '/inventory/product-in-maintain', title: '产品入库维护', icon: 'Download' },
       {
         title: '采购收货/退货',
         icon: 'Tickets',
@@ -107,6 +104,15 @@ const menuItems: MenuNode[] = [
       { path: '/inventory/shipping', title: '销售发运', icon: 'Van' },
       { path: '/inventory/shipment-record', title: '销售发运记录', icon: 'Tickets' },
       { path: '/inventory/clear-zero', title: '清除0库存', icon: 'Delete' },
+    ],
+  },
+  {
+    title: '进销存',
+    icon: 'Goods',
+    children: [
+      { path: '/inventory/material-out-maintain', title: '材料出库维护', icon: 'Tickets' },
+      { path: '/inventory/sales-out-maintain', title: '销售出库维护', icon: 'Tickets' },
+      { path: '/inventory/product-in-maintain', title: '产品入库维护', icon: 'Download' },
     ],
   },
   {
@@ -183,32 +189,34 @@ const menuVisible = ref(true)
         unique-opened
         class="side-menu"
       >
-        <el-menu-item index="/dashboard" class="menu-home">
-          <el-icon><House /></el-icon>
-          <span>工作台</span>
-        </el-menu-item>
-        <el-sub-menu v-for="item in menuItems.filter(m => m.children)" :key="item.title" :index="item.title">
-          <template #title>
+        <template v-for="item in menuItems" :key="item.title">
+          <el-menu-item v-if="item.path && !item.children?.length" :index="item.path" :class="{ 'menu-home': item.path === '/dashboard' }">
             <el-icon><component :is="item.icon" /></el-icon>
             <span>{{ item.title }}</span>
-          </template>
-          <template v-for="child in item.children ?? []" :key="child.path ?? child.title">
-            <el-sub-menu v-if="child.children" :index="`${item.title}-${child.title}`">
-              <template #title>
+          </el-menu-item>
+          <el-sub-menu v-else :index="item.title">
+            <template #title>
+              <el-icon><component :is="item.icon" /></el-icon>
+              <span>{{ item.title }}</span>
+            </template>
+            <template v-for="child in item.children ?? []" :key="child.path ?? child.title">
+              <el-sub-menu v-if="child.children" :index="`${item.title}-${child.title}`">
+                <template #title>
+                  <el-icon><component :is="child.icon" /></el-icon>
+                  <span>{{ child.title }}</span>
+                </template>
+                <el-menu-item v-for="leaf in child.children" :key="leaf.path" :index="leaf.path">
+                  <el-icon><component :is="leaf.icon" /></el-icon>
+                  <span>{{ leaf.title }}</span>
+                </el-menu-item>
+              </el-sub-menu>
+              <el-menu-item v-else :index="child.path ?? ''">
                 <el-icon><component :is="child.icon" /></el-icon>
                 <span>{{ child.title }}</span>
-              </template>
-              <el-menu-item v-for="leaf in child.children" :key="leaf.path" :index="leaf.path">
-                <el-icon><component :is="leaf.icon" /></el-icon>
-                <span>{{ leaf.title }}</span>
               </el-menu-item>
-            </el-sub-menu>
-            <el-menu-item v-else :index="child.path ?? ''">
-              <el-icon><component :is="child.icon" /></el-icon>
-              <span>{{ child.title }}</span>
-            </el-menu-item>
-          </template>
-        </el-sub-menu>
+            </template>
+          </el-sub-menu>
+        </template>
       </el-menu>
       <div class="aside-foot">
         <span class="foot-lamp"></span>

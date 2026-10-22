@@ -11,13 +11,20 @@ const FIELDS = [
   "contact",
   "taxNo",
   "website",
+  "logo",
   "remark",
 ] as const;
+
+// logo 存 base64 data URL，上限约 1MB 原图（express.json limit 2mb，留出整包余量）
+const LOGO_MAX_LENGTH = 1_600_000;
 
 function pickFields(input: any) {
   const data: Record<string, any> = {};
   for (const key of FIELDS) {
     if (input[key] !== undefined) data[key] = input[key] == null ? null : String(input[key]).trim();
+  }
+  if (typeof data.logo === "string" && data.logo.length > LOGO_MAX_LENGTH) {
+    throw new Error("公司Logo过大，请使用 1MB 以内的图片");
   }
   return data;
 }

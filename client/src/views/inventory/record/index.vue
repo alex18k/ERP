@@ -2,7 +2,7 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { stockApi, warehouseApi, materialApi, stockTransactionTypeApi, warehouseBinApi, workshopApi } from '../../../api'
+import { stockApi, warehouseApi, materialApi, stockTransactionTypeApi, warehouseBinApi } from '../../../api'
 
 const router = useRouter()
 const loading = ref(false)
@@ -13,118 +13,9 @@ const tableRef = ref()
 const warehouses = ref<any[]>([])
 const query = reactive({ page: 1, pageSize: 20, materialKeyword: '', warehouseId: '', transactionTypeId: '', startDate: '', endDate: '', documentNo: '' })
 
-// ===== 增加库存事务 =====
-const dialogVisible = ref(false)
-const submitting = ref(false)
-const initialForm = ref<any>({})
-const materials = ref<any[]>([])
-const materialLoading = ref(false)
-const materialMap = new Map<number, any>()
 const transactionTypes = ref<any[]>([])
-const departments = ref<any[]>([])
-const handlerOptions = ref<string[]>([])
-const form = reactive<any>({ materialId: null, warehouseId: null, binId: null, batchNo: '', quantity: 1, unit: '', transactionTypeId: null, effectiveDate: todayStr(), orderNo: '', lineNo: null, departmentId: null, handler: '', remark: '' })
 
-// 货位：仅当所选仓库启用货位管理时才需要/允许填写
-const bins = ref<any[]>([])
-const binLoading = ref(false)
 const activeWarehouses = computed(() => warehouses.value.filter((w: any) => w.status === 1))
-const selectedWarehouse = computed(() => warehouses.value.find((w: any) => w.id === form.warehouseId) || null)
-const binRequired = computed(() => selectedWarehouse.value?.binManaged === true)
-
-// 选定物料的可用计量单位（基本单位 + 转换单位）
-const selectedMaterial = computed(() => (form.materialId ? materialMap.get(form.materialId) : null))
-const selectedTransactionType = computed(() => transactionTypes.value.find((t) => t.id === form.transactionTypeId) || null)
-// 事务类型方向决定增/减：in=入库，out=出库
-const isOutbound = computed(() => (selectedTransactionType.value?.direction || 'in') === 'out')
-// 批号字段对所有物料展示：非批号管理物料可选填批号，填了同样走批号管控（记批次行）
-// 出库必须指定批次的情形：批号管理物料，或该物料×仓库已存在批次库存；入库留空由后端自动生成
-const batchManaged = computed(() => selectedMaterial.value?.batchManaged === true)
-
-// 批号候选：该物料×仓库尚有结存的批次（出库选择 / 入库选择或新建）
-const batchOptions = ref<any[]>([])
-const batchLoading = ref(false)
-const batchRequired = computed(() => isOutbound.value && (batchManaged.value || batchOptions.value.length > 0))
-const batchPlaceholder = computed(() => {
-  if (isOutbound.value) return batchRequired.value ? '选择该仓库现有批次（出库必选）' : '可选：选择该仓库现有批次'
-  return batchManaged.value ? '留空自动生成，或选择/输入已有批号' : '可选：输入或选择批号（留空不记批次）'
-})
-
-// 当前所选批号的剩余量（用于出库数量管控，基本单位）
-const selectedBatchQty = computed(() => {
-  const b = batchOptions.value.find((x: any) => x.batchNo === form.batchNo)
-  return b ? Number(b.quantity) : 0
-})
-
-// 录入单位 → 基本单位换算率（与后端 resolveUnitRate 同口径，未维护时按 1 近似，后端会兜底 400）
-const selectedUnitRate = computed(() => {
-  const m = selectedMaterial.value
-  if (!m || !form.unit || form.unit === m.unit) return 1
-  return Number(m.unitRates?.[form.unit]) || 1
-})
-// 录入数量折算基本单位（批余量/现存量均为基本单位，校验必须同口径比较）
-const formBaseQty = computed(() => (Number(form.quantity) || 0) * selectedUnitRate.value)
-// 按录入单位展示的批余量上限（向下保留两位，避免向上取整放行超量）
-const batchMaxQty = computed(() => {
-  const rate = selectedUnitRate.value
-  return Math.floor((selectedBatchQty.value / rate) * 100) / 100
-})
-
-async function loadBatchOptions() {
-  form.batchNo = ''
-  if (!form.materialId || !form.warehouseId) {
-    batchOptions.value = []
-    return
-  }
-  batchLoading.value = true
-  try {
-    const res: any = await stockApi.batches({ materialId: form.materialId, warehouseId: form.warehouseId, binId: form.binId || undefined, pageSize: 200 })
-    batchOptions.value = res.data.items || []
-  } catch {
-    batchOptions.value = []
-  } finally {
-    batchLoading.value = false
-  }
-}
-
-// 仓库变化：启用货位管理的仓库加载货位列表，并据此重载批号
-async function onWarehouseChange() {
-  form.binId = null
-  bins.value = []
-  const wh = selectedWarehouse.value
-  if (wh?.binManaged) {
-    binLoading.value = true
-    try {
-      const res: any = await warehouseBinApi.list({ warehouseId: wh.id, status: 1, pageSize: 200 })
-      bins.value = res.data.items
-    } catch {
-      bins.value = []
-    } finally {
-      binLoading.value = false
-    }
-  }
-  loadBatchOptions()
-}
-
-// 选择物料后自动带出默认计量单位（基本单位）
-function onMaterialChange() {
-  form.unit = selectedMaterial.value?.unit || ''
-  loadBatchOptions()
-}
-const unitOptions = computed<string[]>(() => {
-  const m = selectedMaterial.value
-  const set = new Set<string>(['个', '件', '套', '台', '只', '箱', '包'])
-  if (m?.units) for (const u of m.units) set.add(u)
-  if (form.unit) set.add(form.unit)
-  return [...set]
-})
-const baseHint = computed(() => {
-  const m = selectedMaterial.value
-  if (!m?.unit || !form.unit || form.unit === m.unit) return ''
-  const rate = m.unitRates?.[form.unit] ?? 0
-  if (!rate) return ''
-  return `= ${Number(((Number(form.quantity) || 0) * rate).toFixed(6))} ${m.unit}`
-})
 
 function todayStr() {
   const d = new Date()
@@ -132,155 +23,13 @@ function todayStr() {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
 }
 
-function registerMaterials(items: any[]) {
-  for (const m of items) if (m?.id) materialMap.set(m.id, m)
-  // 下拉仅显示本次结果 + 当前已选物料（el-select remote 模式不做本地过滤）
-  const selected = form.materialId ? materialMap.get(form.materialId) : null
-  const seen = new Set<number>()
-  materials.value = [...items, ...(selected ? [selected] : [])].filter((m: any) => {
-    if (!m?.id || seen.has(m.id)) return false
-    seen.add(m.id)
-    return true
-  })
-}
-
-async function searchMaterials(keyword: string) {
-  materialLoading.value = true
-  try {
-    const res: any = await materialApi.options({ keyword, limit: 50 })
-    registerMaterials(res.data || [])
-  } catch {
-    /* ignore */
-  } finally {
-    materialLoading.value = false
-  }
-}
-
 async function loadOptions() {
-  const [mRes, tRes, dRes, hRes]: any[] = await Promise.all([
+  const [mRes, tRes]: any[] = await Promise.all([
     materialApi.options({ limit: 50 }),
     stockTransactionTypeApi.list({ pageSize: 200, status: 1 }),
-    workshopApi.list(),
-    stockApi.handlers(),
   ])
-  registerMaterials(mRes.data || [])
   registerTransferMaterials(mRes.data || [])
   transactionTypes.value = (tRes.data.items || []).filter((t: any) => t.status === 1)
-  departments.value = (dRes.data || []).filter((d: any) => d.status === 1)
-  handlerOptions.value = hRes.data || []
-}
-
-async function loadHandlerOptions() {
-  try {
-    const res: any = await stockApi.handlers()
-    handlerOptions.value = res.data || []
-  } catch { /* ignore */ }
-}
-
-async function openDialog() {
-  Object.assign(form, { materialId: null, warehouseId: null, binId: null, batchNo: '', quantity: 1, unit: '', transactionTypeId: null, effectiveDate: todayStr(), orderNo: '', lineNo: null, departmentId: null, handler: '', remark: '' })
-  batchOptions.value = []
-  bins.value = []
-  await loadHandlerOptions()
-  initialForm.value = { ...form }
-  dialogVisible.value = true
-}
-
-// 表单是否有未保存的修改
-function isDirty() {
-  return JSON.stringify(form) !== JSON.stringify(initialForm.value)
-}
-
-function validateForm(): boolean {
-  if (!form.transactionTypeId) { ElMessage.warning('请选择事务类型'); return false }
-  if (!form.materialId) { ElMessage.warning('请选择物料'); return false }
-  if (!form.warehouseId) { ElMessage.warning('请选择仓库'); return false }
-  if (binRequired.value && !form.binId) { ElMessage.warning('该仓库启用货位管理，请选择货位'); return false }
-  if (form.quantity <= 0) { ElMessage.warning('数量必须大于0'); return false }
-  if (batchRequired.value && !form.batchNo) { ElMessage.warning('出库需选择批号（该物料或仓库存在批次库存）'); return false }
-  if (isOutbound.value && form.batchNo && formBaseQty.value > selectedBatchQty.value + 1e-6) {
-    ElMessage.warning(`出库数量超过该批余量 ${selectedBatchQty.value}（当前单位最多可录入 ${batchMaxQty.value}）`)
-    return false
-  }
-  return true
-}
-
-async function submitForm(): Promise<boolean> {
-  const payload = {
-    materialId: form.materialId,
-    warehouseId: form.warehouseId,
-    binId: binRequired.value ? form.binId : undefined,
-    batchNo: form.batchNo || undefined,
-    quantity: form.quantity,
-    unit: form.unit || undefined,
-    transactionTypeId: form.transactionTypeId,
-    effectiveDate: form.effectiveDate,
-    orderNo: form.orderNo || undefined,
-    lineNo: form.lineNo ?? undefined,
-    departmentId: form.departmentId || undefined,
-    handler: form.handler || undefined,
-    remark: form.remark,
-  }
-
-  submitting.value = true
-  try {
-    if (isOutbound.value) {
-      await stockApi.out(payload)
-      ElMessage.success('出库成功')
-    } else {
-      await stockApi.in(payload)
-      ElMessage.success('入库成功')
-    }
-    loadData()
-    return true
-  } catch {
-    return false
-  } finally {
-    submitting.value = false
-  }
-}
-
-async function handleSubmit(): Promise<boolean> {
-  if (!validateForm()) return false
-  return submitForm()
-}
-
-async function confirmSubmit() {
-  if (!validateForm()) return
-  try {
-    await ElMessageBox.confirm(`确定提交该${isOutbound.value ? '出库' : '入库'}事务吗？`, '确认提交', {
-      confirmButtonText: '确定',
-      cancelButtonText: '取消',
-      type: 'warning',
-    })
-  } catch {
-    return
-  }
-  if (await submitForm()) dialogVisible.value = false
-}
-
-// 关闭前检查是否有未保存的修改：有则询问是否保存
-function confirmLeave(done?: () => void) {
-  const close = () => {
-    if (done) done()
-    else dialogVisible.value = false
-  }
-  if (!isDirty()) {
-    close()
-    return
-  }
-  ElMessageBox.confirm('当前库存事务尚未保存，是否保存后关闭？', '未保存的修改', {
-    confirmButtonText: '保存',
-    cancelButtonText: '不保存',
-    distinguishCancelAndClose: true,
-    type: 'warning',
-  })
-    .then(async () => {
-      if (await handleSubmit()) close()
-    })
-    .catch((action: string) => {
-      if (action === 'cancel') close()
-    })
 }
 
 // ===== 移库 =====
@@ -549,6 +298,16 @@ onMounted(async () => {
 <template>
   <div class="page-container">
     <div class="page-card">
+      <div class="table-toolbar">
+        <div class="row-actions">
+          <el-button type="success" plain @click="router.push('/inventory/stock-in')"><el-icon><Download /></el-icon>入库</el-button>
+          <el-button type="danger" plain @click="router.push('/inventory/stock-out')"><el-icon><Upload /></el-icon>出库</el-button>
+          <el-button type="warning" plain @click="openTransfer()"><el-icon><Switch /></el-icon>移库</el-button>
+          <el-button type="primary" plain :disabled="!currentRow?.documentNo" title="先点击列表中的行，再打印该单号" @click="printSelected"><el-icon><Printer /></el-icon>打印</el-button>
+          <el-button type="danger" plain :disabled="!currentRow?.documentNo" title="先点击列表中的行，再生成红单冲销" @click="redSelected"><el-icon><DocumentRemove /></el-icon>红单</el-button>
+        </div>
+      </div>
+
       <div class="search-bar">
         <el-input v-model="query.documentNo" placeholder="事务单号/源单号" clearable style="width: 160px" @keyup.enter="query.page = 1, loadData()" />
         <el-input v-model="query.materialKeyword" placeholder="物料编码/名称" clearable style="width: 180px" @keyup.enter="query.page = 1, loadData()" />
@@ -562,14 +321,6 @@ onMounted(async () => {
         <el-input v-model="query.endDate" type="date" placeholder="结束" clearable style="width: 150px" @keyup.enter="query.page = 1, loadData()" />
         <el-button type="primary" @click="query.page = 1, loadData()"><el-icon><Search /></el-icon>查询</el-button>
         <el-button @click="Object.assign(query, { materialKeyword: '', warehouseId: '', transactionTypeId: '', startDate: '', endDate: '', documentNo: '', page: 1 }), loadData()">重置</el-button>
-        <div class="row-actions">
-          <el-button type="success" plain @click="router.push('/inventory/stock-in')"><el-icon><Download /></el-icon>入库</el-button>
-          <el-button type="danger" plain @click="router.push('/inventory/stock-out')"><el-icon><Upload /></el-icon>出库</el-button>
-          <el-button type="success" plain class="btn-add" @click="openDialog()"><el-icon><Plus /></el-icon>增加</el-button>
-          <el-button type="warning" plain @click="openTransfer()"><el-icon><Switch /></el-icon>移库</el-button>
-          <el-button type="primary" plain :disabled="!currentRow?.documentNo" title="先点击列表中的行，再打印该单号" @click="printSelected"><el-icon><Printer /></el-icon>打印</el-button>
-          <el-button type="danger" plain :disabled="!currentRow?.documentNo" title="先点击列表中的行，再生成红单冲销" @click="redSelected"><el-icon><DocumentRemove /></el-icon>红单</el-button>
-        </div>
       </div>
 
 
@@ -662,85 +413,6 @@ onMounted(async () => {
         <el-pagination v-model:current-page="query.page" v-model:page-size="query.pageSize" :total="total" :page-sizes="[10, 20, 50]" layout="total, sizes, prev, pager, next" @change="loadData" />
       </div>
     </div>
-
-    <!-- 增加库存事务 -->
-    <el-dialog v-model="dialogVisible" title="库存事务" width="480px" destroy-on-close :close-on-click-modal="false" :close-on-press-escape="false" :before-close="confirmLeave">
-      <el-form :model="form" label-width="100px">
-        <el-form-item label="事务类型" required>
-          <el-select v-model="form.transactionTypeId" filterable placeholder="选择事务类型（决定增/减）" style="width: 100%" @change="loadBatchOptions">
-            <el-option v-for="t in transactionTypes" :key="t.id" :label="t.description" :value="t.id">
-              <span>{{ t.description }}</span>
-              <el-tag size="small" :type="t.direction === 'in' ? 'success' : 'danger'" style="float: right; margin-top: 5px">{{ t.direction === 'in' ? '增' : '减' }}</el-tag>
-            </el-option>
-          </el-select>
-        </el-form-item>
-        <el-form-item label="物料" required>
-          <el-select v-model="form.materialId" filterable remote reserve-keyword :remote-method="searchMaterials" :loading="materialLoading" placeholder="输入编码/名称搜索物料" style="width: 100%" @change="onMaterialChange">
-            <el-option v-for="m in materials" :key="m.id" :label="`${m.code} - ${m.name}${m.specification ? ' / ' + m.specification : ''}`" :value="m.id" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="仓库" required>
-          <el-select v-model="form.warehouseId" placeholder="选择仓库" style="width: 100%" @change="onWarehouseChange">
-            <el-option v-for="w in activeWarehouses" :key="w.id" :label="`${w.code} - ${w.name}`" :value="w.id" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="部门">
-          <el-select v-model="form.departmentId" filterable clearable placeholder="选择部门" style="width: 100%">
-            <el-option v-for="d in departments" :key="d.id" :label="`${d.code} - ${d.name}`" :value="d.id" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="经手人">
-          <el-select v-model="form.handler" filterable clearable allow-create default-first-option placeholder="选择或输入经手人" style="width: 100%">
-            <el-option v-for="h in handlerOptions" :key="h" :label="h" :value="h" />
-          </el-select>
-        </el-form-item>
-        <el-form-item v-if="binRequired" label="货位" required>
-          <el-select v-model="form.binId" placeholder="选择货位" filterable :loading="binLoading" style="width: 100%" @change="loadBatchOptions">
-            <el-option v-for="b in bins" :key="b.id" :label="`${b.code} - ${b.name}`" :value="b.id" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="批号" :required="batchRequired">
-          <el-select
-            v-model="form.batchNo"
-            filterable
-            :allow-create="!isOutbound"
-            :default-first-option="!isOutbound"
-            clearable
-            :loading="batchLoading"
-            :placeholder="batchPlaceholder"
-            style="width: 100%"
-          >
-            <el-option v-for="b in batchOptions" :key="b.batchNo" :label="`${b.batchNo}（余 ${b.quantity}）`" :value="b.batchNo" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="数量" required>
-          <el-input-number v-model="form.quantity" :min="1" :max="isOutbound && form.batchNo ? batchMaxQty : undefined" style="width: 100%" />
-          <div v-if="baseHint" class="unit-hint">{{ baseHint }}</div>
-          <div v-if="isOutbound && form.batchNo" class="unit-hint">该批余量 {{ selectedBatchQty }}</div>
-        </el-form-item>
-        <el-form-item label="计量单位">
-          <el-select v-model="form.unit" filterable allow-create default-first-option clearable placeholder="默认基本单位" style="width: 100%">
-            <el-option v-for="u in unitOptions" :key="u" :label="u" :value="u" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="生效日期">
-          <el-input v-model="form.effectiveDate" type="date" style="width: 100%" />
-        </el-form-item>
-        <el-form-item label="单号">
-          <el-input v-model="form.orderNo" placeholder="手工单号（可选，系统单号自动生成）" clearable />
-        </el-form-item>
-        <el-form-item label="行号">
-          <el-input-number v-model="form.lineNo" :min="1" :controls="false" placeholder="默认1" style="width: 100%" />
-        </el-form-item>
-        <el-form-item label="备注">
-          <el-input v-model="form.remark" type="textarea" :rows="2" />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="confirmLeave()">取消</el-button>
-        <el-button type="primary" :loading="submitting" @click="confirmSubmit">提交</el-button>
-      </template>
-    </el-dialog>
 
     <!-- 移库 -->
     <el-dialog v-model="transferVisible" title="库存移库" width="560px" destroy-on-close :close-on-click-modal="false" :close-on-press-escape="false" :before-close="confirmTransferLeave">

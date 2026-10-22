@@ -22,11 +22,23 @@ const form = reactive<any>({
   address: '',
   taxNo: '',
   website: '',
+  logo: '',
   remark: '',
 })
 
 const rules = {
   nameZh: [{ required: true, message: '请输入公司中文名称', trigger: 'blur' }],
+}
+
+// logo 存 base64 data URL，限 1MB（后端另有兜底校验，请求体上限 2MB）
+function onLogoChange(uploadFile: any) {
+  const raw: File | undefined = uploadFile?.raw
+  if (!raw) return
+  if (!raw.type.startsWith('image/')) { ElMessage.warning('请选择图片文件'); return }
+  if (raw.size > 1024 * 1024) { ElMessage.warning('Logo 图片请控制在 1MB 以内'); return }
+  const reader = new FileReader()
+  reader.onload = () => { form.logo = String(reader.result || '') }
+  reader.readAsDataURL(raw)
 }
 
 async function loadData() {
@@ -191,6 +203,18 @@ onMounted(loadData)
           </el-form-item>
         </el-col>
         <el-col :span="24">
+          <el-form-item label="公司Logo">
+            <div class="logo-field">
+              <img v-if="form.logo" :src="form.logo" class="logo-preview" alt="logo" />
+              <el-upload :auto-upload="false" :show-file-list="false" accept="image/*" :on-change="onLogoChange">
+                <el-button><el-icon><Upload /></el-icon>{{ form.logo ? '更换图片' : '选择图片' }}</el-button>
+              </el-upload>
+              <el-button v-if="form.logo" link type="danger" @click="form.logo = ''">清除</el-button>
+              <span class="logo-tip">1MB 以内的图片；打印单据优先显示该 Logo</span>
+            </div>
+          </el-form-item>
+        </el-col>
+        <el-col :span="24">
           <el-form-item label="备注">
             <el-input v-model="form.remark" type="textarea" :rows="3" />
           </el-form-item>
@@ -203,3 +227,25 @@ onMounted(loadData)
     </template>
   </el-dialog>
 </template>
+
+<style scoped>
+.logo-field {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.logo-preview {
+  max-width: 160px;
+  max-height: 56px;
+  object-fit: contain;
+  border: 1px solid var(--el-border-color);
+  border-radius: 4px;
+  padding: 2px 6px;
+  background: #fff;
+}
+.logo-tip {
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+}
+</style>

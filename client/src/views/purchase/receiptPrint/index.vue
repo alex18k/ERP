@@ -89,7 +89,10 @@ onMounted(async () => {
 
     <div id="print-area" class="sheet">
       <div class="head">
-        <div class="head-left"></div>
+        <div class="head-left">
+          <img v-if="companyInfo?.logo" :src="companyInfo.logo" class="logo-img" alt="logo" />
+          <span v-else class="logo"><i>Win</i><em>tim</em><b>e</b></span>
+        </div>
         <div class="head-center">
           <div class="company">{{ companyName }}</div>
           <div class="title">采购入库单</div>
@@ -204,6 +207,29 @@ onMounted(async () => {
 }
 .head-left {
   flex: 0 0 150px;
+}
+.logo-img {
+  max-width: 140px;
+  max-height: 52px;
+  object-fit: contain;
+}
+.logo {
+  font-size: 26px;
+  font-style: italic;
+  font-weight: 800;
+  color: #1b3f8f;
+  letter-spacing: 1px;
+}
+.logo i {
+  font-style: italic;
+}
+.logo em {
+  font-style: italic;
+  font-family: Georgia, serif;
+}
+.logo b {
+  color: #f60;
+  font-size: 30px;
 }
 .head-center {
   flex: 1;

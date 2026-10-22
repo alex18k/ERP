@@ -131,12 +131,6 @@ onMounted(async () => {
         <el-button @click="stockApi.exportCsv(query)"><el-icon><Download /></el-icon>导出</el-button>
       </div>
 
-      <div class="list-summary">
-        <span>库存汇总 <b>{{ total }}</b> 组</span>
-        <span v-if="list.length">· 本页 <b>{{ list.length }}</b> 行</span>
-        <span class="list-summary-tip">按「仓库 × 物料」分组，红色现存量 = 物料全仓合计低于安全库存</span>
-      </div>
-
       <el-table :data="list" v-loading="loading" row-key="key" :tree-props="{ children: 'children' }" stripe max-height="calc(100vh - 260px)">
         <el-table-column label="物料编码 / 序号" width="150">
           <template #default="{ row }">

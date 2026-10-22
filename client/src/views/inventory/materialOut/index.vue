@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { stockApi, warehouseApi, materialApi, stockTransactionTypeApi, warehouseBinApi, workshopApi } from '../../../api'
 import { warehouseIdByLocation } from '../../../utils/location'
 import { useAuthStore } from '../../../stores/auth'
 
 const router = useRouter()
+const route = useRoute()
 const authStore = useAuthStore()
 const currentUserName = authStore.user?.realName || authStore.user?.username || ''
 const saving = ref(false)
@@ -18,6 +19,14 @@ const keeperOptions = ref<string[]>([])
 const approverOptions = ref<string[]>([])
 const binMap = reactive<Record<number, any[]>>({})
 const currentRow = ref<any>(null)
+const redDocNo = ref('')
+const isRed = computed(() => !!redDocNo.value)
+
+// 表头「车间/委外加工商」动态标签：委外出库(ISS-SUB)显示委外加工商，其余(默认)显示车间
+const workshopLabel = computed(() => {
+  const t = transactionTypes.value.find((x: any) => x.id === form.transactionTypeId)
+  return t?.code === 'ISS-SUB' ? '委外加工商' : '车间'
+})
 
 const activeWarehouses = computed(() => warehouses.value.filter((w: any) => w.status === 1))
 
@@ -213,6 +222,51 @@ async function loadRowBatches(row: any) {
   }
 }
 
+// 红单退库：按原出库单调出数据，数量自动取负（冲销），提交后原路退回库存
+async function loadRedDocument(no: string) {
+  try {
+    const res: any = await stockApi.recordsByDocument(no)
+    const items = res.data.items || []
+    if (!items.length) {
+      ElMessage.warning(`红单：未找到单据 ${no} 的流水`)
+      return
+    }
+    redDocNo.value = no
+    const first = items[0]
+    Object.assign(form, {
+      transactionTypeId: first.transactionTypeId ?? null,
+      effectiveDate: todayStr(),
+      orderNo: first.orderNo || '',
+      departmentId: first.departmentId ?? null,
+      handler: first.handler || '',
+      keeper: first.keeper || '',
+      approver: first.approver || '',
+      remark: first.mainRemark || '',
+      items: [],
+    })
+    for (const r of items) {
+      const row = newRow()
+      row.quantity = -Math.abs(Number(r.quantity) || 0)
+      row.remark = `红单冲销 ${no}`
+      const mres: any = await materialApi.options({ keyword: r.material?.code || '', limit: 5 })
+      const m = (mres.data || []).find((x: any) => x.id === r.materialId) || null
+      row.materialId = r.materialId ?? null
+      row.material = m
+      row.materialOptions = m ? [m] : []
+      row.unit = r.um || m?.unit || ''
+      row.unitOptions = row.unit ? [row.unit] : []
+      row.warehouseId = r.warehouseId ?? null
+      row.binId = r.binId ?? null
+      await loadBins(row.warehouseId)
+      await loadRowBatches(row)
+      row.batchNo = r.batchNo || ''
+      await loadRowStock(row)
+      form.items.push(row)
+    }
+    ElMessage.info(`红单模式：已按 ${no} 调出明细，数量已取负`)
+  } catch { /* error shown by interceptor */ }
+}
+
 function addRow() {
   form.items.push(newRow())
 }
@@ -240,6 +294,7 @@ function validateForm(): boolean {
     if (row.batchRequired && !row.batchNo) { ElMessage.warning(`${line}请选择批号`); return false }
     const qty = Number(row.quantity)
     if (!Number.isFinite(qty) || qty === 0) { ElMessage.warning(`${line}数量不能为0`); return false }
+    if (isRed.value && qty > 0) { ElMessage.warning(`${line}红单行数量必须为负数`); return false }
     if (qty > 0) {
       const baseQty = qty * rowBaseRate(row)
       if (row.stockQty != null && baseQty > row.stockQty + 1e-6) {
@@ -259,11 +314,11 @@ async function submit() {
   if (!validateForm()) return
   try {
     await ElMessageBox.confirm(
-      `已填 ${filledLines.value} 行，数量合计 ${totalQty.value}，金额 ¥${totalAmount.value.toFixed(2)}。提交后库存将变动且不可撤销，是否继续？`,
-      '提交出库',
+      `已填 ${filledLines.value} 行，数量合计 ${totalQty.value}，金额 ¥${totalAmount.value.toFixed(2)}。提交后库存将${isRed.value ? '原路退回（红单冲销）' : '扣减'}且不可撤销，是否继续？`,
+      isRed.value ? '提交红单' : '提交出库',
       {
         type: 'warning',
-        confirmButtonText: '提交出库',
+        confirmButtonText: isRed.value ? '提交红单' : '提交出库',
         cancelButtonText: '取消',
       },
     )
@@ -290,7 +345,12 @@ async function submit() {
       mainRemark: form.remark || undefined,
       items,
     })
-    ElMessage.success(res.data?.documentNo ? `出库已提交，单据号 ${res.data.documentNo}` : '出库已提交')
+    ElMessage.success(res.data?.documentNo ? `${isRed.value ? '红单已提交' : '出库已提交'}，单据号 ${res.data.documentNo}` : (isRed.value ? '红单已提交' : '出库已提交'))
+    if (isRed.value) {
+      redDocNo.value = ''
+      router.push('/inventory/material-out-maintain')
+      return
+    }
     resetForm()
   } catch { /* error shown by interceptor */ } finally {
     saving.value = false
@@ -299,6 +359,8 @@ async function submit() {
 
 function resetForm() {
   currentRow.value = null
+  redDocNo.value = ''
+  if (route.query.red) router.replace({ path: route.path })
   Object.assign(form, {
     transactionTypeId: form.transactionTypeId,
     effectiveDate: todayStr(),
@@ -313,7 +375,7 @@ function resetForm() {
 }
 
 onMounted(async () => {
-  const [wRes, tRes, dRes, hRes, kRes, aRes]: any[] = await Promise.all([
+  const [wRes, tRes, wsRes, hhRes, kRes, aRes]: any[] = await Promise.all([
     warehouseApi.list({ pageSize: 200 }),
     stockTransactionTypeApi.list({ pageSize: 200, status: 1 }),
     workshopApi.list(),
@@ -322,11 +384,19 @@ onMounted(async () => {
     stockApi.handlers('approver'),
   ])
   warehouses.value = wRes.data.items || []
-  transactionTypes.value = (tRes.data.items || []).filter((t: any) => t.status === 1 && t.direction === 'out')
-  departments.value = (dRes.data || []).filter((d: any) => d.status === 1)
-  handlerOptions.value = hRes.data || []
+  transactionTypes.value = (tRes.data.items || []).filter(
+    (t: any) => t.status === 1 && t.direction === 'out' && (t.code === 'ISS-WO' || t.code === 'ISS-SUB'),
+  )
+  if (!form.transactionTypeId) {
+    form.transactionTypeId = transactionTypes.value.find((t: any) => t.code === 'ISS-WO')?.id ?? transactionTypes.value[0]?.id ?? null
+  }
+  // 车间/委外加工商：取自主数据「部门」(仅启用)，可直接输入新名字（提交时按名称自动建档/匹配）
+  departments.value = (wsRes.data || []).filter((d: any) => d.status === 1)
+  handlerOptions.value = hhRes.data || []
   keeperOptions.value = [...new Set([currentUserName, ...(kRes.data || [])].filter(Boolean))]
   approverOptions.value = aRes.data || []
+  const red = String(route.query.red || '').trim()
+  if (red) await loadRedDocument(red)
 })
 </script>
 
@@ -341,7 +411,8 @@ onMounted(async () => {
           已填 <b>{{ filledLines }}</b> 行 · 数量 <b>{{ totalQty }}</b> · 金额 <b>¥{{ totalAmount.toFixed(2) }}</b>
         </span>
         <el-button @click="resetForm">新增</el-button>
-        <el-button type="primary" :loading="saving" @click="submit">提交出库</el-button>
+        <el-button type="primary" :loading="saving" @click="submit">{{ isRed ? '提交红单' : '提交出库' }}</el-button>
+        <el-tag v-if="isRed" type="danger" size="small" style="margin-left: 8px">红单：按 {{ redDocNo }} 生成负数冲销</el-tag>
       </div>
 
       <el-form :model="form" label-width="72px" class="kd-header-form">
@@ -365,9 +436,9 @@ onMounted(async () => {
               </el-form-item>
             </div>
             <div class="kd-field">
-              <el-form-item label="部门">
-                <el-select v-model="form.departmentId" filterable clearable placeholder="选择部门" class="kd-flex">
-                  <el-option v-for="d in departments" :key="d.id" :label="`${d.code} - ${d.name}`" :value="d.id" />
+              <el-form-item :label="workshopLabel">
+                <el-select v-model="form.departmentId" filterable clearable allow-create default-first-option :placeholder="`选择或输入${workshopLabel}`" class="kd-flex">
+                  <el-option v-for="d in departments" :key="d.id" :label="d.name" :value="d.id" />
                 </el-select>
               </el-form-item>
             </div>

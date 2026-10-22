@@ -738,6 +738,7 @@ model CompanyInfo {
   contact     String?
   taxNo       String?
   website     String?
+  logo        String? // 公司Logo：base64 data URL（≤1MB）或图片地址；打印页优先显示
   remark      String?
   isDefault   Boolean  @default(false) // 默认公司：其它页面引用其名称
   defaultedAt DateTime? // 首次被设为默认的时间；非 null 即视为被引用过，禁止删除

@@ -202,6 +202,7 @@ export const stockApi = {
   recordsByDocument: (documentNo: string) => request.get('/stocks/records/by-document', { params: { documentNo } }),
   updateRecordsByDocument: (documentNo: string, data: any) => request.put('/stocks/records/by-document', data, { params: { documentNo } }),
   handlers: (field?: string) => request.get('/stocks/handlers', { params: field ? { field } : undefined }),
+  historyWorkshops: () => request.get('/stocks/history-workshops'),
   in: (data: any) => request.post('/stocks/in', data),
   out: (data: any) => request.post('/stocks/out', data),
   outBatch: (data: any) => request.post('/stocks/out-batch', data),

@@ -578,6 +578,29 @@ export async function listStockHandlers(field: string = "handler") {
   return rows.map((r: any) => r[key]).filter((h: any): h is string => !!h && h.trim() !== "");
 }
 
+// 车间/委外加工商下拉：ISS-WO(材料出库) / ISS-SUB(委外出库) 历史流水使用过的车间（去重）
+export async function listStockHistoryWorkshops() {
+  const types = await prisma.stockTransactionType.findMany({
+    where: { code: { in: ["ISS-WO", "ISS-SUB"] } },
+    select: { id: true },
+  });
+  const typeIds = types.map((t: any) => Number(t.id));
+  if (typeIds.length === 0) return [];
+  const rows = await prisma.stockRecord.findMany({
+    where: { departmentId: { not: null }, transactionTypeId: { in: typeIds } },
+    select: { departmentId: true },
+    distinct: ["departmentId"],
+    orderBy: { departmentId: "asc" },
+  });
+  const ids = rows.map((r: any) => Number(r.departmentId)).filter((id: number) => Number.isFinite(id));
+  if (ids.length === 0) return [];
+  return prisma.workshop.findMany({
+    where: { id: { in: ids } },
+    select: { id: true, code: true, name: true, status: true },
+    orderBy: { name: "asc" },
+  });
+}
+
 // ===== 仓库/货位辅助 =====
 // 校验仓库与货位：仓库必须存在且启用；启用货位管理的仓库必须指定有效货位，未启用则不允许指定货位。
 // 返回规范化后的 binId（number 或 null）。所有库存事务入口都应经过这里。
@@ -733,11 +756,33 @@ export async function listBatches(where: any) {
 }
 
 // 手工库存事务的部门：必须存在且启用
-async function resolveDepartmentId(departmentId?: number | null) {
+// 部门/车间解析：支持数字 id 或车间名称（可输入下拉录入新名字时按名称匹配已建档车间）
+async function createWorkshopAuto(name: string) {
+  // 未建档车间/委外加工商：以输入名自动建档（编号 AUTO-名称，撞唯一约束则追加序号）
+  for (let i = 0; i < 5; i++) {
+    const code = `AUTO-${name}${i > 0 ? `-${i}` : ""}`;
+    try {
+      const created = await prisma.workshop.create({ data: { code, name, status: 1 } });
+      return created.id;
+    } catch (e: any) {
+      if (e?.code !== "P2002") throw e;
+    }
+  }
+  throw new Error("车间/委外加工商建档失败，请先在基础数据-车间管理建档");
+}
+
+async function resolveDepartmentId(departmentId?: number | string | null) {
   if (!departmentId) return null;
-  const dept = await prisma.workshop.findUnique({ where: { id: Number(departmentId) } });
-  if (!dept) throw new Error("部门不存在");
-  if (dept.status !== 1) throw new Error("该部门已停用");
+  const raw = String(departmentId).trim();
+  let dept = null;
+  if (/^\d+$/.test(raw)) {
+    dept = await prisma.workshop.findUnique({ where: { id: Number(raw) } });
+    if (!dept) throw new Error("车间/委外加工商不存在，请先在基础数据-车间管理建档");
+  } else {
+    dept = await prisma.workshop.findFirst({ where: { name: raw } });
+    if (!dept) return createWorkshopAuto(raw);
+  }
+  if (dept.status !== 1) throw new Error("该车间/委外加工商已停用");
   return dept.id;
 }
 

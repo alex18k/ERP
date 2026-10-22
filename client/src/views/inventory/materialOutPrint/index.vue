@@ -29,6 +29,9 @@ const doc = computed(() => {
   }
 })
 
+// 委外出库单据打印时「车间」字段显示为「委外加工商」
+const workshopFieldLabel = computed(() => (doc.value.typeCode === 'ISS-SUB' ? '委外加工商' : '车间'))
+
 const cnDate = computed(() => {
   const v = doc.value.effectiveDate
   if (!v) return ''
@@ -86,7 +89,7 @@ onMounted(() => {
           <div class="meta-item"></div>
           <div class="meta-item"><b>业务类型：</b>{{ doc.typeCode }}</div>
           <div class="meta-item"><b>仓库：</b>{{ doc.warehouses }}</div>
-          <div class="meta-item"><b>车间：</b>{{ doc.departments }}</div>
+          <div class="meta-item"><b>{{ workshopFieldLabel }}：</b>{{ doc.departments }}</div>
           <div class="meta-item"><b>领料人：</b>{{ doc.handler || '____________' }}</div>
         </div>
 
