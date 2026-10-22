@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue'
 import { stockApi, warehouseApi, warehouseBinApi } from '../../../api'
+import QueryConditionBuilder from '../../../components/QueryConditionBuilder.vue'
+import { createEmptyCondition, serializeConditions, type QueryCondition, type QueryField } from '../../../utils/queryBuilder'
 import { materialCategoryLabel } from '../../../utils/category'
 
 const loading = ref(false)
@@ -8,7 +10,46 @@ const list = ref<any[]>([])
 const total = ref(0)
 const warehouses = ref<any[]>([])
 const bins = ref<any[]>([])
-const query = reactive({ page: 1, pageSize: 20, materialCode: '', materialName: '', warehouseId: '', binId: '' })
+const query = reactive<{
+  page: number
+  pageSize: number
+  materialCode: string
+  materialName: string
+  warehouseId: string | number
+  binId: string | number
+  conditions?: string
+}>({ page: 1, pageSize: 20, materialCode: '', materialName: '', warehouseId: '', binId: '' })
+
+const advancedConditions = ref<QueryCondition[]>([createEmptyCondition()])
+
+const queryFields: QueryField[] = [
+  { field: 'materialCode', label: '物料编码', type: 'text', placeholder: '物料编码' },
+  { field: 'materialName', label: '物料名称', type: 'text', placeholder: '物料名称' },
+  { field: 'specification', label: '型号规格', type: 'text', placeholder: '型号规格' },
+  {
+    field: 'category',
+    label: '类别',
+    type: 'enum',
+    options: [
+      { label: '采购', value: 'purchase' },
+      { label: '制造', value: 'manufacture' },
+    ],
+  },
+  { field: 'warehouseName', label: '仓库', type: 'text', placeholder: '仓库名称' },
+  { field: 'quantity', label: '现存量', type: 'number' },
+  { field: 'availableQty', label: '可用量', type: 'number' },
+  { field: 'unit', label: '单位', type: 'text', placeholder: '单位' },
+  { field: 'safetyStock', label: '安全库存', type: 'number' },
+  {
+    field: 'status',
+    label: '状态',
+    type: 'enum',
+    options: [
+      { label: '低于安全库存', value: 'low' },
+      { label: '正常', value: 'normal' },
+    ],
+  },
+]
 
 async function loadData() {
   loading.value = true
@@ -22,6 +63,26 @@ async function loadData() {
 async function loadWarehouses() {
   const res: any = await warehouseApi.list({ pageSize: 200 })
   warehouses.value = res.data.items
+}
+
+function submitAdvanced(conditions: QueryCondition[]) {
+  query.conditions = serializeConditions(conditions)
+  query.page = 1
+  loadData()
+}
+
+function resetAdvanced() {
+  advancedConditions.value = [createEmptyCondition()]
+  query.conditions = undefined
+  query.page = 1
+  loadData()
+}
+
+function resetAll() {
+  Object.assign(query, { materialCode: '', materialName: '', warehouseId: '', binId: '', page: 1, conditions: undefined })
+  bins.value = []
+  advancedConditions.value = [createEmptyCondition()]
+  loadData()
 }
 
 const selectedBinManaged = computed(() => warehouses.value.find((w: any) => w.id === query.warehouseId)?.binManaged ?? false)
@@ -55,7 +116,12 @@ onMounted(async () => {
           <el-option v-for="b in bins" :key="b.id" :label="`${b.code} - ${b.name}`" :value="b.id" />
         </el-select>
         <el-button type="primary" @click="query.page = 1, loadData()"><el-icon><Search /></el-icon>查询</el-button>
-        <el-button @click="Object.assign(query, { materialCode: '', materialName: '', warehouseId: '', binId: '', page: 1 }), bins = [], loadData()">重置</el-button>
+        <el-button @click="resetAll">重置</el-button>
+      </div>
+
+      <div class="advanced-query">
+        <div class="advanced-query-title">高级查询（条件之间使用 AND 连接）</div>
+        <QueryConditionBuilder v-model="advancedConditions" :fields="queryFields" @query="submitAdvanced" @reset="resetAdvanced" />
       </div>
 
       <div class="table-toolbar">
@@ -120,3 +186,18 @@ onMounted(async () => {
     </div>
   </div>
 </template>
+
+<style scoped>
+.advanced-query {
+  margin: 4px 0 8px;
+  padding: 8px 10px;
+  border: 1px solid #d5dae2;
+  border-radius: 6px;
+  background: #fafbfc;
+}
+.advanced-query-title {
+  margin-bottom: 2px;
+  color: var(--el-text-color-regular);
+  font-size: 13px;
+}
+</style>

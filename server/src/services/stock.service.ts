@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { localDateCompact, parseLocalDateStart, parseLocalDateEnd } from "../utils/date";
 import { resolveUnitRate, toBaseQty } from "../utils/unit";
 import { lockOrderNo, ORDER_NO_LOCK } from "../utils/retry";
+import { buildSqlQueryFilters, parseQueryConditions, type SqlQueryFieldDefinition } from "../utils/queryConditions";
 
 // 生成单据号：前缀+日期+序号（调用方需先持有库存单据号的 advisory lock，避免并发重复）
 export async function generateDocNo(client: any = prisma, prefix = "ST"): Promise<string> {
@@ -89,7 +90,7 @@ function escapeLike(value: any) {
 }
 
 // SQL 过滤条件（使用 s/m 别名），供明细/分组的数据库分页复用
-function buildStockSqlWhere(where: any): Prisma.Sql {
+function buildStockSqlParts(where: any): Prisma.Sql[] {
   const parts: Prisma.Sql[] = [Prisma.sql`s.quantity > 0`];
   if (where.materialCode) {
     parts.push(Prisma.sql`m.code LIKE ${`%${escapeLike(where.materialCode)}%`}`);
@@ -106,7 +107,76 @@ function buildStockSqlWhere(where: any): Prisma.Sql {
     const id = Number(where.binId);
     if (Number.isFinite(id)) parts.push(Prisma.sql`s."binId" = ${id}`);
   }
-  return Prisma.sql`AND ${Prisma.join(parts, " AND ")}`;
+  return parts;
+}
+
+const STOCK_SUMMARY_STATUS_SQL = `CASE WHEN m."safetyStock" > 0 AND COALESCE((SELECT SUM(sq.quantity) FROM "Stock" sq JOIN "Warehouse" sw ON sw.id = sq."warehouseId" WHERE sq."materialId" = m.id AND sw.status = 1), 0) <= m."safetyStock" THEN 'low' ELSE 'normal' END`;
+
+const stockSummaryQueryFields: Record<string, SqlQueryFieldDefinition> = {
+  materialCode: { type: "text", whereSql: "m.code" },
+  materialName: { type: "text", whereSql: "m.name" },
+  specification: { type: "text", whereSql: "m.specification" },
+  category: {
+    type: "enum",
+    whereSql: "m.category",
+    options: [
+      { label: "采购", value: "purchase" },
+      { label: "制造", value: "manufacture" },
+    ],
+  },
+  warehouseName: { type: "text", whereSql: "w.name" },
+  quantity: { type: "number", havingSql: "SUM(s.quantity)" },
+  availableQty: { type: "number", havingSql: "SUM(s.quantity - s.reservedQty)" },
+  unit: { type: "text", whereSql: "m.unit" },
+  safetyStock: { type: "number", whereSql: 'm."safetyStock"' },
+  status: {
+    type: "enum",
+    whereSql: STOCK_SUMMARY_STATUS_SQL,
+    options: [
+      { label: "低于安全库存", value: "low" },
+      { label: "正常", value: "normal" },
+    ],
+  },
+};
+
+function buildStockSummaryAdvancedFilters(where: any): { whereParts: Prisma.Sql[]; havingParts: Prisma.Sql[] } {
+  const conditions = parseQueryConditions(where.conditions);
+  return buildSqlQueryFilters(conditions, stockSummaryQueryFields);
+}
+
+// 明细台账按「库存行」过滤：数量/可用量为单行值，全部走 WHERE，无聚合条件
+const stockDetailQueryFields: Record<string, SqlQueryFieldDefinition> = {
+  materialCode: { type: "text", whereSql: "m.code" },
+  materialName: { type: "text", whereSql: "m.name" },
+  specification: { type: "text", whereSql: "m.specification" },
+  category: {
+    type: "enum",
+    whereSql: "m.category",
+    options: [
+      { label: "采购", value: "purchase" },
+      { label: "制造", value: "manufacture" },
+    ],
+  },
+  warehouseName: { type: "text", whereSql: "w.name" },
+  quantity: { type: "number", whereSql: "s.quantity" },
+  availableQty: { type: "number", whereSql: '(s.quantity - s."reservedQty")' },
+  unit: { type: "text", whereSql: "m.unit" },
+  safetyStock: { type: "number", whereSql: 'm."safetyStock"' },
+  status: {
+    type: "enum",
+    whereSql: STOCK_SUMMARY_STATUS_SQL,
+    options: [
+      { label: "低于安全库存", value: "low" },
+      { label: "正常", value: "normal" },
+    ],
+  },
+};
+
+function buildStockDetailAdvancedFilters(where: any): Prisma.Sql[] {
+  const conditions = parseQueryConditions(where.conditions);
+  const { whereParts, havingParts } = buildSqlQueryFilters(conditions, stockDetailQueryFields);
+  if (havingParts.length) throw new Error("查询条件：库存明细不支持聚合过滤");
+  return whereParts;
 }
 
 // 按 id 批量加载库存行，并附带物料/仓库/货位/批次与低库存标记（顺序按传入 id）
@@ -153,6 +223,7 @@ function buildDetailRowCountCte(filters: Prisma.Sql) {
       END)::int AS cnt
     FROM "Stock" s
     JOIN "Material" m ON m.id = s."materialId"
+    JOIN "Warehouse" w ON w.id = s."warehouseId"
     LEFT JOIN (
       SELECT "materialId", "warehouseId", "binId",
         COUNT(*)::int AS batch_count,
@@ -170,7 +241,8 @@ function buildDetailRowCountCte(filters: Prisma.Sql) {
 // 库存明细台账：SQL 级分页（按批号平铺后计算累计行号），避免全量加载
 export async function listStockDetail(where: any) {
   const { pageNum, sizeNum, offset } = clampPage(where.page, where.pageSize);
-  const filters = buildStockSqlWhere(where);
+  const whereParts = [...buildStockSqlParts(where), ...buildStockDetailAdvancedFilters(where)];
+  const filters = Prisma.sql`AND ${Prisma.join(whereParts, " AND ")}`;
   const cte = buildDetailRowCountCte(filters);
 
   const countRows = await prisma.$queryRaw<{ total: number }[]>(Prisma.sql`
@@ -216,30 +288,30 @@ export async function listStockDetail(where: any) {
 // 库存查询：按「仓库 × 物料」分组，SQL 级分页后再加载当前页的分组明细
 export async function listStockSummary(where: any) {
   const { pageNum, sizeNum, offset } = clampPage(where.page, where.pageSize);
-  const filters = buildStockSqlWhere(where);
-  const joins = Prisma.sql`
+  const advancedFilters = buildStockSummaryAdvancedFilters(where);
+  const whereParts = [...buildStockSqlParts(where), ...advancedFilters.whereParts];
+  const filters = Prisma.sql`AND ${Prisma.join(whereParts, " AND ")}`;
+  const having = advancedFilters.havingParts.length
+    ? Prisma.sql`HAVING ${Prisma.join(advancedFilters.havingParts, " AND ")}`
+    : Prisma.empty;
+  const groupSelect = Prisma.sql`
+    SELECT s."warehouseId", s."materialId", w.name AS "warehouseName", m.code AS "materialCode"
     FROM "Stock" s
     JOIN "Material" m ON m.id = s."materialId"
     JOIN "Warehouse" w ON w.id = s."warehouseId"
     WHERE s.quantity > 0 ${filters}
+    GROUP BY s."warehouseId", s."materialId", w.name, m.code
+    ${having}
   `;
 
   const countRows = await prisma.$queryRaw<{ total: number }[]>(Prisma.sql`
-    SELECT COUNT(*)::int AS total FROM (
-      SELECT s."warehouseId", s."materialId"
-      ${joins}
-      GROUP BY s."warehouseId", s."materialId"
-    ) t
+    SELECT COUNT(*)::int AS total FROM (${groupSelect}) t
   `);
   const total = Number(countRows[0]?.total ?? 0);
 
-  const groupRows = await prisma.$queryRaw<{ warehouseId: number; materialId: number }[]>(Prisma.sql`
-    SELECT s."warehouseId", s."materialId"
-    ${joins}
-    GROUP BY s."warehouseId", s."materialId", w.name, m.code
-    ORDER BY w.name ASC, m.code ASC, s."warehouseId" ASC, s."materialId" ASC
-    LIMIT ${sizeNum} OFFSET ${offset}
-  `);
+  const groupRows = await prisma.$queryRaw<{ warehouseId: number; materialId: number }[]>(
+    Prisma.sql`${groupSelect} ORDER BY "warehouseName" ASC, "materialCode" ASC, "warehouseId" ASC, "materialId" ASC LIMIT ${sizeNum} OFFSET ${offset}`,
+  );
 
   if (groupRows.length === 0) return { total, page: pageNum, pageSize: sizeNum, items: [] };
 

@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import * as stockService from "../services/stock.service";
 import * as exportService from "../services/export.service";
 import { success, fail } from "../utils/response";
+import { isQueryConditionError } from "../utils/queryConditions";
 import { AuthRequest } from "../middleware/auth";
 import { sendCsv } from "../utils/export";
 
@@ -28,6 +29,9 @@ export async function detailHandler(req: Request, res: Response) {
     const data = await stockService.listStockDetail(req.query as any);
     return success(res, data);
   } catch (error: any) {
+    if (isQueryConditionError(error)) {
+      return fail(res, 400, error.message);
+    }
     return fail(res, 500, error.message, 500);
   }
 }
@@ -37,6 +41,9 @@ export async function summaryHandler(req: Request, res: Response) {
     const data = await stockService.listStockSummary(req.query as any);
     return success(res, data);
   } catch (error: any) {
+    if (isQueryConditionError(error)) {
+      return fail(res, 400, error.message);
+    }
     return fail(res, 500, error.message, 500);
   }
 }
