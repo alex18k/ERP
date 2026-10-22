@@ -1,0 +1,748 @@
+// ERP生产管理系统数据库Schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ========== 认证与权限 ==========
+
+model User {
+  id            Int            @id @default(autoincrement())
+  username      String         @unique
+  passwordHash  String
+  realName      String
+  email         String?
+  phone         String?
+  departmentId  Int?
+  department    Department?    @relation(fields: [departmentId], references: [id])
+  status        Int            @default(1)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  userRoles     UserRole[]
+  createdOrders SalesOrder[]   @relation("OrderCreator")
+  stockRecords  StockRecord[]  @relation("StockOperator")
+  workReports   WorkReport[]   @relation("WorkReportReporter")
+  operationLogs OperationLog[]
+}
+
+model Role {
+  id              Int              @id @default(autoincrement())
+  code            String           @unique
+  name            String
+  description     String?
+  dataScope       String           @default("personal")
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  userRoles       UserRole[]
+  rolePermissions RolePermission[]
+}
+
+model UserRole {
+  id     Int  @id @default(autoincrement())
+  userId Int
+  roleId Int
+  user   User @relation(fields: [userId], references: [id])
+  role   Role @relation(fields: [roleId], references: [id])
+
+  @@unique([userId, roleId])
+}
+
+model Permission {
+  id              Int              @id @default(autoincrement())
+  code            String           @unique
+  name            String
+  module          String
+  action          String
+  rolePermissions RolePermission[]
+}
+
+model RolePermission {
+  id           Int        @id @default(autoincrement())
+  roleId       Int
+  permissionId Int
+  role         Role       @relation(fields: [roleId], references: [id])
+  permission   Permission @relation(fields: [permissionId], references: [id])
+
+  @@unique([roleId, permissionId])
+}
+
+model OperationLog {
+  id        Int      @id @default(autoincrement())
+  userId    Int?
+  user      User?    @relation(fields: [userId], references: [id])
+  module    String
+  action    String
+  detail    String?
+  ipAddress String?
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+}
+
+model Department {
+  id        Int      @id @default(autoincrement())
+  code      String   @unique
+  name      String
+  parentId  Int?
+  status    Int      @default(1)
+  createdAt DateTime @default(now())
+  users     User[]
+}
+
+// ========== 基础数据 ==========
+
+model Material {
+  id                  Int                  @id @default(autoincrement())
+  code                String               @unique
+  bomcode             String? // BOM编码（用于管理BOM）
+  name                String
+  specification       String?
+  description         String? // 物料描述
+  packageType         String? // 封装（自由填写）
+  brand               String? // 品牌（自由填写）
+  category            String // purchase=采购, manufacture=制造
+  unit                String
+  safetyStock         Float                @default(0)
+  minStock            Float                @default(0)
+  maxStock            Float                @default(0)
+  leadTime            Int                  @default(0) // 采购提前期（天数）
+  manufactureLeadTime Int                  @default(0) // 制造提前期（天数）
+  orderCycleDays      Int                  @default(30) // 订货周期（天数）：MRP 按此周期合并需求，超出则分开下单
+  materialType        String? // 物料类别（自由填写，如五金件/电子件/包装材料）
+  minOrderQty         Float                @default(0) // 最小订量
+  cost                Float                @default(0) // 成本（移动加权平均价，用于 BOM 成本）
+  price               Float                @default(0) // 最近采购价（基本单位，采购收货回写；MRP/采购单建议单价）
+  location            String? // 库位（与仓库编码对应）
+  supplierId          Int?
+  supplier            Supplier?            @relation(fields: [supplierId], references: [id])
+  batchManaged        Boolean              @default(false) // 是否启用批号管理
+  status              Int                  @default(1)
+  remark              String?
+  desc1               String? // 自定义字段1
+  desc2               String? // 自定义字段2
+  desc3               String? // 自定义字段3
+  desc4               String? // 自定义字段4
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  bomItems            BomItem[]
+  bomProducts         Bom[]                @relation("BomProduct")
+  processRouteId      Int?
+  processRoute        ProcessRoute?        @relation(fields: [processRouteId], references: [id])
+  stocks              Stock[]
+  stockRecords        StockRecord[]
+  batches             MaterialBatch[]
+  orderItems          SalesOrderItem[]
+  purchaseItems       PurchaseOrderItem[]
+  productionOrders    ProductionOrder[]
+  mrpShortages        MrpShortage[]
+  purchaseSuggestions PurchaseSuggestion[]
+  batchMaterials      ProductionBatchMaterial[]
+  unitConversions     MaterialUnitConversion[]
+
+  @@index([category, status])
+}
+
+// 计量单位换算：物料的转换单位与基本单位（Material.unit）之间的换算关系
+model MaterialUnitConversion {
+  id             Int      @id @default(autoincrement())
+  materialId     Int
+  material       Material @relation(fields: [materialId], references: [id])
+  unit           String // 转换单位（如 箱/包/吨）
+  conversionRate Float // 换算率：1 转换单位 = conversionRate 基本单位
+  remark         String?
+  status         Int      @default(1)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([materialId, unit])
+  @@index([materialId])
+}
+
+// 物料类别：物料主文件 materialType（物料类别）的可选值主数据
+model MaterialCategory {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  status    Int      @default(1)
+  remark    String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Bom {
+  id        Int       @id @default(autoincrement())
+  code      String    @unique
+  name      String
+  productId Int
+  product   Material  @relation("BomProduct", fields: [productId], references: [id])
+  version   String    @default("1.0")
+  status    String    @default("draft") // draft, active, obsolete
+  createdBy Int?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  items     BomItem[]
+
+  @@index([productId, status])
+}
+
+model BomItem {
+  id         Int      @id @default(autoincrement())
+  bomId      Int
+  bom        Bom      @relation(fields: [bomId], references: [id], onDelete: Cascade)
+  materialId Int
+  material   Material @relation(fields: [materialId], references: [id])
+  quantity   Float
+  unit       String
+  lossRate   Float    @default(0)
+  sortOrder  Int      @default(0)
+
+  @@index([bomId])
+  @@index([materialId])
+}
+
+model ProcessRoute {
+  id          Int           @id @default(autoincrement())
+  code        String        @unique
+  name        String
+  description String? // 说明/描述
+  totalTime   Float         @default(0)
+  status    String        @default("active")
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+  processes ProcessStep[]
+  materials Material[]
+}
+
+model ProcessStep {
+  id               Int                      @id @default(autoincrement())
+  routeId          Int
+  route            ProcessRoute             @relation(fields: [routeId], references: [id])
+  code             String
+  name             String
+  sequence         Int
+  workstationId    Int?
+  workstation      Workstation?             @relation(fields: [workstationId], references: [id])
+  standardTime     Float                    @default(0)
+  setupTime        Float                    @default(0)
+  createdAt        DateTime                 @default(now())
+
+  @@index([routeId])
+}
+
+model Workstation {
+  id           Int           @id @default(autoincrement())
+  code         String        @unique
+  name         String
+  workshopId   Int?
+  workshop     Workshop?     @relation(fields: [workshopId], references: [id])
+  type         String?
+  capacity     Float         @default(1)
+  status       Int           @default(1)
+  createdAt    DateTime      @default(now())
+  processSteps       ProcessStep[]
+  orderSteps         ProductionOrderStep[]
+}
+
+model Workshop {
+  id           Int           @id @default(autoincrement())
+  code         String        @unique
+  name         String
+  manager      String?
+  status       Int           @default(1)
+  createdAt    DateTime      @default(now())
+  workstations Workstation[]
+  stockRecords StockRecord[] @relation("StockRecordDepartment")
+}
+
+model Supplier {
+  id             Int             @id @default(autoincrement())
+  code           String          @unique
+  name           String
+  contactPerson  String?
+  phone          String?
+  email          String?
+  address        String?
+  joinedDate     DateTime? // 加入日期
+  type           String? // 供应商类型（自由填写，如 原材料/委外加工/辅料）
+  buyer          String? // 采购员（责任人）
+  settleMethod   String? // 结算方式（如 现结/月结30天）
+  taxIncluded    Boolean         @default(false) // 默认含税
+  taxRate        Float           @default(0) // 默认税率(%)
+  status         Int             @default(1)
+  remark         String?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  materials      Material[]
+  purchaseOrders PurchaseOrder[]
+}
+
+model Warehouse {
+  id           Int           @id @default(autoincrement())
+  code         String        @unique
+  name         String
+  address      String?
+  status       Int           @default(1) // 1=启用（库存参与MRP）, 0=停用（不参与MRP）
+  binManaged   Boolean       @default(false) // 是否启用货位管理（启用后库存按 仓库+货位 维度，且出入库必须指定货位）
+  createdAt    DateTime      @default(now())
+  stocks       Stock[]
+  stockRecords StockRecord[] @relation("StockRecordWarehouse")
+  batches      MaterialBatch[]
+  bins         WarehouseBin[]
+}
+
+// 货位：仓库下的具体存放位置
+model WarehouseBin {
+  id           Int           @id @default(autoincrement())
+  warehouseId  Int
+  warehouse    Warehouse     @relation(fields: [warehouseId], references: [id])
+  code         String // 货位编码（仓库内唯一）
+  name         String // 货位名称
+  status       Int           @default(1) // 1=启用, 0=停用
+  remark       String?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  stocks       Stock[]
+  stockRecords StockRecord[]
+  batches      MaterialBatch[]
+
+  @@unique([warehouseId, code])
+  @@index([warehouseId])
+}
+
+model Customer {
+  id            Int          @id @default(autoincrement())
+  code          String       @unique
+  name          String
+  contactPerson String?
+  phone         String?
+  email         String?
+  address       String?
+  joinedDate    DateTime? // 加入日期
+  type          String? // 客户类型（自由填写，如 终端客户/经销商）
+  seller        String? // 销售员（责任人）
+  settleMethod  String? // 结算方式（如 现结/月结30天）
+  status        Int          @default(1)
+  remark        String?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  salesOrders   SalesOrder[]
+}
+
+// ========== 订单管理 ==========
+
+model SalesOrder {
+  id               Int               @id @default(autoincrement())
+  orderNo          String            @unique
+  customerId       Int?
+  customer         Customer?         @relation(fields: [customerId], references: [id])
+  customerName     String
+  customerCode     String?
+  contactPerson    String?
+  contactPhone     String?
+  totalAmount      Float             @default(0)
+  orderDate        DateTime? // 订货日期
+  channel          String? // 渠道（如 线上/线下/展会）
+  seller1          String? // 销售员1
+  seller2          String? // 销售员2
+  paymentMethod    String? // 付款方式
+  deliveryDate     DateTime?
+  status           String            @default("draft") // draft, confirmed, in_production, completed, shipped, cancelled
+  remark           String?
+  createdBy        Int?
+  creator          User?             @relation("OrderCreator", fields: [createdBy], references: [id])
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  items            SalesOrderItem[]
+  productionOrders ProductionOrder[]
+
+  @@index([status])
+  @@index([deliveryDate])
+}
+
+model SalesOrderItem {
+  id           Int        @id @default(autoincrement())
+  orderId      Int
+  order        SalesOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  materialId   Int
+  material     Material   @relation(fields: [materialId], references: [id])
+  quantity     Float
+  unit         String? // 计量单位（带出物料单位，可修改）
+  conversionRate Float?    @default(1) // 单位换算率快照：1 计量单位 = conversionRate 基本单位
+  baseQty        Float?    @default(0) // 换算后的基本单位数量
+  unitPrice    Float?     @default(0)
+  taxIncluded  Boolean    @default(false) // 是否含税（勾选时单价视为含税单价）
+  taxRate      Float      @default(0) // 税率(%)
+  amount       Float?     @default(0)
+  deliveredQty Float      @default(0)
+  deliveryDate DateTime?
+  status       String     @default("pending") // pending, in_production, completed, shipped, cancelled
+  remark       String?
+  line         Int        @default(0) // 行号（单内明细序号，从 1 开始）
+
+  @@index([orderId])
+  @@index([materialId])
+}
+
+// ========== 生产管理 ==========
+
+model ProductionOrder {
+  id               Int                      @id @default(autoincrement())
+  orderNo          String                   @unique
+  salesOrderId     Int?
+  salesOrder       SalesOrder?              @relation(fields: [salesOrderId], references: [id])
+  salesOrderNo     String? // 手工输入的销售订单号（允许非系统订单）
+  materialId       Int
+  material         Material                 @relation(fields: [materialId], references: [id])
+  processRouteId   Int? // 工艺路线（默认取产品所属路线，可指定）
+  quantity         Float
+  planStartDate    DateTime?
+  planEndDate      DateTime?
+  planner          String? // 计划员
+  releaseDate      DateTime? // 下达日期
+  actualStartDate  DateTime?
+  actualEndDate    DateTime?
+  status           String                   @default("planned") // planned, in_progress, completed, cancelled
+  remark           String?
+  createdBy        Int?
+  createdAt        DateTime                 @default(now())
+  updatedAt        DateTime                 @updatedAt
+  batches          ProductionBatch[]
+  orderRoute       ProductionOrderRoute?
+
+  @@index([status])
+  @@index([planEndDate])
+}
+
+model ProductionBatch {
+  id                Int             @id @default(autoincrement())
+  productionOrderId Int
+  productionOrder   ProductionOrder @relation(fields: [productionOrderId], references: [id])
+  batchNo           Int
+  quantity          Float
+  planStartDate     DateTime?
+  planEndDate       DateTime?
+  receivedQty       Float           @default(0) // 成品已入库量
+  status            String          @default("planned") // planned, in_progress, completed, cancelled
+  remark            String?
+  createdAt         DateTime        @default(now())
+  materials         ProductionBatchMaterial[]
+  reports           WorkReport[]
+
+  @@unique([productionOrderId, batchNo])
+  @@index([productionOrderId])
+}
+
+model ProductionBatchMaterial {
+  id          Int             @id @default(autoincrement())
+  batchId     Int
+  batch       ProductionBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  materialId  Int
+  material    Material        @relation(fields: [materialId], references: [id])
+  requiredQty Float
+  issuedQty   Float           @default(0) // 已领料量
+  unit        String?
+  status      String          @default("pending") // pending, partial, issued
+  remark      String?
+  createdAt   DateTime        @default(now())
+
+  @@unique([batchId, materialId])
+  @@index([batchId])
+  @@index([materialId])
+}
+
+// 排产时从标准工艺路线拷贝的订单级工艺路线
+model ProductionOrderRoute {
+  id                Int                      @id @default(autoincrement())
+  productionOrderId Int                      @unique
+  productionOrder   ProductionOrder          @relation(fields: [productionOrderId], references: [id])
+  sourceRouteId     Int?                     // 来源标准工艺路线 id
+  code              String
+  name              String
+  description       String?
+  totalTime         Float                    @default(0)
+  status            String                   @default("active")
+  createdAt         DateTime                 @default(now())
+  updatedAt         DateTime                 @updatedAt
+  steps             ProductionOrderStep[]
+}
+
+// 排产时从标准工序拷贝的订单级工序
+model ProductionOrderStep {
+  id                Int                  @id @default(autoincrement())
+  orderRouteId      Int
+  orderRoute        ProductionOrderRoute @relation(fields: [orderRouteId], references: [id], onDelete: Cascade)
+  sourceStepId      Int?                 // 来源标准工序 id
+  code              String
+  name              String
+  sequence          Int
+  workstationId     Int?
+  workstation       Workstation?         @relation(fields: [workstationId], references: [id])
+  standardTime      Float                @default(0)
+  setupTime         Float                @default(0)
+  createdAt         DateTime             @default(now())
+
+  @@index([orderRouteId])
+}
+
+model WorkReport {
+  id            Int             @id @default(autoincrement())
+  batchId       Int
+  batch         ProductionBatch @relation(fields: [batchId], references: [id])
+  reporterId    Int
+  reporter      User            @relation("WorkReportReporter", fields: [reporterId], references: [id])
+  processStepId Int // 订单级工序 ProductionOrderStep.id（裸外键，无 relation）
+  quantity      Float
+  scrapQty      Float           @default(0)
+  materialUsed  Float           @default(0)
+  workHours     Float           @default(0) // 本次实际工时(h)
+  reportTime    DateTime        @default(now())
+  remark        String?
+
+  @@index([batchId])
+  @@index([processStepId])
+}
+
+// ========== 采购管理 ==========
+
+model PurchaseOrder {
+  id           Int                 @id @default(autoincrement())
+  orderNo      String              @unique
+  supplierId   Int?
+  supplier     Supplier?           @relation(fields: [supplierId], references: [id])
+  totalAmount  Float               @default(0)
+  orderDate    DateTime?
+  expectedDate DateTime?
+  status       String              @default("draft") // draft, confirmed, partial_received, received, cancelled, closed
+  settleMethod String? // 结算方式（来自供应商，下单时快照）
+  taxIncluded  Boolean             @default(false) // 含税（表头默认，来自供应商）
+  taxRate      Float               @default(0) // 税率(%)（表头默认，来自供应商）
+  buyer        String? // 采购员
+  remark       String?
+  createdBy    Int?
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+  items        PurchaseOrderItem[]
+
+  @@index([status])
+}
+
+model PurchaseOrderItem {
+  id           Int           @id @default(autoincrement())
+  orderId      Int
+  order        PurchaseOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  materialId   Int
+  material     Material      @relation(fields: [materialId], references: [id])
+  quantity     Float
+  receivedQty  Float         @default(0)
+  unit         String? // 计量单位（带出物料单位，可修改）
+  conversionRate Float       @default(1) // 单位换算率快照：1 计量单位 = conversionRate 基本单位
+  baseQty        Float       @default(0) // 换算后的基本单位数量
+  unitPrice    Float?        @default(0)
+  amount       Float?        @default(0)
+  taxIncluded  Boolean       @default(false) // 是否含税
+  taxRate      Float         @default(0) // 税率(%)
+  location     String? // 库位
+  expectedDate DateTime?
+  status       String        @default("") // 空白(可收货/参与MRP), closed, cancelled
+  remark       String?
+  suggestionId Int?
+  sourceOrderNo String? // 需求来源订单号
+  line         Int           @default(0) // 行号（单内明细序号，从 1 开始）
+
+  @@index([orderId])
+  @@index([materialId])
+}
+
+// ========== 库存管理 ==========
+
+model Stock {
+  id          Int       @id @default(autoincrement())
+  materialId  Int
+  material    Material  @relation(fields: [materialId], references: [id])
+  warehouseId Int
+  warehouse   Warehouse @relation(fields: [warehouseId], references: [id])
+  binId       Int?
+  bin         WarehouseBin? @relation(fields: [binId], references: [id], onDelete: Restrict)
+  quantity    Float     @default(0)
+  reservedQty Float     @default(0)
+  lastInDate  DateTime?
+  lastOutDate DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([materialId, warehouseId, binId])
+  @@index([warehouseId])
+}
+
+model StockRecord {
+  id                Int                   @id @default(autoincrement())
+  materialId        Int
+  material          Material              @relation(fields: [materialId], references: [id])
+  warehouseId       Int
+  warehouse         Warehouse             @relation("StockRecordWarehouse", fields: [warehouseId], references: [id])
+  binId             Int?
+  bin               WarehouseBin?         @relation(fields: [binId], references: [id], onDelete: Restrict)
+  type              String // in, out, transfer, adjust
+  transactionTypeId Int?
+  transactionType   StockTransactionType? @relation(fields: [transactionTypeId], references: [id])
+  documentNo        String? // 系统自动生成的单据号
+  orderNo           String? // 手工/原单号（新增库存事务页面录入）
+  deliveryNo        String? // 送货单号（采购收货录入）
+  keeper            String? // 仓管员（采购收货录入）
+  approver          String? // 审核人（材料出库录入）
+  departmentId      Int?
+  department        Workshop?             @relation("StockRecordDepartment", fields: [departmentId], references: [id])
+  handler           String? // 经手人（手工库存事务录入）
+  salesperson       String? // 销售员（销售订单/销售发运带出）
+  buyer             String? // 采购员（采购单收货带出）
+  lineNo            Int? // 行号
+  location          String? // 库位
+  effectiveDate     DateTime? // 生效日期
+  quantity          Float
+  relatedType       String?
+  relatedId         Int?
+  operatorId        Int?
+  operator          User?                 @relation("StockOperator", fields: [operatorId], references: [id])
+  companyId         Int? // 所属公司（销售出库业务归属；随单据各行流水保存）
+  company           CompanyInfo?          @relation("StockRecordCompany", fields: [companyId], references: [id])
+  mainRemark        String? // 主备注（单据表头录入，随单据各行流水保存）
+  remark            String?
+  address           String? // 客户/供应商代码（销售发运/采购收货）
+  price             Float? // 事务单价（销售发运/采购收货）
+  um                String? // 事务计量单位
+  site              String? // 预留
+  domain            String? // 预留
+  contractNo        String? // 合同号（销售发运/采购收货）
+  contactName       String? // 联系人（备用；销售发运取订单联系人快照）
+  contactPhone      String? // 联系电话（备用）
+  batchNo           String? // 批号（批号管理物料的入出库流水必带）
+  createdAt         DateTime              @default(now())
+
+  @@index([materialId])
+  @@index([warehouseId])
+  @@index([orderNo])
+  @@index([documentNo])
+  @@index([relatedType, relatedId])
+  @@index([createdAt])
+  @@index([type, createdAt])
+  @@index([departmentId])
+  @@index([companyId])
+}
+
+// 物料批号库存：按 (物料, 仓库, 货位, 批号) 记录各批数量
+model MaterialBatch {
+  id          Int       @id @default(autoincrement())
+  materialId  Int
+  material    Material  @relation(fields: [materialId], references: [id])
+  warehouseId Int
+  warehouse   Warehouse @relation(fields: [warehouseId], references: [id])
+  binId       Int?
+  bin         WarehouseBin? @relation(fields: [binId], references: [id], onDelete: Restrict)
+  batchNo     String
+  quantity    Float     @default(0)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([materialId, warehouseId, binId, batchNo])
+  @@index([materialId])
+  @@index([warehouseId])
+}
+
+// 库存事务类型（记录库存调整的业务类型）
+model StockTransactionType {
+  id             Int           @id @default(autoincrement())
+  code           String        @unique
+  description    String
+  documentPrefix String?       // 单据前缀，如采购收货 RC
+  direction      String        @default("in") // in=增, out=减
+  status         Int           @default(1)
+  createdAt      DateTime      @default(now())
+  stockRecords   StockRecord[]
+}
+
+// ========== MRP ==========
+
+model MrpRecord {
+  id         Int      @id @default(autoincrement())
+  runId      String
+  materialId Int
+  quantity   Float
+  orderId    Int?
+  runAt      DateTime @default(now())
+
+  @@index([runId])
+}
+
+model MrpRun {
+  id            Int           @id @default(autoincrement())
+  runNo         String        @unique
+  orderCount    Int           @default(0)
+  materialCount Int           @default(0)
+  shortageCount Int           @default(0)
+  status        String        @default("running") // running, completed, failed
+  startedAt     DateTime      @default(now())
+  completedAt   DateTime?
+  createdBy     Int?
+  result        String? // JSON数组：缺料清单
+  shortages     MrpShortage[]
+}
+
+model MrpShortage {
+  id                   Int      @id @default(autoincrement())
+  runId                Int
+  run                  MrpRun   @relation(fields: [runId], references: [id], onDelete: Cascade)
+  materialId           Int
+  material             Material @relation(fields: [materialId], references: [id])
+  grossDemand          Float
+  stockQuantity        Float
+  inTransit            Float
+  safetyStock          Float
+  netDemand            Float
+  affectedOrders       String? // JSON: 影响订单ID列表
+  status               String   @default("pending") // pending, suggested, purchased, closed
+  purchaseSuggestionId Int?
+
+  @@index([runId])
+  @@index([materialId])
+}
+
+model PurchaseSuggestion {
+  id               Int       @id @default(autoincrement())
+  runId            Int
+  materialId       Int
+  material         Material  @relation(fields: [materialId], references: [id])
+  suggestedQty     Float
+  unitPrice        Float?    @default(0)
+  supplierId       Int?
+  leadTime         Int?
+  needDate         DateTime?
+  orderDate        DateTime?
+  status           String    @default("pending") // pending, converted, cancelled
+  convertedOrderId Int?
+  createdAt        DateTime  @default(now())
+}
+
+model CompanyInfo {
+  id          Int      @id @default(autoincrement())
+  nameZh      String   @default("")
+  nameEn      String?
+  region      String?
+  address     String?
+  phone       String?
+  fax         String?
+  email       String?
+  contact     String?
+  taxNo       String?
+  website     String?
+  logo        String? // 公司Logo：base64 data URL（≤1MB）或图片地址；打印页优先显示
+  remark      String?
+  isDefault   Boolean  @default(false) // 默认公司：其它页面引用其名称
+  defaultedAt DateTime? // 首次被设为默认的时间；非 null 即视为被引用过，禁止删除
+  stockRecords StockRecord[] @relation("StockRecordCompany")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}

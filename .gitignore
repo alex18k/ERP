@@ -1,0 +1,31 @@
+# dependencies
+node_modules/
+
+# build output
+dist/
+dist-ssr/
+
+# logs
+*.log
+npm-debug.log*
+
+# env files (secrets / machine-specific)
+.env
+.env.local
+.env.*.local
+
+# legacy sqlite database (migrated to PostgreSQL; kept only as historical reference)
+server/prisma/dev.db*
+
+# backup archives
+backups/
+*.tar.gz
+*.dump
+
+# typescript build info
+*.tsbuildinfo
+
+# editor / OS
+.DS_Store
+.idea/
+.vscode/
