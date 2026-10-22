@@ -1,5 +1,7 @@
 import prisma from "../config/prisma";
 import { Prisma } from "@prisma/client";
+import { parseQueryConditions } from "../utils/queryConditions";
+import { buildPrismaQueryWhere, type PrismaQueryFieldDefinition } from "../utils/prismaQueryConditions";
 
 export interface MaterialCreateInput {
   code: string;
@@ -45,7 +47,79 @@ export interface MaterialWhere {
   status?: number;
   page?: number;
   pageSize?: number;
+  conditions?: string;
 }
+
+/** 高级查询字段白名单（物料主文件） */
+export const MATERIAL_QUERY_FIELDS: Record<string, PrismaQueryFieldDefinition> = {
+  code: { type: "text", column: "code" },
+  bomcode: { type: "text", column: "bomcode" },
+  name: { type: "text", column: "name" },
+  specification: { type: "text", column: "specification" },
+  description: { type: "text", column: "description" },
+  packageType: { type: "text", column: "packageType" },
+  brand: { type: "text", column: "brand" },
+  materialType: { type: "text", column: "materialType" },
+  category: {
+    type: "enum",
+    column: "category",
+    options: [
+      { label: "采购", value: "purchase" },
+      { label: "制造", value: "manufacture" },
+    ],
+  },
+  unit: { type: "text", column: "unit" },
+  batchManaged: {
+    type: "enum",
+    options: [
+      { label: "是", value: "1" },
+      { label: "否", value: "0" },
+    ],
+    build: (value) => ({ batchManaged: value === true || value === "1" || value === 1 }),
+  },
+  safetyStock: { type: "number", column: "safetyStock" },
+  minStock: { type: "number", column: "minStock" },
+  maxStock: { type: "number", column: "maxStock" },
+  leadTime: { type: "number", column: "leadTime" },
+  manufactureLeadTime: { type: "number", column: "manufactureLeadTime" },
+  orderCycleDays: { type: "number", column: "orderCycleDays" },
+  minOrderQty: { type: "number", column: "minOrderQty" },
+  cost: { type: "number", column: "cost" },
+  price: { type: "number", column: "price" },
+  location: { type: "text", column: "location" },
+  remark: { type: "text", column: "remark" },
+  status: {
+    type: "enum",
+    column: "status",
+    options: [
+      { label: "启用", value: 1 },
+      { label: "停用", value: 0 },
+    ],
+  },
+  supplierName: {
+    type: "text",
+    build: (value, _value2, operator) => ({
+      supplier: {
+        name:
+          operator === "eq"
+            ? String(value ?? "").trim()
+            : { contains: String(value ?? "").trim(), mode: "insensitive" },
+      },
+    }),
+  },
+  routeName: {
+    type: "text",
+    build: (value, _value2, operator) => ({
+      processRoute: {
+        name:
+          operator === "eq"
+            ? String(value ?? "").trim()
+            : { contains: String(value ?? "").trim(), mode: "insensitive" },
+      },
+    }),
+  },
+  createdAt: { type: "date", column: "createdAt" },
+};
 
 export async function listMaterials(where: MaterialWhere) {
   const { code, bomcode, name, keyword, category, materialType, brand, packageType, status, page = 1, pageSize = 20 } = where;
@@ -69,6 +143,13 @@ export async function listMaterials(where: MaterialWhere) {
   if (brand) filters.brand = { contains: brand, mode: "insensitive" };
   if (packageType) filters.packageType = { contains: packageType, mode: "insensitive" };
   if (status !== undefined) filters.status = Number(status);
+
+  // 高级查询条件（与基础条件 AND 叠加）
+  const advancedConditions = parseQueryConditions((where as any).conditions);
+  if (advancedConditions.length) {
+    const advanced = buildPrismaQueryWhere(advancedConditions, MATERIAL_QUERY_FIELDS);
+    filters.AND = [...(Array.isArray(filters.AND) ? filters.AND : []), advanced];
+  }
 
   const [total, items] = await Promise.all([
     prisma.material.count({ where: filters }),

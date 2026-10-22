@@ -3,15 +3,73 @@ import { h, ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { materialApi, supplierApi, warehouseApi, processRouteApi } from '../../../api'
 import { MATERIAL_CATEGORIES, materialCategoryLabel } from '../../../utils/category'
+import QueryConditionBuilder from '../../../components/QueryConditionBuilder.vue'
+import { createEmptyCondition, serializeConditions, type QueryCondition, type QueryField } from '../../../utils/queryBuilder'
 
 const loading = ref(false)
 const list = ref<any[]>([])
 const total = ref(0)
 const tableRef = ref()
 const currentRow = ref<any>(null)
-const query = reactive({ page: 1, pageSize: 20, code: '', bomcode: '', name: '', materialType: '', brand: '', packageType: '' })
+const query = reactive({ page: 1, pageSize: 20, conditions: undefined as string | undefined })
 
 const categoryOptions = MATERIAL_CATEGORIES
+
+// ===== 高级查询 =====
+const advancedConditions = ref<QueryCondition[]>([createEmptyCondition()])
+
+const queryFields: QueryField[] = [
+  { field: 'code', label: '物料编码', type: 'text', placeholder: '物料编码' },
+  { field: 'bomcode', label: 'BOM编码', type: 'text', placeholder: 'BOM编码' },
+  { field: 'name', label: '物料名称', type: 'text', placeholder: '物料名称' },
+  { field: 'specification', label: '规格型号', type: 'text', placeholder: '规格型号' },
+  { field: 'description', label: '物料描述', type: 'text', placeholder: '物料描述' },
+  { field: 'packageType', label: '封装', type: 'text', placeholder: '封装' },
+  { field: 'brand', label: '品牌', type: 'text', placeholder: '品牌' },
+  { field: 'materialType', label: '物料类别', type: 'text', placeholder: '物料类别' },
+  {
+    field: 'category',
+    label: '分类',
+    type: 'enum',
+    options: [
+      { label: '采购', value: 'purchase' },
+      { label: '制造', value: 'manufacture' },
+    ],
+  },
+  { field: 'unit', label: '计量单位', type: 'text', placeholder: '单位' },
+  {
+    field: 'batchManaged',
+    label: '批号管理',
+    type: 'enum',
+    options: [
+      { label: '是', value: '1' },
+      { label: '否', value: '0' },
+    ],
+  },
+  { field: 'safetyStock', label: '安全库存', type: 'number' },
+  { field: 'minStock', label: '最低库存', type: 'number' },
+  { field: 'maxStock', label: '最高库存', type: 'number' },
+  { field: 'leadTime', label: '采购提前期', type: 'number' },
+  { field: 'manufactureLeadTime', label: '制造提前期', type: 'number' },
+  { field: 'orderCycleDays', label: '订货周期(天)', type: 'number' },
+  { field: 'minOrderQty', label: '最小订量', type: 'number' },
+  { field: 'cost', label: '成本(加权平均)', type: 'number' },
+  { field: 'price', label: '最近采购价', type: 'number' },
+  { field: 'location', label: '库位', type: 'text', placeholder: '库位' },
+  { field: 'supplierName', label: '主要供应商', type: 'text', placeholder: '供应商名称' },
+  { field: 'routeName', label: '工艺路线', type: 'text', placeholder: '工艺路线名称' },
+  {
+    field: 'status',
+    label: '状态',
+    type: 'enum',
+    options: [
+      { label: '启用', value: 1 },
+      { label: '停用', value: 0 },
+    ],
+  },
+  { field: 'remark', label: '备注', type: 'text', placeholder: '备注' },
+  { field: 'createdAt', label: '创建日期', type: 'date' },
+]
 
 function fmtDateTime(v?: string | Date | null) {
   if (!v) return ''
@@ -34,18 +92,15 @@ async function loadData() {
   }
 }
 
-function handleSearch() {
+function submitAdvanced(conditions: QueryCondition[]) {
+  query.conditions = serializeConditions(conditions)
   query.page = 1
   loadData()
 }
 
-function handleReset() {
-  query.code = ''
-  query.bomcode = ''
-  query.name = ''
-  query.materialType = ''
-  query.brand = ''
-  query.packageType = ''
+function resetAdvanced() {
+  advancedConditions.value = [createEmptyCondition()]
+  query.conditions = undefined
   query.page = 1
   loadData()
 }
@@ -284,21 +339,17 @@ onMounted(() => {
 <template>
   <div class="page-container">
     <div class="page-card">
-      <div class="search-bar">
-        <el-input v-model="query.code" placeholder="物料编码" clearable style="width: 160px" @keyup.enter="handleSearch" />
-        <el-input v-model="query.bomcode" placeholder="BOM编码" clearable style="width: 140px" @keyup.enter="handleSearch" />
-        <el-input v-model="query.name" placeholder="物料名称" clearable style="width: 160px" @keyup.enter="handleSearch" />
-        <el-input v-model="query.packageType" placeholder="封装" clearable style="width: 130px" @keyup.enter="handleSearch" />
-        <el-input v-model="query.brand" placeholder="品牌" clearable style="width: 130px" @keyup.enter="handleSearch" />
-        <el-select v-model="query.materialType" placeholder="物料类别" clearable filterable :fit-input-width="false" style="width: 150px">
-          <el-option v-for="t in typeOptions" :key="t" :label="t" :value="t" />
-        </el-select>
-        <el-button type="primary" @click="handleSearch"><el-icon><Search /></el-icon>查询</el-button>
-        <el-button @click="handleReset">重置</el-button>
-        <el-button style="margin-left: auto" @click="handleEditCurrent"><el-icon><Edit /></el-icon>编辑</el-button>
+      <div class="advanced-actions">
+        <el-button @click="openDialog()"><el-icon><Plus /></el-icon>新增物料</el-button>
+        <el-button @click="handleEditCurrent"><el-icon><Edit /></el-icon>编辑</el-button>
         <el-button @click="handleCopyCurrent"><el-icon><CopyDocument /></el-icon>复制</el-button>
         <el-button @click="handleDeleteCurrent"><el-icon><Delete /></el-icon>删除</el-button>
-        <el-button type="success" plain class="btn-add" @click="openDialog()"><el-icon><Plus /></el-icon>新增物料</el-button>
+        <el-button @click="handleRecalcCost">重算成本</el-button>
+        <el-button @click="materialApi.exportCsv()"><el-icon><Download /></el-icon>导出</el-button>
+      </div>
+
+      <div class="advanced-query">
+        <QueryConditionBuilder v-model="advancedConditions" :fields="queryFields" @query="submitAdvanced" @reset="resetAdvanced" />
       </div>
 
       <el-table
@@ -324,7 +375,15 @@ onMounted(() => {
           </template>
         </el-table-column>
         <el-table-column prop="unit" label="单位" width="70" />
+        <el-table-column label="批号管理" width="90" align="center">
+          <template #default="{ row }">
+            <el-tag v-if="row.batchManaged" type="warning" size="small">是</el-tag>
+            <span v-else>-</span>
+          </template>
+        </el-table-column>
         <el-table-column prop="safetyStock" label="安全库存" width="90" align="right" />
+        <el-table-column prop="minStock" label="最低库存" width="90" align="right" />
+        <el-table-column prop="maxStock" label="最高库存" width="90" align="right" />
         <el-table-column prop="leadTime" label="采购提前期" width="110" align="right" />
         <el-table-column prop="manufactureLeadTime" label="制造提前期" width="110" align="right" />
         <el-table-column prop="orderCycleDays" label="订货周期(天)" width="110" align="right" />
@@ -345,6 +404,7 @@ onMounted(() => {
             <span v-if="row.processRoute">{{ row.processRoute.code }} - {{ row.processRoute.name }}</span>
           </template>
         </el-table-column>
+        <el-table-column prop="remark" label="备注" min-width="150" show-overflow-tooltip />
         <el-table-column label="状态" width="80" align="center">
           <template #default="{ row }">
             <el-tag :type="row.status === 1 ? 'success' : 'info'" size="small">{{ row.status === 1 ? '启用' : '停用' }}</el-tag>
@@ -359,10 +419,6 @@ onMounted(() => {
       </el-table>
 
       <div class="pagination-wrap">
-        <div style="margin-right: auto; display: flex; align-items: center">
-          <el-button @click="handleRecalcCost">重算成本</el-button>
-          <el-button @click="materialApi.exportCsv()"><el-icon><Download /></el-icon>导出</el-button>
-        </div>
         <el-pagination
           v-model:current-page="query.page"
           v-model:page-size="query.pageSize"
@@ -536,3 +592,18 @@ onMounted(() => {
     </el-dialog>
   </div>
 </template>
+<style scoped>
+.advanced-query {
+  margin: 4px 0 8px;
+  padding: 8px 10px;
+  border: 1px solid #d5dae2;
+  border-radius: 6px;
+  background: #fafbfc;
+}
+.advanced-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+</style>

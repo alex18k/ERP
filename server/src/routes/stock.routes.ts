@@ -13,6 +13,8 @@ router.get("/zero-stock", requirePermission("stock:view"), stockController.zeroS
 router.get("/", requirePermission("stock:view"), stockController.listHandler);
 router.get("/detail", requirePermission("stock:view"), stockController.detailHandler);
 router.get("/summary", requirePermission("stock:view"), stockController.summaryHandler);
+router.get("/psi-report", requirePermission("stock:view"), stockController.psiReportHandler);
+router.get("/psi-report/export", requirePermission("stock:view"), stockController.psiReportExportHandler);
 router.get("/records", requirePermission("stock:view"), stockController.recordsHandler);
 router.get("/records/by-document", requirePermission("stock:view"), stockController.recordsByDocumentHandler);
 router.put("/records/by-document", requirePermission("stock:edit"), operationLog("stock", "edit-document"), stockController.recordsUpdateByDocumentHandler);

@@ -153,27 +153,29 @@ onMounted(async () => {
 <template>
   <div class="page-container">
     <div class="page-card">
-      <div class="search-bar">
-        <el-input v-model="query.documentNo" placeholder="事务单号/源单号" clearable style="width: 160px" @keyup.enter="query.page = 1, loadData()" />
-        <el-input v-model="query.materialKeyword" placeholder="产品编码/名称" clearable style="width: 180px" @keyup.enter="query.page = 1, loadData()" />
-        <el-select v-model="query.warehouseId" placeholder="仓库" clearable style="width: 150px">
-          <el-option v-for="w in warehouses" :key="w.id" :label="w.name" :value="w.id" />
-        </el-select>
-        <el-select v-model="query.transactionTypeId" placeholder="事务类型" clearable filterable style="width: 160px">
-          <el-option v-for="t in transactionTypes" :key="t.id" :label="t.description || t.code" :value="t.id" />
-        </el-select>
-        <el-input v-model="query.startDate" type="date" placeholder="开始" clearable style="width: 150px" @keyup.enter="query.page = 1, loadData()" />
-        <el-input v-model="query.endDate" type="date" placeholder="结束" clearable style="width: 150px" @keyup.enter="query.page = 1, loadData()" />
-        <el-button type="primary" @click="query.page = 1, loadData()"><el-icon><Search /></el-icon>查询</el-button>
-        <el-button @click="Object.assign(query, { materialKeyword: '', warehouseId: '', transactionTypeId: transactionTypes[0]?.id || '', startDate: '', endDate: '', documentNo: '', page: 1 }), loadData()">重置</el-button>
+      <div class="advanced-actions">
+        <el-button @click="goProductIn"><el-icon><Download /></el-icon>产品入库</el-button>
+        <el-button :disabled="!currentRow?.documentNo" @click="printSelected"><el-icon><Printer /></el-icon>打印</el-button>
+        <el-button :disabled="!currentRow?.documentNo" @click="openEdit(currentRow)"><el-icon><Edit /></el-icon>编辑</el-button>
+        <el-button :disabled="!currentRow?.documentNo" @click="redDocument(currentRow)"><el-icon><DocumentRemove /></el-icon>红单</el-button>
       </div>
 
-      <div class="table-toolbar" style="justify-content: flex-start">
-        <el-button type="success" plain @click="goProductIn"><el-icon><Download /></el-icon>产品入库</el-button>
-        <el-button type="primary" plain :disabled="!currentRow?.documentNo" @click="printSelected"><el-icon><Printer /></el-icon>打印</el-button>
-        <el-button plain :disabled="!currentRow?.documentNo" @click="openEdit(currentRow)"><el-icon><Edit /></el-icon>编辑</el-button>
-        <el-button type="danger" plain :disabled="!currentRow?.documentNo" @click="redDocument(currentRow)"><el-icon><DocumentRemove /></el-icon>红单</el-button>
-      </div>
+      <fieldset class="group-box">
+        <div class="search-bar group-inner">
+          <el-input v-model="query.documentNo" placeholder="事务单号/源单号" clearable style="width: 160px" @keyup.enter="query.page = 1, loadData()" />
+          <el-input v-model="query.materialKeyword" placeholder="产品编码/名称" clearable style="width: 180px" @keyup.enter="query.page = 1, loadData()" />
+          <el-select v-model="query.warehouseId" placeholder="仓库" clearable style="width: 150px">
+            <el-option v-for="w in warehouses" :key="w.id" :label="w.name" :value="w.id" />
+          </el-select>
+          <el-select v-model="query.transactionTypeId" placeholder="事务类型" clearable filterable style="width: 160px">
+            <el-option v-for="t in transactionTypes" :key="t.id" :label="t.description || t.code" :value="t.id" />
+          </el-select>
+          <el-input v-model="query.startDate" type="date" placeholder="开始" clearable style="width: 150px" @keyup.enter="query.page = 1, loadData()" />
+          <el-input v-model="query.endDate" type="date" placeholder="结束" clearable style="width: 150px" @keyup.enter="query.page = 1, loadData()" />
+          <el-button type="primary" @click="query.page = 1, loadData()"><el-icon><Search /></el-icon>查询</el-button>
+          <el-button @click="Object.assign(query, { materialKeyword: '', warehouseId: '', transactionTypeId: transactionTypes[0]?.id || '', startDate: '', endDate: '', documentNo: '', page: 1 }), loadData()">重置</el-button>
+        </div>
+      </fieldset>
 
       <el-table :data="list" v-loading="loading" stripe highlight-current-row :row-class-name="rowClassName" max-height="calc(100vh - 260px)" @row-click="(row: any) => (currentRow = row)">
         <el-table-column label="生效日期" width="100">
@@ -293,6 +295,22 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+/* 分组框：查询与操作同框 */
+.group-box {
+  border: 1px solid var(--el-border-color);
+  border-radius: 4px;
+  padding: 10px 12px;
+  margin: 0 0 12px;
+}
+.group-inner {
+  margin-bottom: 0 !important;
+}
+.advanced-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
 /* 红单行：淡红底提示（需覆盖斑马纹背景） */
 :deep(.el-table .red-row td.el-table__cell),
 :deep(.el-table .red-row.el-table__row--striped td.el-table__cell) {

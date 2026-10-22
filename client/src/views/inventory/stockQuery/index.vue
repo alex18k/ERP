@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted } from 'vue'
-import { stockApi, warehouseApi, warehouseBinApi } from '../../../api'
+import { ref, reactive, onMounted } from 'vue'
+import { stockApi } from '../../../api'
 import QueryConditionBuilder from '../../../components/QueryConditionBuilder.vue'
 import { createEmptyCondition, serializeConditions, type QueryCondition, type QueryField } from '../../../utils/queryBuilder'
 import { materialCategoryLabel } from '../../../utils/category'
@@ -8,17 +8,7 @@ import { materialCategoryLabel } from '../../../utils/category'
 const loading = ref(false)
 const list = ref<any[]>([])
 const total = ref(0)
-const warehouses = ref<any[]>([])
-const bins = ref<any[]>([])
-const query = reactive<{
-  page: number
-  pageSize: number
-  materialCode: string
-  materialName: string
-  warehouseId: string | number
-  binId: string | number
-  conditions?: string
-}>({ page: 1, pageSize: 20, materialCode: '', materialName: '', warehouseId: '', binId: '' })
+const query = reactive<{ page: number; pageSize: number; conditions?: string }>({ page: 1, pageSize: 20 })
 
 const advancedConditions = ref<QueryCondition[]>([createEmptyCondition()])
 
@@ -60,11 +50,6 @@ async function loadData() {
   } finally { loading.value = false }
 }
 
-async function loadWarehouses() {
-  const res: any = await warehouseApi.list({ pageSize: 200 })
-  warehouses.value = res.data.items
-}
-
 function submitAdvanced(conditions: QueryCondition[]) {
   query.conditions = serializeConditions(conditions)
   query.page = 1
@@ -78,49 +63,13 @@ function resetAdvanced() {
   loadData()
 }
 
-function resetAll() {
-  Object.assign(query, { materialCode: '', materialName: '', warehouseId: '', binId: '', page: 1, conditions: undefined })
-  bins.value = []
-  advancedConditions.value = [createEmptyCondition()]
-  loadData()
-}
-
-const selectedBinManaged = computed(() => warehouses.value.find((w: any) => w.id === query.warehouseId)?.binManaged ?? false)
-
-async function onWarehouseChange() {
-  query.binId = ''
-  bins.value = []
-  const wh = warehouses.value.find((w: any) => w.id === query.warehouseId)
-  if (wh?.binManaged) {
-    const res: any = await warehouseBinApi.list({ warehouseId: wh.id, status: 1, pageSize: 200 })
-    bins.value = res.data.items
-  }
-}
-
-onMounted(async () => {
-  await loadWarehouses()
-  await loadData()
-})
+onMounted(loadData)
 </script>
 
 <template>
   <div class="page-container">
     <div class="page-card">
-      <div class="search-bar">
-        <el-input v-model="query.materialCode" placeholder="物料编码" clearable style="width: 150px" @keyup.enter="query.page = 1, loadData()" />
-        <el-input v-model="query.materialName" placeholder="物料名称/型号规格" clearable style="width: 170px" @keyup.enter="query.page = 1, loadData()" />
-        <el-select v-model="query.warehouseId" placeholder="仓库" clearable style="width: 160px" @change="onWarehouseChange">
-          <el-option v-for="w in warehouses" :key="w.id" :label="w.name" :value="w.id" />
-        </el-select>
-        <el-select v-if="selectedBinManaged" v-model="query.binId" placeholder="货位" clearable style="width: 140px">
-          <el-option v-for="b in bins" :key="b.id" :label="`${b.code} - ${b.name}`" :value="b.id" />
-        </el-select>
-        <el-button type="primary" @click="query.page = 1, loadData()"><el-icon><Search /></el-icon>查询</el-button>
-        <el-button @click="resetAll">重置</el-button>
-      </div>
-
       <div class="advanced-query">
-        <div class="advanced-query-title">高级查询（条件之间使用 AND 连接）</div>
         <QueryConditionBuilder v-model="advancedConditions" :fields="queryFields" @query="submitAdvanced" @reset="resetAdvanced" />
       </div>
 
@@ -207,11 +156,6 @@ onMounted(async () => {
   border: 1px solid #d5dae2;
   border-radius: 6px;
   background: #fafbfc;
-}
-.advanced-query-title {
-  margin-bottom: 2px;
-  color: var(--el-text-color-regular);
-  font-size: 13px;
 }
 .detail-idx {
   display: inline-block;

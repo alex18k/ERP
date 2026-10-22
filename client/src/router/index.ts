@@ -66,6 +66,7 @@ const routes = [
       // 库存
       { path: 'inventory/query', name: 'InventoryQuery', component: () => import('../views/inventory/query/index.vue'), meta: { title: '库存明细查询' } },
       { path: 'inventory/stock-query', name: 'InventoryStockQuery', component: () => import('../views/inventory/stockQuery/index.vue'), meta: { title: '库存查询' } },
+      { path: 'inventory/psi-report', name: 'InventoryPsiReport', component: () => import('../views/inventory/psiReport/index.vue'), meta: { title: '进销存报表' } },
       { path: 'inventory/record', name: 'InventoryRecord', component: () => import('../views/inventory/record/index.vue'), meta: { title: '库存事务记录' } },
       { path: 'inventory/stock-in', name: 'InventoryStockIn', component: () => import('../views/inventory/stockIn/index.vue'), meta: { title: '库存入库' } },
       { path: 'inventory/stock-out', name: 'InventoryStockOut', component: () => import('../views/inventory/stockOut/index.vue'), meta: { title: '库存出库' } },

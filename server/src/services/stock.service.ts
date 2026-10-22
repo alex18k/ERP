@@ -1,9 +1,10 @@
 import prisma from "../config/prisma";
 import { Prisma } from "@prisma/client";
-import { localDateCompact, parseLocalDateStart, parseLocalDateEnd } from "../utils/date";
+import { localDateCompact, localDateStr, parseLocalDateStart, parseLocalDateEnd } from "../utils/date";
 import { resolveUnitRate, toBaseQty } from "../utils/unit";
 import { lockOrderNo, ORDER_NO_LOCK } from "../utils/retry";
 import { buildSqlQueryFilters, parseQueryConditions, type SqlQueryFieldDefinition } from "../utils/queryConditions";
+import { buildPrismaQueryWhere, type PrismaQueryFieldDefinition } from "../utils/prismaQueryConditions";
 
 // 生成单据号：前缀+日期+序号（调用方需先持有库存单据号的 advisory lock，避免并发重复）
 export async function generateDocNo(client: any = prisma, prefix = "ST"): Promise<string> {
@@ -375,6 +376,155 @@ export async function listStockSummary(where: any) {
   return { total, page: pageNum, pageSize: sizeNum, items: groups };
 }
 
+// ===== 进销存报表 =====
+// 口径：流水有符号增量 = 入库(+) / 出库(-)，红单（负数量）自动反向冲抵；
+// 期末 = 现存量 - 期间结束之后仍发生的净变动；期初 = 期末 - 本期入库 + 本期出库。
+// 行 = 物料 × 仓库（含期间内有流水但现存为 0 的物料）。
+export async function listPsiReport(where: any) {
+  const { pageNum, sizeNum, offset } = clampPage(where.page, where.pageSize);
+  const all = where.all === "1" || where.all === true;
+  const showZero = where.showZero === "1" || where.showZero === true;
+
+  const startDate = /^\d{4}-\d{2}-\d{2}$/.test(String(where.startDate ?? "").trim())
+    ? String(where.startDate).trim()
+    : (() => { const d = new Date(); return localDateStr(new Date(d.getFullYear(), d.getMonth(), 1)); })();
+  const endDate = /^\d{4}-\d{2}-\d{2}$/.test(String(where.endDate ?? "").trim())
+    ? String(where.endDate).trim()
+    : localDateStr();
+  const startBound = parseLocalDateStart(startDate);
+  const endBound = parseLocalDateEnd(endDate);
+  if (startBound.getTime() > endBound.getTime()) throw new Error("查询条件：起始日期不能大于结束日期");
+
+  const warehousePart = (alias: string) => {
+    if (where.warehouseId === undefined || where.warehouseId === "" || where.warehouseId === null) return Prisma.empty;
+    const id = Number(where.warehouseId);
+    if (!Number.isFinite(id)) return Prisma.empty;
+    return Prisma.sql`AND ${Prisma.raw(alias)}."warehouseId" = ${id}`;
+  };
+  const stockWh = warehousePart("s");
+  const flowWh = warehousePart("r");
+
+  const materialPart: Prisma.Sql[] = [];
+  const keyword = String(where.materialKeyword ?? "").trim();
+  if (keyword) {
+    const pattern = `%${escapeLike(keyword)}%`;
+    materialPart.push(Prisma.sql`(m.code LIKE ${pattern} OR m.name LIKE ${pattern} OR m.specification LIKE ${pattern})`);
+  }
+  const category = String(where.category ?? "").trim();
+  if (category) {
+    if (!["purchase", "manufacture"].includes(category)) throw new Error("查询条件：类别不正确");
+    materialPart.push(Prisma.sql`m.category = ${category}`);
+  }
+  const matFilter = materialPart.length ? Prisma.sql`AND ${Prisma.join(materialPart, " AND ")}` : Prisma.empty;
+  const zeroFilter = showZero ? Prisma.empty : Prisma.sql`AND (opening_qty <> 0 OR in_qty <> 0 OR out_qty <> 0 OR closing_qty <> 0)`;
+
+  const flowDate = Prisma.sql`COALESCE(r."effectiveDate", r."createdAt")`;
+  const flowDelta = Prisma.sql`(CASE WHEN r.type = 'out' THEN -r.quantity ELSE r.quantity END)`;
+
+  const rowsCte = Prisma.sql`
+    WITH stock AS (
+      SELECT s."materialId", s."warehouseId", SUM(s.quantity) AS cur_qty
+      FROM "Stock" s
+      WHERE 1 = 1 ${stockWh}
+      GROUP BY s."materialId", s."warehouseId"
+    ),
+    flows AS (
+      SELECT r."materialId", r."warehouseId",
+        SUM(CASE WHEN r.type = 'in' AND ${flowDate} BETWEEN ${startBound} AND ${endBound} THEN r.quantity ELSE 0 END) AS in_qty,
+        SUM(CASE WHEN r.type = 'out' AND ${flowDate} BETWEEN ${startBound} AND ${endBound} THEN r.quantity ELSE 0 END) AS out_qty,
+        SUM(CASE WHEN ${flowDate} > ${endBound} THEN ${flowDelta} ELSE 0 END) AS after_qty
+      FROM "StockRecord" r
+      WHERE r.quantity <> 0 ${flowWh}
+      GROUP BY r."materialId", r."warehouseId"
+    ),
+    base AS (
+      SELECT COALESCE(st."materialId", fl."materialId") AS "materialId",
+             COALESCE(st."warehouseId", fl."warehouseId") AS "warehouseId",
+             COALESCE(fl.in_qty, 0) AS in_qty,
+             COALESCE(fl.out_qty, 0) AS out_qty,
+             COALESCE(st.cur_qty, 0) - COALESCE(fl.after_qty, 0) AS closing_qty
+      FROM stock st
+      FULL OUTER JOIN flows fl ON fl."materialId" = st."materialId" AND fl."warehouseId" = st."warehouseId"
+    ),
+    rows AS (
+      SELECT m.id AS "materialId", m.code AS "materialCode", m.name AS "materialName",
+             m."specification" AS "specification", m.unit AS unit, m.cost AS cost,
+             m.category AS category, w.id AS "warehouseId", w.name AS "warehouseName",
+             b.closing_qty - b.in_qty + b.out_qty AS opening_qty,
+             b.in_qty, b.out_qty, b.closing_qty
+      FROM base b
+      JOIN "Material" m ON m.id = b."materialId"
+      JOIN "Warehouse" w ON w.id = b."warehouseId"
+      WHERE 1 = 1 ${matFilter}
+    )
+  `;
+
+  const [countRows, summaryRows] = await Promise.all([
+    prisma.$queryRaw<{ total: number }[]>(Prisma.sql`${rowsCte} SELECT COUNT(*)::int AS total FROM rows WHERE 1 = 1 ${zeroFilter}`),
+    prisma.$queryRaw<Record<string, number>[]>(Prisma.sql`
+      ${rowsCte}
+      SELECT COALESCE(SUM(opening_qty), 0)::float AS "openingQty",
+             COALESCE(SUM(in_qty), 0)::float AS "inQty",
+             COALESCE(SUM(out_qty), 0)::float AS "outQty",
+             COALESCE(SUM(closing_qty), 0)::float AS "closingQty",
+             COALESCE(SUM(opening_qty * cost), 0)::float AS "openingAmount",
+             COALESCE(SUM(in_qty * cost), 0)::float AS "inAmount",
+             COALESCE(SUM(out_qty * cost), 0)::float AS "outAmount",
+             COALESCE(SUM(closing_qty * cost), 0)::float AS "closingAmount"
+      FROM rows WHERE 1 = 1 ${zeroFilter}
+    `),
+  ]);
+  const total = Number(countRows[0]?.total ?? 0);
+  const summary = summaryRows[0] ?? {};
+
+  const dataRows = await prisma.$queryRaw<any[]>(Prisma.sql`
+    ${rowsCte}
+    SELECT * FROM rows
+    WHERE 1 = 1 ${zeroFilter}
+    ORDER BY "materialCode" ASC, "warehouseName" ASC, "warehouseId" ASC, "materialId" ASC
+    ${all ? Prisma.empty : Prisma.sql`LIMIT ${sizeNum} OFFSET ${offset}`}
+  `);
+
+  const items = dataRows.map((r: any) => ({
+    materialId: Number(r.materialId),
+    materialCode: r.materialCode,
+    materialName: r.materialName,
+    specification: r.specification,
+    category: r.category,
+    unit: r.unit,
+    cost: Number(r.cost) || 0,
+    warehouseId: Number(r.warehouseId),
+    warehouseName: r.warehouseName,
+    openingQty: Number(r.opening_qty) || 0,
+    inQty: Number(r.in_qty) || 0,
+    outQty: Number(r.out_qty) || 0,
+    closingQty: Number(r.closing_qty) || 0,
+    openingAmount: (Number(r.opening_qty) || 0) * (Number(r.cost) || 0),
+    inAmount: (Number(r.in_qty) || 0) * (Number(r.cost) || 0),
+    outAmount: (Number(r.out_qty) || 0) * (Number(r.cost) || 0),
+    closingAmount: (Number(r.closing_qty) || 0) * (Number(r.cost) || 0),
+  }));
+
+  return {
+    total,
+    page: all ? 1 : pageNum,
+    pageSize: all ? items.length : sizeNum,
+    startDate,
+    endDate,
+    summary: {
+      openingQty: Number(summary.openingQty) || 0,
+      inQty: Number(summary.inQty) || 0,
+      outQty: Number(summary.outQty) || 0,
+      closingQty: Number(summary.closingQty) || 0,
+      openingAmount: Number(summary.openingAmount) || 0,
+      inAmount: Number(summary.inAmount) || 0,
+      outAmount: Number(summary.outAmount) || 0,
+      closingAmount: Number(summary.closingAmount) || 0,
+    },
+    items,
+  };
+}
+
 export async function listStocks(where: any) {
   const { page = 1, pageSize = 20 } = where;
   const pageNum = Math.max(1, Number(page) || 1);
@@ -423,6 +573,52 @@ export async function listStocks(where: any) {
   };
 }
 
+/** 高级查询字段白名单（库存事务记录） */
+export const stockRecordQueryFields: Record<string, PrismaQueryFieldDefinition> = {
+  documentNo: { type: "text", column: "documentNo" },
+  orderNo: { type: "text", column: "orderNo" },
+  deliveryNo: { type: "text", column: "deliveryNo" },
+  contractNo: { type: "text", column: "contractNo" },
+  address: { type: "text", column: "address" },
+  contactName: { type: "text", column: "contactName" },
+  contactPhone: { type: "text", column: "contactPhone" },
+  batchNo: { type: "text", column: "batchNo" },
+  keeper: { type: "text", column: "keeper" },
+  approver: { type: "text", column: "approver" },
+  handler: { type: "text", column: "handler" },
+  salesperson: { type: "text", column: "salesperson" },
+  buyer: { type: "text", column: "buyer" },
+  location: { type: "text", column: "location" },
+  mainRemark: { type: "text", column: "mainRemark" },
+  remark: { type: "text", column: "remark" },
+  um: { type: "text", column: "um" },
+  relatedType: { type: "text", column: "relatedType" },
+  lineNo: { type: "number", column: "lineNo" },
+  quantity: { type: "number", column: "quantity" },
+  price: { type: "number", column: "price" },
+  type: {
+    type: "enum",
+    column: "type",
+    options: [
+      { label: "入库", value: "in" },
+      { label: "出库", value: "out" },
+      { label: "移库", value: "transfer" },
+      { label: "调整", value: "adjust" },
+    ],
+  },
+  effectiveDate: { type: "date", column: "effectiveDate" },
+  createdAt: { type: "date", column: "createdAt" },
+  materialCode: { type: "text", column: "code", relation: { name: "material" } },
+  materialName: { type: "text", column: "name", relation: { name: "material" } },
+  materialSpecification: { type: "text", column: "specification", relation: { name: "material" } },
+  warehouseName: { type: "text", column: "name", relation: { name: "warehouse" } },
+  binName: { type: "text", column: "name", relation: { name: "bin" } },
+  departmentName: { type: "text", column: "name", relation: { name: "department" } },
+  operatorName: { type: "text", column: "realName", relation: { name: "operator" } },
+  transactionTypeName: { type: "text", column: "description", relation: { name: "transactionType" } },
+  transactionTypeCode: { type: "text", column: "code", relation: { name: "transactionType" } },
+};
+
 export async function listStockRecords(where: any) {
   const { materialId, materialKeyword, warehouseId, type, direction, transactionTypeId, transactionTypeIds, address, startDate, endDate, documentNo, page = 1, pageSize = 20 } = where;
 
@@ -459,6 +655,14 @@ export async function listStockRecords(where: any) {
     and.push({ OR: [{ effectiveDate: range }, { effectiveDate: null, createdAt: range }] });
   }
   if (and.length > 0) filters.AND = and;
+
+  // 高级查询条件（与基础条件 AND 叠加）
+  const advancedConditions = parseQueryConditions(where.conditions);
+  if (advancedConditions.length) {
+    const advanced = buildPrismaQueryWhere(advancedConditions, stockRecordQueryFields);
+    filters.AND = [...(Array.isArray(filters.AND) ? filters.AND : []), advanced];
+  }
+
   const pageNum = Math.max(1, Number(page) || 1);
   const sizeNum = Math.min(1000, Math.max(1, Number(pageSize) || 20));
 

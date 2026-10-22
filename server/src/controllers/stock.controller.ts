@@ -48,11 +48,38 @@ export async function summaryHandler(req: Request, res: Response) {
   }
 }
 
+export async function psiReportHandler(req: Request, res: Response) {
+  try {
+    const data = await stockService.listPsiReport(req.query as any);
+    return success(res, data);
+  } catch (error: any) {
+    if (isQueryConditionError(error)) {
+      return fail(res, 400, error.message);
+    }
+    return fail(res, 500, error.message, 500);
+  }
+}
+
+export async function psiReportExportHandler(req: Request, res: Response) {
+  try {
+    const { filename, csv } = await exportService.psiReportExport(req.query as any);
+    return sendCsv(res, filename, csv);
+  } catch (error: any) {
+    if (isQueryConditionError(error)) {
+      return fail(res, 400, error.message);
+    }
+    return fail(res, 500, error.message, 500);
+  }
+}
+
 export async function recordsHandler(req: Request, res: Response) {
   try {
     const data = await stockService.listStockRecords(req.query as any);
     return success(res, data);
   } catch (error: any) {
+    if (isQueryConditionError(error)) {
+      return fail(res, 400, error.message);
+    }
     return fail(res, 500, error.message, 500);
   }
 }

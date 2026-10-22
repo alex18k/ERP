@@ -1,5 +1,7 @@
 import prisma from "../config/prisma";
 import { Prisma } from "@prisma/client";
+import { parseQueryConditions } from "../utils/queryConditions";
+import { buildPrismaQueryWhere, type PrismaQueryFieldDefinition } from "../utils/prismaQueryConditions";
 import { localDateCompact, parseLocalDateStart, parseLocalDateEnd, startOfLocalDay } from "../utils/date";
 import { retryOnDuplicate, lockOrderNo, ORDER_NO_LOCK } from "../utils/retry";
 import { applyBatchIn, applyBatchOut, addStock, resolveBinId, generateDocNo } from "./stock.service";
@@ -47,6 +49,36 @@ export interface PurchaseOrderInput {
   }[];
 }
 
+/** 高级查询字段白名单（采购订单：表头 + 明细） */
+export const PURCHASE_QUERY_FIELDS: Record<string, PrismaQueryFieldDefinition> = {
+  orderNo: { type: "text", column: "orderNo" },
+  supplierName: { type: "text", column: "name", relation: { name: "supplier" } },
+  status: {
+    type: "enum",
+    column: "status",
+    options: [
+      { label: "草稿", value: "draft" },
+      { label: "已确认", value: "confirmed" },
+    ],
+  },
+  orderDate: { type: "date", column: "orderDate" },
+  expectedDate: { type: "date", column: "expectedDate" },
+  buyer: { type: "text", column: "buyer" },
+  settleMethod: { type: "text", column: "settleMethod" },
+  totalAmount: { type: "number", column: "totalAmount" },
+  remark: { type: "text", column: "remark" },
+  createdAt: { type: "date", column: "createdAt" },
+  // 明细行条件（items 为一对多，同一订单的多个明细条件合并到同一个 items.some）
+  materialCode: { type: "text", column: "code", relation: { name: "items", toMany: true, inner: ["material"] } },
+  materialName: { type: "text", column: "name", relation: { name: "items", toMany: true, inner: ["material"] } },
+  specification: { type: "text", column: "specification", relation: { name: "items", toMany: true, inner: ["material"] } },
+  line: { type: "number", column: "line", relation: { name: "items", toMany: true } },
+  quantity: { type: "number", column: "quantity", relation: { name: "items", toMany: true } },
+  receivedQty: { type: "number", column: "receivedQty", relation: { name: "items", toMany: true } },
+  unitPrice: { type: "number", column: "unitPrice", relation: { name: "items", toMany: true } },
+  itemRemark: { type: "text", column: "remark", relation: { name: "items", toMany: true } },
+};
+
 export async function listPurchaseOrders(where: any) {
   const { orderNo, supplierId, status, receivable, materialKeyword, materialCode, materialName, specification, page = 1, pageSize = 20 } = where;
   const filters: Prisma.PurchaseOrderWhereInput = {};
@@ -91,6 +123,13 @@ export async function listPurchaseOrders(where: any) {
         receivedQty: { lt: prisma.purchaseOrderItem.fields.quantity },
       },
     };
+  }
+
+  // 高级查询条件（与基础条件 AND 叠加）
+  const advancedConditions = parseQueryConditions(where.conditions);
+  if (advancedConditions.length) {
+    const advanced = buildPrismaQueryWhere(advancedConditions, PURCHASE_QUERY_FIELDS);
+    filters.AND = [...(Array.isArray(filters.AND) ? filters.AND : []), advanced];
   }
 
   const [total, items] = await Promise.all([

@@ -149,11 +149,11 @@ function reset() {
           <el-icon><Minus /></el-icon>
         </el-button>
       </div>
-    </div>
 
-    <div class="query-footer">
-      <el-button type="primary" @click="submit"><el-icon><Search /></el-icon>查询</el-button>
-      <el-button @click="reset"><el-icon><RefreshLeft /></el-icon>重置</el-button>
+      <template v-if="index === rows.length - 1">
+        <el-button type="primary" @click="submit"><el-icon><Search /></el-icon>查询</el-button>
+        <el-button @click="reset"><el-icon><RefreshLeft /></el-icon>重置</el-button>
+      </template>
     </div>
   </div>
 </template>
@@ -162,8 +162,7 @@ function reset() {
 .query-builder {
   padding: 8px 0 2px;
 }
-.query-row,
-.query-footer {
+.query-row {
   display: flex;
   align-items: center;
   gap: 8px;

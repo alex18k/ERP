@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import * as materialService from "../services/material.service";
 import * as exportService from "../services/export.service";
 import { success, fail } from "../utils/response";
+import { isQueryConditionError } from "../utils/queryConditions";
 import { sendCsv } from "../utils/export";
 
 export async function exportHandler(_req: Request, res: Response) {
@@ -18,6 +19,7 @@ export async function listHandler(req: Request, res: Response) {
     const data = await materialService.listMaterials(req.query as any);
     return success(res, data);
   } catch (error: any) {
+    if (isQueryConditionError(error)) return fail(res, 400, error.message, 400);
     return fail(res, 500, error.message, 500);
   }
 }

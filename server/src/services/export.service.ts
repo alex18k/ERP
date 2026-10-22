@@ -1,5 +1,6 @@
 import prisma from "../config/prisma";
 import { toCsv, today } from "../utils/export";
+import { listPsiReport } from "./stock.service";
 
 const categoryLabel: Record<string, string> = { purchase: "采购", manufacture: "制造" };
 
@@ -217,4 +218,30 @@ export async function purchaseExport() {
     p.items.map((i) => `${i.material.code}×${i.quantity}${i.expectedDate ? `(截止${date(i.expectedDate)})` : ""}`).join("; "),
   ]);
   return { filename: `采购订单_${today()}.csv`, csv: toCsv(headers, rows) };
+}
+// ===== 进销存报表 =====
+export async function psiReportExport(where: any = {}) {
+  const data = await listPsiReport({ ...where, all: "1" });
+  const headers = [
+    "物料编码", "物料名称", "规格型号", "类别", "单位", "仓库",
+    "期初数量", "期初金额", "入库数量", "入库金额", "出库数量", "出库金额", "期末数量", "期末金额",
+  ];
+  const rows = data.items.map((r: any) => [
+    r.materialCode, r.materialName, r.specification ?? "",
+    categoryLabel[r.category] ?? r.category, r.unit ?? "", r.warehouseName,
+    r.openingQty, r.openingAmount.toFixed(2),
+    r.inQty, r.inAmount.toFixed(2),
+    r.outQty, r.outAmount.toFixed(2),
+    r.closingQty, r.closingAmount.toFixed(2),
+  ]);
+  const s = data.summary;
+  rows.push([
+    "合计", "", "", "", "", "",
+    s.openingQty, s.openingAmount.toFixed(2),
+    s.inQty, s.inAmount.toFixed(2),
+    s.outQty, s.outAmount.toFixed(2),
+    s.closingQty, s.closingAmount.toFixed(2),
+  ]);
+  const range = `${data.startDate}_${data.endDate}`;
+  return { filename: `进销存报表_${range}.csv`, csv: toCsv(headers, rows) };
 }

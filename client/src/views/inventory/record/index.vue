@@ -2,7 +2,9 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { stockApi, warehouseApi, materialApi, stockTransactionTypeApi, warehouseBinApi } from '../../../api'
+import { stockApi, warehouseApi, materialApi, warehouseBinApi } from '../../../api'
+import QueryConditionBuilder from '../../../components/QueryConditionBuilder.vue'
+import { createEmptyCondition, serializeConditions, type QueryCondition, type QueryField } from '../../../utils/queryBuilder'
 
 const router = useRouter()
 const loading = ref(false)
@@ -11,9 +13,52 @@ const total = ref(0)
 const currentRow = ref<any>(null)
 const tableRef = ref()
 const warehouses = ref<any[]>([])
-const query = reactive({ page: 1, pageSize: 20, materialKeyword: '', warehouseId: '', transactionTypeId: '', startDate: '', endDate: '', documentNo: '' })
+const query = reactive({ page: 1, pageSize: 20, conditions: undefined as string | undefined })
 
-const transactionTypes = ref<any[]>([])
+// ===== 高级查询 =====
+const advancedConditions = ref<QueryCondition[]>([createEmptyCondition()])
+
+const queryFields: QueryField[] = [
+  { field: 'documentNo', label: '事务单号', type: 'text', placeholder: '系统事务单号' },
+  { field: 'orderNo', label: '源单号', type: 'text', placeholder: '采购单/销售单/生产单号' },
+  { field: 'materialCode', label: '物料编码', type: 'text', placeholder: '物料编码' },
+  { field: 'materialName', label: '物料名称', type: 'text', placeholder: '物料名称' },
+  { field: 'materialSpecification', label: '型号规格', type: 'text', placeholder: '型号规格' },
+  { field: 'warehouseName', label: '仓库', type: 'text', placeholder: '仓库名称' },
+  { field: 'binName', label: '货位', type: 'text', placeholder: '货位名称' },
+  { field: 'batchNo', label: '批号', type: 'text', placeholder: '批号' },
+  {
+    field: 'type',
+    label: '出入库',
+    type: 'enum',
+    options: [
+      { label: '入库', value: 'in' },
+      { label: '出库', value: 'out' },
+      { label: '移库', value: 'transfer' },
+      { label: '调整', value: 'adjust' },
+    ],
+  },
+  { field: 'transactionTypeName', label: '事务类型', type: 'text', placeholder: '事务类型' },
+  { field: 'quantity', label: '数量', type: 'number' },
+  { field: 'price', label: '单价', type: 'number' },
+  { field: 'um', label: '单位', type: 'text', placeholder: '计量单位' },
+  { field: 'departmentName', label: '部门', type: 'text', placeholder: '部门名称' },
+  { field: 'handler', label: '经手人', type: 'text', placeholder: '经手人' },
+  { field: 'keeper', label: '仓管员', type: 'text', placeholder: '仓管员' },
+  { field: 'approver', label: '审核人', type: 'text', placeholder: '审核人' },
+  { field: 'operatorName', label: '操作员', type: 'text', placeholder: '操作员姓名' },
+  { field: 'salesperson', label: '销售员', type: 'text', placeholder: '销售员' },
+  { field: 'buyer', label: '采购员', type: 'text', placeholder: '采购员' },
+  { field: 'address', label: '客户/供应商', type: 'text', placeholder: '客户/供应商代码' },
+  { field: 'deliveryNo', label: '送货单号', type: 'text', placeholder: '送货单号' },
+  { field: 'contractNo', label: '合同号', type: 'text', placeholder: '合同号' },
+  { field: 'lineNo', label: '行号', type: 'number' },
+  { field: 'location', label: '库位', type: 'text', placeholder: '库位' },
+  { field: 'mainRemark', label: '主备注', type: 'text', placeholder: '主备注' },
+  { field: 'remark', label: '备注', type: 'text', placeholder: '备注' },
+  { field: 'effectiveDate', label: '生效日期', type: 'date' },
+  { field: 'createdAt', label: '创建时间', type: 'date' },
+]
 
 const activeWarehouses = computed(() => warehouses.value.filter((w: any) => w.status === 1))
 
@@ -24,12 +69,8 @@ function todayStr() {
 }
 
 async function loadOptions() {
-  const [mRes, tRes]: any[] = await Promise.all([
-    materialApi.options({ limit: 50 }),
-    stockTransactionTypeApi.list({ pageSize: 200, status: 1 }),
-  ])
+  const mRes: any = await materialApi.options({ limit: 50 })
   registerTransferMaterials(mRes.data || [])
-  transactionTypes.value = (tRes.data.items || []).filter((t: any) => t.status === 1)
 }
 
 // ===== 移库 =====
@@ -271,6 +312,19 @@ async function loadData() {
   } finally { loading.value = false }
 }
 
+function submitAdvanced(conditions: QueryCondition[]) {
+  query.conditions = serializeConditions(conditions)
+  query.page = 1
+  loadData()
+}
+
+function resetAdvanced() {
+  advancedConditions.value = [createEmptyCondition()]
+  query.conditions = undefined
+  query.page = 1
+  loadData()
+}
+
 function printSelected() {
   const row = currentRow.value
   if (!row?.documentNo) return
@@ -298,29 +352,16 @@ onMounted(async () => {
 <template>
   <div class="page-container">
     <div class="page-card">
-      <div class="table-toolbar">
-        <div class="row-actions">
-          <el-button type="success" plain @click="router.push('/inventory/stock-in')"><el-icon><Download /></el-icon>入库</el-button>
-          <el-button type="danger" plain @click="router.push('/inventory/stock-out')"><el-icon><Upload /></el-icon>出库</el-button>
-          <el-button type="warning" plain @click="openTransfer()"><el-icon><Switch /></el-icon>移库</el-button>
-          <el-button type="primary" plain :disabled="!currentRow?.documentNo" title="先点击列表中的行，再打印该单号" @click="printSelected"><el-icon><Printer /></el-icon>打印</el-button>
-          <el-button type="danger" plain :disabled="!currentRow?.documentNo" title="先点击列表中的行，再生成红单冲销" @click="redSelected"><el-icon><DocumentRemove /></el-icon>红单</el-button>
-        </div>
+      <div class="advanced-actions">
+        <el-button @click="router.push('/inventory/stock-in')"><el-icon><Download /></el-icon>入库</el-button>
+        <el-button @click="router.push('/inventory/stock-out')"><el-icon><Upload /></el-icon>出库</el-button>
+        <el-button @click="openTransfer()"><el-icon><Switch /></el-icon>移库</el-button>
+        <el-button :disabled="!currentRow?.documentNo" title="先点击列表中的行，再打印该单号" @click="printSelected"><el-icon><Printer /></el-icon>打印</el-button>
+        <el-button :disabled="!currentRow?.documentNo" title="先点击列表中的行，再生成红单冲销" @click="redSelected"><el-icon><DocumentRemove /></el-icon>红单</el-button>
       </div>
 
-      <div class="search-bar">
-        <el-input v-model="query.documentNo" placeholder="事务单号/源单号" clearable style="width: 160px" @keyup.enter="query.page = 1, loadData()" />
-        <el-input v-model="query.materialKeyword" placeholder="物料编码/名称" clearable style="width: 180px" @keyup.enter="query.page = 1, loadData()" />
-        <el-select v-model="query.warehouseId" placeholder="仓库" clearable style="width: 150px">
-          <el-option v-for="w in warehouses" :key="w.id" :label="w.name" :value="w.id" />
-        </el-select>
-        <el-select v-model="query.transactionTypeId" placeholder="事务类型" clearable filterable style="width: 160px">
-          <el-option v-for="t in transactionTypes" :key="t.id" :label="t.description || t.code" :value="t.id" />
-        </el-select>
-        <el-input v-model="query.startDate" type="date" placeholder="开始" clearable style="width: 150px" @keyup.enter="query.page = 1, loadData()" />
-        <el-input v-model="query.endDate" type="date" placeholder="结束" clearable style="width: 150px" @keyup.enter="query.page = 1, loadData()" />
-        <el-button type="primary" @click="query.page = 1, loadData()"><el-icon><Search /></el-icon>查询</el-button>
-        <el-button @click="Object.assign(query, { materialKeyword: '', warehouseId: '', transactionTypeId: '', startDate: '', endDate: '', documentNo: '', page: 1 }), loadData()">重置</el-button>
+      <div class="advanced-query">
+        <QueryConditionBuilder v-model="advancedConditions" :fields="queryFields" @query="submitAdvanced" @reset="resetAdvanced" />
       </div>
 
 
@@ -330,9 +371,6 @@ onMounted(async () => {
         </el-table-column>
         <el-table-column label="事务单号" width="140" show-overflow-tooltip>
           <template #default="{ row }">{{ row.documentNo || '-' }}</template>
-        </el-table-column>
-        <el-table-column label="源单号" width="140" show-overflow-tooltip>
-          <template #default="{ row }">{{ row.orderNo || '-' }}</template>
         </el-table-column>
         <el-table-column label="行号" width="56" align="center">
           <template #default="{ row }">{{ row.lineNo ?? '-' }}</template>
@@ -352,22 +390,9 @@ onMounted(async () => {
         <el-table-column label="型号规格" min-width="120" show-overflow-tooltip>
           <template #default="{ row }">{{ row.material?.specification }}</template>
         </el-table-column>
-        <el-table-column label="封装" width="80" show-overflow-tooltip>
-          <template #default="{ row }">{{ row.material?.packageType || '-' }}</template>
-        </el-table-column>
-        <el-table-column label="品牌" width="100" show-overflow-tooltip>
-          <template #default="{ row }">{{ row.material?.brand || '-' }}</template>
-        </el-table-column>
-        <el-table-column label="物料备注" min-width="140" show-overflow-tooltip>
-          <template #default="{ row }">{{ row.material?.remark || '-' }}</template>
-        </el-table-column>
         <el-table-column label="库位" width="100" show-overflow-tooltip>
           <template #default="{ row }">{{ row.warehouse?.name }}</template>
         </el-table-column>
-        <el-table-column label="货位" width="110" show-overflow-tooltip>
-          <template #default="{ row }">{{ row.bin?.name || '-' }}</template>
-        </el-table-column>
-        <el-table-column prop="batchNo" label="批号" width="130" show-overflow-tooltip />
         <el-table-column label="单位" width="70">
           <template #default="{ row }">{{ row.um || row.material?.unit || '-' }}</template>
         </el-table-column>
@@ -383,6 +408,22 @@ onMounted(async () => {
         </el-table-column>
         <el-table-column label="部门" width="120" show-overflow-tooltip>
           <template #default="{ row }">{{ row.department?.name || '-' }}</template>
+        </el-table-column>
+        <el-table-column label="货位" width="110" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.bin?.name || '-' }}</template>
+        </el-table-column>
+        <el-table-column prop="batchNo" label="批号" width="130" show-overflow-tooltip />
+        <el-table-column label="封装" width="80" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.material?.packageType || '-' }}</template>
+        </el-table-column>
+        <el-table-column label="品牌" width="100" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.material?.brand || '-' }}</template>
+        </el-table-column>
+        <el-table-column label="物料备注" min-width="140" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.material?.remark || '-' }}</template>
+        </el-table-column>
+        <el-table-column label="源单号" width="140" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.orderNo || '-' }}</template>
         </el-table-column>
         <el-table-column label="经手人" width="100" show-overflow-tooltip>
           <template #default="{ row }">{{ row.handler || '-' }}</template>
@@ -404,7 +445,7 @@ onMounted(async () => {
         </el-table-column>
         <template #empty>
           <el-empty description="没有符合条件的事务流水" :image-size="56">
-            <div class="empty-tip">「单号」同时匹配系统事务单号与手工源单号；可清空物料/仓库/日期条件后重试</div>
+            <div class="empty-tip">「事务单号」为系统生成单号、「源单号」为采购/销售/生产等原始单号；可调整上方查询条件后重试</div>
           </el-empty>
         </template>
       </el-table>
@@ -480,10 +521,18 @@ onMounted(async () => {
 </template>
 
 <style scoped>
-.row-actions {
+.advanced-actions {
   display: flex;
   align-items: center;
   gap: 8px;
+  margin-bottom: 8px;
+}
+.advanced-query {
+  margin: 4px 0 8px;
+  padding: 8px 10px;
+  border: 1px solid #d5dae2;
+  border-radius: 6px;
+  background: #fafbfc;
 }
 .unit-hint {
   font-size: 12px;

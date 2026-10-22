@@ -113,6 +113,7 @@ const menuItems: MenuNode[] = [
       { path: '/inventory/material-out-maintain', title: '材料出库维护', icon: 'Tickets' },
       { path: '/inventory/sales-out-maintain', title: '销售出库维护', icon: 'Tickets' },
       { path: '/inventory/product-in-maintain', title: '产品入库维护', icon: 'Download' },
+      { path: '/inventory/psi-report', title: '进销存报表', icon: 'DataLine' },
     ],
   },
   {

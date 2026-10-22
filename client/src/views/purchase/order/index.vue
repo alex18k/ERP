@@ -2,13 +2,47 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { purchaseApi, supplierApi } from '../../../api'
+import { purchaseApi } from '../../../api'
+import QueryConditionBuilder from '../../../components/QueryConditionBuilder.vue'
+import { createEmptyCondition, serializeConditions, type QueryCondition, type QueryField } from '../../../utils/queryBuilder'
 
 const loading = ref(false)
 const list = ref<any[]>([])
 const total = ref(0)
 const router = useRouter()
-const query = reactive({ page: 1, pageSize: 20, orderNo: '', supplierId: '', status: '', materialKeyword: '' })
+const query = reactive({ page: 1, pageSize: 20, conditions: undefined as string | undefined })
+
+// ===== 高级查询 =====
+const advancedConditions = ref<QueryCondition[]>([createEmptyCondition()])
+
+const queryFields: QueryField[] = [
+  { field: 'orderNo', label: '采购单号', type: 'text', placeholder: '采购单号' },
+  { field: 'supplierName', label: '供应商', type: 'text', placeholder: '供应商名称' },
+  {
+    field: 'status',
+    label: '单据状态',
+    type: 'enum',
+    options: [
+      { label: '草稿', value: 'draft' },
+      { label: '已确认', value: 'confirmed' },
+    ],
+  },
+  { field: 'orderDate', label: '订货日期', type: 'date' },
+  { field: 'expectedDate', label: '期望到货日期', type: 'date' },
+  { field: 'buyer', label: '采购员', type: 'text', placeholder: '采购员' },
+  { field: 'settleMethod', label: '结算方式', type: 'text', placeholder: '结算方式' },
+  { field: 'totalAmount', label: '订单金额', type: 'number' },
+  { field: 'materialCode', label: '物料编码', type: 'text', placeholder: '物料编码' },
+  { field: 'materialName', label: '物料名称', type: 'text', placeholder: '物料名称' },
+  { field: 'specification', label: '型号规格', type: 'text', placeholder: '型号规格' },
+  { field: 'line', label: '行号', type: 'number' },
+  { field: 'quantity', label: '订购数量', type: 'number' },
+  { field: 'receivedQty', label: '已收数量', type: 'number' },
+  { field: 'unitPrice', label: '单价', type: 'number' },
+  { field: 'itemRemark', label: '明细备注', type: 'text', placeholder: '明细备注' },
+  { field: 'remark', label: '表头备注', type: 'text', placeholder: '表头备注' },
+  { field: 'createdAt', label: '创建日期', type: 'date' },
+]
 
 const statusOptions = [
   { label: '草稿', value: 'draft', type: 'info' },
@@ -22,8 +56,6 @@ const itemStatusOptions = [
   { label: '取消', value: 'cancelled', type: 'danger' },
 ]
 
-const suppliers = ref<any[]>([])
-
 async function loadData() {
   loading.value = true
   try {
@@ -31,6 +63,24 @@ async function loadData() {
     list.value = res.data.items
     total.value = res.data.total
   } finally { loading.value = false }
+}
+
+// 明细级查询字段（后端按 items.some 过滤订单，前端再据此过滤平铺行）
+const ITEM_FIELDS = new Set(['materialCode', 'materialName', 'specification', 'line', 'quantity', 'receivedQty', 'unitPrice', 'itemRemark'])
+
+function submitAdvanced(conditions: QueryCondition[]) {
+  query.conditions = serializeConditions(conditions)
+  activeConditions.value = conditions.filter((c) => c.field && c.value !== null && c.value !== '' && c.value !== undefined)
+  query.page = 1
+  loadData()
+}
+
+function resetAdvanced() {
+  advancedConditions.value = [createEmptyCondition()]
+  activeConditions.value = []
+  query.conditions = undefined
+  query.page = 1
+  loadData()
 }
 
 function itemStatusLabel(s: string) {
@@ -47,18 +97,44 @@ function confirmType(s: string) {
   return statusOptions.find(o => o.value === s)?.type || 'info'
 }
 
-// 平铺明细行：每行 = 一个采购明细；有物料关键词时只保留匹配的明细行
+// 平铺明细行：每行 = 一个采购明细；明细级查询条件只保留匹配的明细行
+const activeConditions = ref<QueryCondition[]>([])
+
+function matchCondition(row: any, condition: QueryCondition): boolean {
+  const v = condition.value
+  const v2 = condition.value2
+  switch (condition.field) {
+    case 'materialCode': return String(row.materialCode ?? '').toLowerCase().includes(String(v ?? '').toLowerCase())
+    case 'materialName': return String(row.materialName ?? '').toLowerCase().includes(String(v ?? '').toLowerCase())
+    case 'specification': return String(row.specification ?? '').toLowerCase().includes(String(v ?? '').toLowerCase())
+    case 'itemRemark': return String(row.itemRemark ?? '').toLowerCase().includes(String(v ?? '').toLowerCase())
+    case 'line': return Number(row.line) === Number(v)
+    case 'quantity': return compareNumber(Number(row.quantity), condition.operator, Number(v), Number(v2))
+    case 'receivedQty': return compareNumber(Number(row.receivedQty), condition.operator, Number(v), Number(v2))
+    case 'unitPrice': return compareNumber(Number(row.unitPrice), condition.operator, Number(v), Number(v2))
+    default: return true
+  }
+}
+
+function compareNumber(num: number, operator: string, v: any, v2: any): boolean {
+  if (operator === 'gt') return num > v
+  if (operator === 'lt') return num < v
+  if (operator === 'range') {
+    const lo = Math.min(Number(v), Number(v2))
+    const hi = Math.max(Number(v), Number(v2))
+    return num >= lo && num <= hi
+  }
+  return num === v
+}
+
 const rows = computed(() => {
-  const keyword = (query.materialKeyword || '').trim()
+  const itemConditions = activeConditions.value.filter((c) => ITEM_FIELDS.has(c.field))
   const out: any[] = []
+
   for (const o of list.value) {
     for (const it of (o.items || [])) {
       const m = it.material
-      if (keyword && m) {
-        const hit = [m.code, m.name, m.specification].some((v) => v && String(v).toLowerCase().includes(keyword.toLowerCase()))
-        if (!hit) continue
-      }
-      out.push({
+      const row = {
         orderId: o.id,
         orderNo: o.orderNo,
         supplierName: o.supplier?.name || '未指定',
@@ -71,6 +147,7 @@ const rows = computed(() => {
         materialCode: m?.code,
         materialName: m?.name,
         specification: m?.specification,
+        itemRemark: it.remark,
         quantity: it.quantity,
         receivedQty: it.receivedQty ?? 0,
         returnedQty: it.returnedQty ?? 0,
@@ -80,7 +157,9 @@ const rows = computed(() => {
         amount: it.amount,
         expectedDate: it.expectedDate,
         sourceOrderNo: it.sourceOrderNo,
-      })
+      }
+      if (itemConditions.length && !itemConditions.every((c) => matchCondition(row, c))) continue
+      out.push(row)
     }
   }
   return out
@@ -129,30 +208,20 @@ function receivedClass(row: any) {
 
 onMounted(async () => {
   loadData()
-  try {
-    const res: any = await supplierApi.list({ pageSize: 200 })
-    suppliers.value = res.data.items
-  } catch { /* ignore */ }
 })
 </script>
 
 <template>
   <div class="page-container">
     <div class="page-card">
-      <div class="search-bar">
-        <el-input v-model="query.orderNo" placeholder="采购单号" clearable style="width: 150px" @keyup.enter="query.page = 1, loadData()" />
-        <el-select v-model="query.supplierId" placeholder="供应商" clearable filterable style="width: 180px">
-          <el-option v-for="s in suppliers" :key="s.id" :label="s.name" :value="s.id" />
-        </el-select>
-        <el-select v-model="query.status" placeholder="单据状态" clearable style="width: 120px">
-          <el-option v-for="o in statusOptions" :key="o.value" :label="o.label" :value="o.value" />
-        </el-select>
-        <el-input v-model="query.materialKeyword" placeholder="物料编码/名称/规格" clearable style="width: 200px" />
-        <el-button type="primary" @click="query.page = 1, loadData()"><el-icon><Search /></el-icon>查询</el-button>
-        <el-button @click="Object.assign(query, { orderNo: '', supplierId: '', status: '', materialKeyword: '', page: 1 }), loadData()">重置</el-button>
-        <el-button type="primary" plain style="margin-left: auto" @click="handleToolbarEdit" :disabled="!currentRow"><el-icon><Edit /></el-icon>编辑</el-button>
+      <div class="advanced-actions">
+        <el-button type="primary" plain @click="handleToolbarEdit" :disabled="!currentRow"><el-icon><Edit /></el-icon>编辑</el-button>
         <el-button type="warning" plain @click="handleToolbarPrint" :disabled="!currentRow"><el-icon><Printer /></el-icon>打印</el-button>
         <el-button type="success" plain class="btn-add" @click="router.push('/purchase/maintain')"><el-icon><Plus /></el-icon>新增采购单</el-button>
+      </div>
+
+      <div class="advanced-query">
+        <QueryConditionBuilder v-model="advancedConditions" :fields="queryFields" @query="submitAdvanced" @reset="resetAdvanced" />
       </div>
 
       <el-table :data="rows" v-loading="loading" stripe max-height="calc(100vh - 260px)" highlight-current-row @current-change="onCurrentChange">
@@ -203,7 +272,7 @@ onMounted(async () => {
         </el-table-column>
         <template #empty>
           <el-empty description="没有符合条件的采购订单" :image-size="56">
-            <div class="empty-tip">可清空采购单号/供应商/状态后重试；一行 = 一条采购明细</div>
+            <div class="empty-tip">可调整上方查询条件后重试；一行 = 一条采购明细</div>
           </el-empty>
         </template>
       </el-table>
@@ -218,6 +287,15 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+.advanced-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.advanced-actions .btn-add {
+  margin-left: auto;
+}
 .qty-zero {
   color: var(--el-text-color-placeholder);
 }

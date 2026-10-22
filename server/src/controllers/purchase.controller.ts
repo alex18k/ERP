@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import * as purchaseService from "../services/purchase.service";
 import * as exportService from "../services/export.service";
 import { success, fail } from "../utils/response";
+import { isQueryConditionError } from "../utils/queryConditions";
 import { AuthRequest } from "../middleware/auth";
 import { sendCsv } from "../utils/export";
 
@@ -19,6 +20,7 @@ export async function listHandler(req: Request, res: Response) {
     const data = await purchaseService.listPurchaseOrders(req.query as any);
     return success(res, data);
   } catch (error: any) {
+    if (isQueryConditionError(error)) return fail(res, 400, error.message, 400);
     return fail(res, 500, error.message, 500);
   }
 }
