@@ -103,6 +103,15 @@ function batchMaxOf(row: any) {
   return Math.floor((batchQtyOf(row) / rowBaseRate(row)) * 100) / 100
 }
 
+function onQuantityInput(row: any, value: number | undefined) {
+  if (!isRed.value && value != null && value <= 0) row.quantity = 0
+}
+
+function preventInvalidQuantityKey(e: KeyboardEvent) {
+  if (isRed.value) return
+  if (e.key === '-' || e.key === '+' || e.key.toLowerCase() === 'e') e.preventDefault()
+}
+
 // 单价取物料主文件成本；按录入单位换算（1 录入单位 = N 基本单位）
 function rowUnitCost(row: any) {
   const cost = Number(row.material?.cost) || 0
@@ -121,11 +130,11 @@ const filledLines = computed(() => form.items.filter((r: any) => r.materialId &&
 const totalQty = computed(() => form.items.reduce((s: number, r: any) => (r.materialId && Number(r.quantity) !== 0 ? s + Number(r.quantity) : s), 0))
 const totalAmount = computed(() => form.items.reduce((s: number, r: any) => (r.materialId && Number(r.quantity) !== 0 ? s + rowAmount(r) : s), 0))
 
-// 已填行的即时反馈：正数出库淡蓝底，红单退库淡红底
+// 已填行的即时反馈：红单退库淡红底
 function itemRowClass({ row }: any) {
   const q = Number(row.quantity)
   if (!row.materialId || q === 0) return ''
-  return q < 0 ? 'row-red' : 'row-shipping'
+  return q < 0 ? 'row-red' : ''
 }
 
 // 提交前预警：录入数量折算基本单位后超过现存量
@@ -189,14 +198,11 @@ async function loadRowStock(row: any) {
     const res: any = await stockApi.list({
       materialId: row.materialId,
       warehouseId: row.warehouseId,
-      binId: row.binId || undefined,
+      binId: warehouseBinManaged(row.warehouseId) && !row.binId ? "none" : row.binId || undefined,
       pageSize: 1000,
     })
     const items = res.data.items || []
-    // 启用货位管理但尚未选货位时，显示该仓库所有货位的合计库存
-    row.stockQty = warehouseBinManaged(row.warehouseId) && !row.binId
-      ? items.reduce((sum: number, it: any) => sum + Number(it.quantity || 0), 0)
-      : Number(items[0]?.quantity ?? 0)
+    row.stockQty = Number(items[0]?.quantity ?? 0)
   } catch {
     row.stockQty = null
   }
@@ -207,12 +213,11 @@ async function loadRowBatches(row: any) {
   row.batches = []
   row.batchRequired = row.material?.batchManaged === true
   if (!row.materialId || !row.warehouseId) return
-  if (warehouseBinManaged(row.warehouseId) && !row.binId) return
   try {
     const res: any = await stockApi.batches({
       materialId: row.materialId,
       warehouseId: row.warehouseId,
-      binId: row.binId || undefined,
+      binId: warehouseBinManaged(row.warehouseId) && !row.binId ? "none" : row.binId || undefined,
       pageSize: 200,
     })
     row.batches = res.data.items || []
@@ -253,7 +258,8 @@ async function loadRedDocument(no: string) {
       row.materialId = r.materialId ?? null
       row.material = m
       row.materialOptions = m ? [m] : []
-      row.unit = r.um || m?.unit || ''
+      // 红单数量是流水的基本单位数量，单位必须使用基本单位，避免后端再次换算
+      row.unit = m?.unit || ''
       row.unitOptions = row.unit ? [row.unit] : []
       row.warehouseId = r.warehouseId ?? null
       row.binId = r.binId ?? null
@@ -290,7 +296,6 @@ function validateForm(): boolean {
     const line = `第 ${i + 1} 行`
     if (!row.materialId) { ElMessage.warning(`${line}请选择物料`); return false }
     if (!row.warehouseId) { ElMessage.warning(`${line}请选择仓库`); return false }
-    if (warehouseBinManaged(row.warehouseId) && !row.binId) { ElMessage.warning(`${line}所在仓库启用货位管理，请选择货位`); return false }
     if (row.batchRequired && !row.batchNo) { ElMessage.warning(`${line}请选择批号`); return false }
     const qty = Number(row.quantity)
     if (!Number.isFinite(qty) || qty === 0) { ElMessage.warning(`${line}数量不能为0`); return false }
@@ -528,7 +533,7 @@ onMounted(async () => {
         <el-table-column label="货位" width="90">
           <template #default="{ row }">
             <el-select v-if="warehouseBinManaged(row.warehouseId)" v-model="row.binId" filterable clearable placeholder="选择货位" style="width: 100%" @change="onRowBinChange(row)">
-              <el-option v-for="b in binOptionsFor(row.warehouseId)" :key="b.id" :label="`${b.code} - ${b.name}`" :value="b.id" />
+              <el-option v-for="b in binOptionsFor(row.warehouseId)" :key="b.id" :label="b.name" :value="b.id" />
             </el-select>
             <span v-else>-</span>
           </template>
@@ -536,14 +541,14 @@ onMounted(async () => {
         <el-table-column label="批号" width="90">
           <template #default="{ row }">
             <el-select v-model="row.batchNo" filterable allow-create default-first-option clearable :placeholder="row.batchRequired ? '选择或输入批号（必选）' : '选择或输入批号'" style="width: 100%">
-              <el-option v-for="b in row.batches" :key="b.batchNo" :label="`${b.batchNo}（余 ${b.quantity}）`" :value="b.batchNo" />
+              <el-option v-for="b in row.batches" :key="b.batchNo" :label="b.batchNo" :value="b.batchNo" />
             </el-select>
           </template>
         </el-table-column>
         <el-table-column width="80">
           <template #header><span class="req-th">数量</span></template>
           <template #default="{ row }">
-            <el-input-number v-model="row.quantity" :max="Number(row.quantity) > 0 && row.batchNo ? batchMaxOf(row) : undefined" :precision="2" :controls="false" style="width: 100%" />
+            <el-input-number v-model="row.quantity" :min="isRed ? undefined : 0" :max="Number(row.quantity) > 0 && row.batchNo ? batchMaxOf(row) : undefined" :precision="2" :controls="false" style="width: 100%" @input="(v: number | undefined) => onQuantityInput(row, v)" @keydown="preventInvalidQuantityKey" />
           </template>
         </el-table-column>
         <el-table-column label="单价" width="100" align="right">
@@ -587,8 +592,9 @@ onMounted(async () => {
   color: var(--erp-red);
   font-weight: 600;
 }
-.items-editor :deep(.row-shipping) td.el-table__cell {
-  background: var(--el-color-primary-light-9);
+/* 明细行统一白底 */
+.items-editor :deep(.el-table__body tr.el-table__row > td.el-table__cell) {
+  background: #fff;
 }
 .items-editor :deep(.row-red) td.el-table__cell {
   background: var(--el-color-danger-light-9);

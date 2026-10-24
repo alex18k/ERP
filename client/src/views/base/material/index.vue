@@ -109,6 +109,12 @@ function formatCategory(val: string) {
   return materialCategoryLabel(val)
 }
 
+function categoryTagType(val: string) {
+  if (val === 'purchase') return 'success'
+  if (val === 'manufacture') return 'primary'
+  return 'info'
+}
+
 // ===== 新增/编辑 =====
 const dialogVisible = ref(false)
 const isEdit = ref(false)
@@ -157,7 +163,7 @@ const rules = {
 }
 
 async function openDialog(row?: any, copy = false) {
-  await loadOptions()
+  ensureOptions()
   isEdit.value = !!row && !copy
   if (row) {
     Object.assign(form, row)
@@ -207,11 +213,25 @@ function isDirty() {
   return JSON.stringify(buildPayload()) !== initialSnapshot
 }
 
+// 选项数据（供应商/仓库/单位/工艺路线/物料类别）只加载一次：首次打开后台拉取，不阻塞弹窗
+const optionsLoaded = ref(false)
+let optionsLoading: Promise<void> | null = null
+
+function ensureOptions(): Promise<void> {
+  if (optionsLoaded.value) return Promise.resolve()
+  if (!optionsLoading) {
+    optionsLoading = loadOptions()
+      .catch(() => { /* 失败不阻塞弹窗，下次打开再试 */ })
+      .finally(() => { optionsLoading = null })
+  }
+  return optionsLoading
+}
+
 async function loadOptions() {
-  const [sRes, wRes, mRes, rRes, tRes] = await Promise.all([
+  const [sRes, wRes, uRes, rRes, tRes] = await Promise.all([
     supplierApi.list({ pageSize: 200 }),
     warehouseApi.list({ pageSize: 200 }),
-    materialApi.list({ pageSize: 1000 }),
+    materialApi.units(),
     processRouteApi.list({ pageSize: 200 }),
     materialApi.types(),
   ])
@@ -219,15 +239,12 @@ async function loadOptions() {
   warehouses.value = wRes.data.items
   routes.value = rRes.data.items
 
-  const units = new Set<string>()
-  for (const m of mRes.data.items) {
-    if (m.unit) units.add(m.unit)
-  }
   const baseUnits = ['张', '个', '套', '台', '件', '只', '米', '千克', '吨', '升', '箱', '包', '卷']
-  unitOptions.value = [...new Set([...baseUnits, ...units])]
+  unitOptions.value = [...new Set([...baseUnits, ...((uRes.data as string[]) || [])])]
   typeOptions.value = tRes.data || []
 
   locationOptions.value = warehouses.value.map((w: any) => ({ code: w.code, name: w.name }))
+  optionsLoaded.value = true
 }
 
 async function loadTypeOptions() {
@@ -333,23 +350,25 @@ async function handleRecalcCost() {
 onMounted(() => {
   loadData()
   loadTypeOptions()
+  // 预取表单下拉选项，首次点「新增物料」即可立即展示
+  ensureOptions()
 })
 </script>
 
 <template>
   <div class="page-container">
     <div class="page-card">
+      <div class="advanced-query">
+        <QueryConditionBuilder v-model="advancedConditions" :fields="queryFields" @query="submitAdvanced" @reset="resetAdvanced" />
+      </div>
+
       <div class="advanced-actions">
-        <el-button @click="openDialog()"><el-icon><Plus /></el-icon>新增物料</el-button>
+        <el-button type="success" plain @click="openDialog()"><el-icon><Plus /></el-icon>新增物料</el-button>
         <el-button @click="handleEditCurrent"><el-icon><Edit /></el-icon>编辑</el-button>
         <el-button @click="handleCopyCurrent"><el-icon><CopyDocument /></el-icon>复制</el-button>
         <el-button @click="handleDeleteCurrent"><el-icon><Delete /></el-icon>删除</el-button>
         <el-button @click="handleRecalcCost">重算成本</el-button>
         <el-button @click="materialApi.exportCsv()"><el-icon><Download /></el-icon>导出</el-button>
-      </div>
-
-      <div class="advanced-query">
-        <QueryConditionBuilder v-model="advancedConditions" :fields="queryFields" @query="submitAdvanced" @reset="resetAdvanced" />
       </div>
 
       <el-table
@@ -362,7 +381,6 @@ onMounted(() => {
         @current-change="handleCurrentChange"
       >
         <el-table-column prop="code" label="物料编码" width="110" />
-        <el-table-column prop="bomcode" label="BOM编码" width="120" />
         <el-table-column prop="name" label="物料名称" min-width="160" />
         <el-table-column prop="specification" label="规格型号" min-width="140" />
         <el-table-column prop="description" label="物料描述" min-width="180" show-overflow-tooltip />
@@ -371,7 +389,8 @@ onMounted(() => {
         <el-table-column prop="materialType" label="物料类别" min-width="110" />
         <el-table-column label="分类" width="90">
           <template #default="{ row }">
-            {{ formatCategory(row.category) }}
+            <el-tag v-if="row.category" :type="categoryTagType(row.category)" size="small" round>{{ formatCategory(row.category) }}</el-tag>
+            <span v-else>-</span>
           </template>
         </el-table-column>
         <el-table-column prop="unit" label="单位" width="70" />
@@ -404,6 +423,7 @@ onMounted(() => {
             <span v-if="row.processRoute">{{ row.processRoute.code }} - {{ row.processRoute.name }}</span>
           </template>
         </el-table-column>
+        <el-table-column prop="bomcode" label="BOM编码" width="120" />
         <el-table-column prop="remark" label="备注" min-width="150" show-overflow-tooltip />
         <el-table-column label="状态" width="80" align="center">
           <template #default="{ row }">
@@ -594,16 +614,23 @@ onMounted(() => {
 </template>
 <style scoped>
 .advanced-query {
-  margin: 4px 0 8px;
+  margin: 0 0 8px;
   padding: 8px 10px;
   border: 1px solid #d5dae2;
   border-radius: 6px;
   background: #fafbfc;
 }
+/* 与生产订单页查询框同高：去掉组件内额外上下留白 */
+.advanced-query :deep(.query-builder) {
+  padding: 0;
+}
+.advanced-query :deep(.query-row) {
+  margin-bottom: 0;
+}
 .advanced-actions {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 8px;
+  margin: 0 0 8px;
 }
 </style>

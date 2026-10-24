@@ -136,7 +136,8 @@ function rowClassName({ row }: any) {
 async function loadData() {
   loading.value = true
   try {
-    const res: any = await stockApi.records({ ...query, transactionTypeId: salesOutTypeId })
+    // 未匹配到销售出库事务类型时传 -1，避免退化为查询全部库存流水
+    const res: any = await stockApi.records({ ...query, transactionTypeId: salesOutTypeId || -1 })
     list.value = res.data.items
     total.value = res.data.total
     currentRow.value = null
@@ -262,24 +263,6 @@ onMounted(async () => {
         <el-table-column label="单价" width="80" align="right">
           <template #default="{ row }">{{ row.price != null ? Number(row.price).toFixed(6) : '-' }}</template>
         </el-table-column>
-        <el-table-column label="部门" width="100" show-overflow-tooltip>
-          <template #default="{ row }">{{ row.department?.name || '-' }}</template>
-        </el-table-column>
-        <el-table-column label="经手人" width="90" show-overflow-tooltip>
-          <template #default="{ row }">{{ row.handler || '-' }}</template>
-        </el-table-column>
-        <el-table-column label="销售员" width="100" show-overflow-tooltip>
-          <template #default="{ row }">{{ row.salesperson || '-' }}</template>
-        </el-table-column>
-        <el-table-column label="采购员" width="90" show-overflow-tooltip>
-          <template #default="{ row }">{{ row.buyer || '-' }}</template>
-        </el-table-column>
-        <el-table-column label="仓管员" width="90" show-overflow-tooltip>
-          <template #default="{ row }">{{ row.keeper || '-' }}</template>
-        </el-table-column>
-        <el-table-column label="审核人" width="90" show-overflow-tooltip>
-          <template #default="{ row }">{{ row.approver || '-' }}</template>
-        </el-table-column>
         <el-table-column label="合同号" width="100" show-overflow-tooltip>
           <template #default="{ row }">{{ row.contractNo || '-' }}</template>
         </el-table-column>
@@ -303,6 +286,24 @@ onMounted(async () => {
         </el-table-column>
         <el-table-column prop="remark" label="备注" min-width="100" show-overflow-tooltip>
           <template #default="{ row }">{{ row.remark || '-' }}</template>
+        </el-table-column>
+        <el-table-column label="部门" width="100" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.department?.name || '-' }}</template>
+        </el-table-column>
+        <el-table-column label="经手人" width="90" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.handler || '-' }}</template>
+        </el-table-column>
+        <el-table-column label="销售员" width="100" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.salesperson || '-' }}</template>
+        </el-table-column>
+        <el-table-column label="采购员" width="90" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.buyer || '-' }}</template>
+        </el-table-column>
+        <el-table-column label="仓管员" width="90" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.keeper || '-' }}</template>
+        </el-table-column>
+        <el-table-column label="审核人" width="90" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.approver || '-' }}</template>
         </el-table-column>
         <el-table-column label="源单号" width="120" show-overflow-tooltip>
           <template #default="{ row }">{{ row.orderNo || '-' }}</template>

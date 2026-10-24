@@ -42,13 +42,17 @@ function cleanDate(value: any): string | null {
 /** 生成列级过滤条件（不含字段名） */
 function textFilter(operator: QueryOperator, value: string) {
   if (operator === "contains") return { contains: value, mode: "insensitive" };
+  if (operator === "ne") return { not: value };
   return value;
 }
 
 function numberFilter(operator: QueryOperator, value: number | null, value2: number | null) {
   if (operator === "eq") return value;
+  if (operator === "ne") return { not: value };
   if (operator === "gt") return { gt: value };
   if (operator === "lt") return { lt: value };
+  if (operator === "gte") return { gte: value };
+  if (operator === "lte") return { lte: value };
   // range
   const rawMin = value ?? value2!;
   const rawMax = value2 ?? value!;
@@ -68,6 +72,8 @@ function dateFilter(operator: QueryOperator, value: string | null, value2: strin
   if (operator === "eq") return { gte: parseLocalDateStart(value!), lte: parseLocalDateEnd(value!) };
   if (operator === "gt") return { gt: parseLocalDateEnd(value!) };
   if (operator === "lt") return { lt: parseLocalDateStart(value!) };
+  if (operator === "gte") return { gte: parseLocalDateStart(value!) };
+  if (operator === "lte") return { lte: parseLocalDateEnd(value!) };
   // range
   const filter: any = {};
   if (!value) filter.lte = parseLocalDateEnd(value2!);
@@ -81,10 +87,10 @@ function dateFilter(operator: QueryOperator, value: string | null, value2: strin
 
 /** 各类型允许的运算符 */
 const ALLOWED_OPERATORS: Record<QueryFieldType, QueryOperator[]> = {
-  text: ["eq", "contains"],
-  number: ["eq", "gt", "lt", "range"],
-  date: ["eq", "gt", "lt", "range"],
-  enum: ["eq"],
+  text: ["eq", "ne", "contains"],
+  number: ["eq", "ne", "gt", "lt", "gte", "lte", "range"],
+  date: ["eq", "ne", "gt", "lt", "gte", "lte", "range"],
+  enum: ["eq", "ne"],
 };
 
 /** 校验运算符与枚举取值（对 build 自定义构造同样生效） */
@@ -101,18 +107,22 @@ function validateCondition(def: PrismaQueryFieldDefinition, condition: QueryCond
   }
 }
 
-/** 计算列级过滤条件 */
-function columnFilterOf(def: PrismaQueryFieldDefinition, condition: QueryCondition): any {
+/**
+ * 列级过滤条件 → where 片段
+ * 说明：日期不等于必须表达为 OR（Prisma 会把 { not: { gte, lte } } 展平成恒假交集），
+ * 因此带 or 的片段在顶层不能与同字段其它条件再合并，直接独立返回。
+ */
+function columnFilterOf(def: PrismaQueryFieldDefinition, condition: QueryCondition): { fragment: any; or?: boolean } {
   validateCondition(def, condition);
 
   if (def.type === "enum") {
-    return condition.value;
+    return { fragment: condition.operator === "ne" ? { not: condition.value } : condition.value };
   }
 
   if (def.type === "text") {
     const value = cleanText(condition.value);
     if (!value) throw new Error(`查询字段 ${condition.field} 缺少值`);
-    return textFilter(condition.operator, value);
+    return { fragment: textFilter(condition.operator, value) };
   }
 
   if (def.type === "number") {
@@ -121,7 +131,7 @@ function columnFilterOf(def: PrismaQueryFieldDefinition, condition: QueryConditi
     if (condition.operator === "range") {
       if (value === null && value2 === null) throw new Error(`查询字段 ${condition.field} 的范围至少填写一个值`);
     } else if (value === null) throw new Error(`查询字段 ${condition.field} 需要数字`);
-    return numberFilter(condition.operator, value, value2);
+    return { fragment: numberFilter(condition.operator, value, value2) };
   }
 
   if (def.type === "date") {
@@ -130,7 +140,13 @@ function columnFilterOf(def: PrismaQueryFieldDefinition, condition: QueryConditi
     if (condition.operator === "range") {
       if (!value && !value2) throw new Error(`查询字段 ${condition.field} 的范围至少填写一个日期`);
     } else if (!value) throw new Error(`查询字段 ${condition.field} 需要日期`);
-    return dateFilter(condition.operator, value, value2);
+    if (condition.operator === "ne") {
+      return {
+        or: true,
+        fragment: { OR: [{ [def.column ?? condition.field]: { lt: parseLocalDateStart(value!) } }, { [def.column ?? condition.field]: { gt: parseLocalDateEnd(value!) } }] },
+      };
+    }
+    return { fragment: dateFilter(condition.operator, value, value2) };
   }
 
   throw new Error(`查询字段 ${condition.field} 类型不支持`);
@@ -147,7 +163,13 @@ function fragmentOf(def: PrismaQueryFieldDefinition, condition: QueryCondition):
   const column = def.column;
   if (!column) throw new Error(`查询字段 ${condition.field} 未配置过滤字段`);
 
-  const columnFilter = columnFilterOf(def, condition);
+  const { fragment: columnFilter, or } = columnFilterOf(def, condition);
+
+  if (or) {
+    // 日期不等于（顶层 OR）：关系字段无法在顶层表达，明确拒绝
+    if (def.relation) throw new Error(`查询字段 ${condition.field} 不支持运算符 ${condition.operator}`);
+    return { fragment: columnFilter };
+  }
 
   if (def.relation) {
     const { name, toMany, inner } = def.relation;

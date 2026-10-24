@@ -20,6 +20,7 @@ server/prisma/dev.db*
 # backup archives
 backups/
 *.tar.gz
+*.dump
 
 # typescript build info
 *.tsbuildinfo
@@ -28,3 +29,6 @@ backups/
 .DS_Store
 .idea/
 .vscode/
+
+# local backup files
+*.bak

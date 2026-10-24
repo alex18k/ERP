@@ -30,7 +30,7 @@ const menuItems: MenuNode[] = [
       { path: '/base/bom', title: 'BOM管理', icon: 'List' },
       { path: '/base/bom-cost', title: 'BOM成本', icon: 'List' },
       { path: '/base/process-route', title: '工艺路线', icon: 'SetUp' },
-      { path: '/base/unit-conversion', title: '计量单位维护', icon: 'ScaleToOriginal' },
+      { path: '/base/unit-conversion', title: '计量单位转换', icon: 'ScaleToOriginal' },
       { path: '/base/material-category', title: '物料类别维护', icon: 'CollectionTag' },
     ],
   },
@@ -40,6 +40,7 @@ const menuItems: MenuNode[] = [
     children: [
       { path: '/order/sales', title: '销售订单', icon: 'Tickets' },
       { path: '/order/maintain', title: '销售订单维护', icon: 'Edit' },
+      { path: '/order/sales-query', title: '销售订单查询', icon: 'Search' },
       { path: '/order/tracking', title: '订单跟踪', icon: 'Position' },
       { path: '/order/production', title: '订单转生产', icon: 'Files' },
       { path: '/base/customer', title: '客户管理', icon: 'User' },
@@ -52,6 +53,7 @@ const menuItems: MenuNode[] = [
       { path: '/mrp/calculate', title: 'MRP运算', icon: 'Aim' },
       { path: '/mrp/shortage', title: '缺料预警', icon: 'Warning' },
       { path: '/mrp/purchase-suggestion', title: '采购建议', icon: 'ShoppingCart' },
+      { path: '/mrp/production-suggestion', title: '生产建议', icon: 'Box' },
     ],
   },
   {
@@ -96,7 +98,7 @@ const menuItems: MenuNode[] = [
         children: [
           { path: '/inventory/receive', title: '采购收货', icon: 'Download' },
           { path: '/inventory/purchase-return', title: '采购退货', icon: 'RefreshLeft' },
-          { path: '/inventory/receipt-record', title: '采购收货记录', icon: 'Tickets' },
+          { path: '/inventory/receipt-report', title: '采购收货报表', icon: 'Tickets' },
         ],
       },
       { path: '/inventory/issue', title: '生产领料', icon: 'Upload' },
@@ -113,6 +115,7 @@ const menuItems: MenuNode[] = [
       { path: '/inventory/material-out-maintain', title: '材料出库维护', icon: 'Tickets' },
       { path: '/inventory/sales-out-maintain', title: '销售出库维护', icon: 'Tickets' },
       { path: '/inventory/product-in-maintain', title: '产品入库维护', icon: 'Download' },
+      { path: '/inventory/purchase-in-maintain', title: '采购入库维护', icon: 'Download' },
       { path: '/inventory/psi-report', title: '进销存报表', icon: 'DataLine' },
     ],
   },

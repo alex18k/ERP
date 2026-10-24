@@ -89,11 +89,50 @@ export async function cancelOrderHandler(req: Request, res: Response) {
   }
 }
 
+export async function deleteOrderHandler(req: Request, res: Response) {
+  try {
+    const data = await productionService.deleteProductionOrder(Number(req.params.id));
+    return success(res, data, "生产订单已删除");
+  } catch (error: any) {
+    return fail(res, 400, error.message);
+  }
+}
+
+// 手工调整生产订单状态（标记完成 / 改回生产中）
+export async function updateStatusHandler(req: AuthRequest, res: Response) {
+  try {
+    const data = await productionService.updateProductionOrderStatus(Number(req.params.id), String(req.body?.status || ""));
+    return success(res, data, "状态已更新");
+  } catch (error: any) {
+    return fail(res, 400, error.message);
+  }
+}
+
 export async function scheduleHandler(req: AuthRequest, res: Response) {
   try {
     const batches = Array.isArray(req.body?.batches) ? req.body.batches : undefined;
     const data = await productionService.scheduleProduction(Number(req.params.id), req.user!.id, batches, req.body?.planner);
     return success(res, data, "排产完成");
+  } catch (error: any) {
+    return fail(res, 400, error.message);
+  }
+}
+
+// 批量排产候选：planned/in_progress、已下达且未排满的生产订单（供批量排产弹窗勾选）
+export async function schedulableOrdersHandler(_req: Request, res: Response) {
+  try {
+    const data = await productionService.listSchedulableOrders();
+    return success(res, data);
+  } catch (error: any) {
+    return fail(res, 500, error.message, 500);
+  }
+}
+
+// 批量排产：逐单独立事务，返回成功/失败明细
+export async function batchScheduleHandler(req: AuthRequest, res: Response) {
+  try {
+    const data = await productionService.batchScheduleProduction(req.user!.id, req.body);
+    return success(res, data, "批量排产完成");
   } catch (error: any) {
     return fail(res, 400, error.message);
   }

@@ -56,7 +56,7 @@ async function loadRowBatches(row: any) {
   if (row.batchesKey === key) return
   row.batchesLoading = true
   try {
-    const res: any = await stockApi.batches({ materialId: row.material.id, warehouseId: form.warehouseId, binId: row.binId || undefined, pageSize: 200 })
+    const res: any = await stockApi.batches({ materialId: row.material.id, warehouseId: form.warehouseId, binId: binRequired.value && !row.binId ? "none" : row.binId || undefined, pageSize: 200 })
     row.batches = res.data.items || []
     row.batchesKey = key
   } catch {
@@ -185,10 +185,6 @@ async function submit() {
     ElMessage.warning('请选择库位')
     return
   }
-  if (binRequired.value && detail.value.some((l) => Number(l.issueQty) > 0 && !l.binId)) {
-    ElMessage.warning('该仓库启用货位管理，请为发料行选择货位')
-    return
-  }
   if (detail.value.some((l) => Number(l.issueQty) > 0 && l.material?.batchManaged && !l.batchNo)) {
     ElMessage.warning('批号管理物料必须选择批号')
     return
@@ -250,6 +246,9 @@ onMounted(async () => {
 
       <el-table :data="list" v-loading="loading" stripe max-height="calc(100vh - 260px)">
         <el-table-column prop="orderNo" label="生产订单号" width="150" />
+        <el-table-column label="销售订单号" width="150">
+          <template #default="{ row }">{{ row.salesOrder?.orderNo || row.salesOrderNo || '-' }}</template>
+        </el-table-column>
         <el-table-column label="产品" min-width="180">
           <template #default="{ row }">
             <div>{{ row.material?.code }} - {{ row.material?.name }}</div>

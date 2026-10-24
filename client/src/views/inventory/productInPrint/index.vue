@@ -19,7 +19,7 @@ const doc = computed(() => {
   return {
     effectiveDate: first.effectiveDate || first.createdAt,
     category: first.transactionType?.description || '产品入库',
-    typeCode: first.transactionType?.code || '-',
+    typeDesc: first.transactionType?.description || '-',
     warehouses: uniq(records.value.map((r) => r.warehouse?.name)).join('、') || '-',
     handler: uniq(records.value.map((r) => r.handler)).join('、'),
     departments: uniq(records.value.map((r) => r.department?.name)).join('、') || '-',
@@ -84,7 +84,7 @@ onMounted(() => {
           <div class="meta-item"><b>单据编号</b>：{{ documentNo }}</div>
           <div class="meta-item"><b>入库类别</b>：{{ doc.category }}</div>
           <div class="meta-item"></div>
-          <div class="meta-item"><b>业务类型</b>：{{ doc.typeCode }}</div>
+          <div class="meta-item"><b>业务类型</b>：{{ doc.typeDesc }}</div>
           <div class="meta-item"><b>仓库</b>：{{ doc.warehouses }}</div>
           <div class="meta-item"><b>车间</b>：{{ doc.departments }}</div>
           <div class="meta-item"><b>入库人</b>：{{ doc.handler || '____________' }}</div>
@@ -94,13 +94,15 @@ onMounted(() => {
           <thead>
             <tr>
               <th style="width: 44px">序号</th>
-              <th style="width: 105px">产品编码</th>
+              <th style="width: 88px">产品编码</th>
               <th style="width: 110px">产品名称</th>
-              <th style="width: 100px">品牌</th>
+              <th style="width: 72px">品牌</th>
               <th>规格型号</th>
-              <th style="width: 54px">单位</th>
-              <th style="width: 92px">数量</th>
-              <th style="width: 110px">备注</th>
+              <th style="width: 50px">单位</th>
+              <th style="width: 72px">数量</th>
+              <th style="width: 84px">批号</th>
+              <th style="width: 62px">货位</th>
+              <th style="width: 90px">备注</th>
             </tr>
           </thead>
           <tbody>
@@ -112,12 +114,14 @@ onMounted(() => {
               <td>{{ it.material?.specification || '' }}</td>
               <td class="c">{{ it.material?.unit || '' }}</td>
               <td class="r">{{ formatQty(it.quantity) }}</td>
+              <td>{{ it.batchNo || '' }}</td>
+              <td>{{ it.bin?.name || '' }}</td>
               <td>{{ it.remark || '' }}</td>
             </tr>
           </tbody>
           <tfoot>
             <tr>
-              <td class="c" colspan="6">合计</td>
+              <td class="c" colspan="8">合计</td>
               <td class="r total-qty">{{ formatQty(totalQty) }}</td>
               <td></td>
             </tr>

@@ -48,14 +48,15 @@ const cnDate = computed(() => {
 
 const rows = computed(() =>
   records.value.map((r, idx) => {
-    const qty = Number(r.quantity) || 0
+    // 后端已按订单换算率还原录入行口径（lineQty/lineUnit/amount）；旧数据无此字段时回退原口径
+    const qty = Number(r.lineQty ?? r.quantity) || 0
     const price = r.price == null ? null : Number(r.price)
-    const amount = price == null ? null : Math.round(qty * price * 100) / 100
+    const amount = r.amount != null ? Number(r.amount) : price == null ? null : Math.round(qty * price * 100) / 100
     return {
       no: idx + 1,
       name: r.material?.name || '',
       spec: r.material?.specification || '',
-      unit: r.um || r.material?.unit || '',
+      unit: r.lineUnit || r.um || r.material?.unit || '',
       qty: qty.toFixed(1),
       price,
       amount,

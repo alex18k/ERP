@@ -185,17 +185,16 @@ async function onRowBinChange(row: any) {
 async function loadRowStock(row: any) {
   row.stockQty = null
   if (!row.materialId || !row.warehouseId) return
+  const scopeBin = warehouseBinManaged(row.warehouseId) && !row.binId ? "none" : row.binId || undefined
   try {
     const res: any = await stockApi.list({
       materialId: row.materialId,
       warehouseId: row.warehouseId,
-      binId: row.binId || undefined,
+      binId: scopeBin,
       pageSize: 1000,
     })
     const items = res.data.items || []
-    row.stockQty = warehouseBinManaged(row.warehouseId) && !row.binId
-      ? items.reduce((sum: number, it: any) => sum + Number(it.quantity || 0), 0)
-      : Number(items[0]?.quantity ?? 0)
+    row.stockQty = Number(items[0]?.quantity ?? 0)
   } catch {
     row.stockQty = null
   }
@@ -206,12 +205,12 @@ async function loadRowBatches(row: any) {
   row.batches = []
   row.batchRequired = row.material?.batchManaged === true
   if (!row.materialId || !row.warehouseId) return
-  if (warehouseBinManaged(row.warehouseId) && !row.binId) return
+  const scopeBin = warehouseBinManaged(row.warehouseId) && !row.binId ? "none" : row.binId || undefined
   try {
     const res: any = await stockApi.batches({
       materialId: row.materialId,
       warehouseId: row.warehouseId,
-      binId: row.binId || undefined,
+      binId: scopeBin,
       pageSize: 200,
     })
     row.batches = res.data.items || []
@@ -266,7 +265,8 @@ async function loadRedDocument(no: string) {
       row.materialId = r.materialId ?? null
       row.material = m
       row.materialOptions = m ? [m] : []
-      row.unit = r.um || m?.unit || ''
+      // 红单数量是流水的基本单位数量，单位必须使用基本单位，避免后端再次换算
+      row.unit = m?.unit || ''
       row.unitOptions = row.unit ? [row.unit] : []
       row.warehouseId = r.warehouseId ?? null
       row.binId = r.binId ?? null
@@ -316,7 +316,6 @@ function validateForm(): boolean {
     const line = `第 ${i + 1} 行`
     if (!row.materialId) { ElMessage.warning(`${line}请选择物料`); return false }
     if (!row.warehouseId) { ElMessage.warning(`${line}请选择仓库`); return false }
-    if (warehouseBinManaged(row.warehouseId) && !row.binId) { ElMessage.warning(`${line}所在仓库启用货位管理，请选择货位`); return false }
     if (row.batchRequired && !row.batchNo) { ElMessage.warning(`${line}请选择批号`); return false }
     const qty = Number(row.quantity)
     if (isRed.value ? !(qty < 0) : !(qty > 0)) {

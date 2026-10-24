@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, onBeforeUnmount } from 'vue'
+import { ref, reactive, computed, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { purchaseApi, supplierApi, materialApi, warehouseApi } from '../../../api'
@@ -52,6 +52,7 @@ const settleMethodOptions = ['现金', '月结', '月结30天', '月结60天', '
 
 const rules = computed(() => ({
   supplierId: [{ required: true, message: '请选择供应商', trigger: 'change' }],
+  settleMethod: [{ required: true, message: '请选择结算方式', trigger: 'change' }],
   orderDate: [{ required: true, message: '请选择订货日期', trigger: 'change' }],
   buyer: [{ required: true, message: '请输入采购员', trigger: 'blur' }],
 }))
@@ -254,6 +255,7 @@ function resetForm() {
   form.orderDate = todayStr()
   form.expectedDate = ''
   form.buyer = ''
+  form.settleMethod = ''
   form.taxIncluded = false
   form.taxRate = 0
   form.items = []
@@ -261,6 +263,8 @@ function resetForm() {
   isEditLoad.value = false
   selectedOrderId.value = null
   snapshot.value = JSON.stringify(buildPayload())
+  // 程序化赋值(settleMethod '' → null 等)会触发 el-select 的 change 校验,进入页面先清掉
+  nextTick(() => (formRef.value as any)?.clearValidate(['settleMethod']))
 }
 
 async function loadOrder(id: number) {
@@ -270,6 +274,7 @@ async function loadOrder(id: number) {
     const row = res.data
     ensureOrderOption(row)
     Object.assign(form, row)
+    form.settleMethod = row.settleMethod || ''
     form.orderDate = row.orderDate?.slice(0, 10) || ''
     form.expectedDate = row.expectedDate?.slice(0, 10) || ''
     form.buyer = row.buyer || ''
@@ -297,6 +302,8 @@ async function loadOrder(id: number) {
     isEditLoad.value = true
     buildItemOptions()
     snapshot.value = JSON.stringify(buildPayload())
+    // 载入旧单据时 settleMethod 可能被赋 null,程序化赋值同样会触发 change 校验,进入时清掉
+    nextTick(() => (formRef.value as any)?.clearValidate(['settleMethod']))
   } finally {
     pageLoading.value = false
   }
@@ -334,6 +341,20 @@ function buildPayload() {
 const snapshot = ref('')
 const isDirty = computed(() => snapshot.value !== '' && JSON.stringify(buildPayload()) !== snapshot.value)
 
+// 保存前二次确认（保存即确认采购单）
+async function saveWithConfirm() {
+  try {
+    await ElMessageBox.confirm('保存后将直接确认采购单（状态改为「已确认」），是否继续？', '确认保存', {
+      type: 'warning',
+      confirmButtonText: '确认保存',
+      cancelButtonText: '取消',
+    })
+  } catch {
+    return
+  }
+  await handleSave()
+}
+
 async function handleSave() {
   try { await (formRef.value as any).validate() } catch { return false }
   if (form.items.length === 0) { ElMessage.warning('请至少添加一个采购明细'); return false }
@@ -344,11 +365,11 @@ async function handleSave() {
   try {
     if (isEditLoad.value) {
       await purchaseApi.update(form.id, buildPayload())
-      ElMessage.success('采购单更新成功')
+      ElMessage.success('采购单已保存并确认')
       await loadOrder(form.id)
     } else {
       const res: any = await purchaseApi.create(buildPayload())
-      ElMessage.success('采购单创建成功')
+      ElMessage.success('采购单已保存并确认')
       form.id = res.data?.id ?? null
       form.orderNo = res.data?.orderNo || ''
       form.status = res.data?.status || ''
@@ -366,6 +387,11 @@ async function handleSave() {
 function handlePrint() {
   skipLeave.value = true
   router.push(`/purchase/print?id=${form.id}`)
+}
+
+// 「取消」：放弃当前编辑并返回采购订单列表（有未保存修改时走统一的离开确认）
+function handleCancelEdit() {
+  router.push('/purchase/order')
 }
 
 const leaveDialogVisible = ref(false)
@@ -511,7 +537,8 @@ async function copyOrderNo() {
         <el-button v-if="form.id && form.status === 'draft'" type="danger" plain @click="handleDelete">删除</el-button>
         <el-button @click="onNewClick">新增</el-button>
         <el-button v-if="isEditLoad" type="primary" plain @click="handlePrint">打印</el-button>
-        <el-button type="primary" @click="handleSave">保存</el-button>
+        <el-button @click="handleCancelEdit">取消</el-button>
+        <el-button type="primary" @click="saveWithConfirm">保存</el-button>
       </div>
 
       <el-form ref="formRef" v-loading="pageLoading" :model="form" :rules="rules" label-width="72px" class="kd-header-form">
@@ -550,7 +577,7 @@ async function copyOrderNo() {
               </el-form-item>
             </div>
             <div class="kd-field">
-              <el-form-item label="结算方式">
+              <el-form-item label="结算方式" prop="settleMethod">
                 <el-select v-model="form.settleMethod" filterable allow-create default-first-option placeholder="自动带出，可改" class="kd-flex">
                   <el-option v-for="m in settleMethodOptions" :key="m" :label="m" :value="m" />
                 </el-select>
@@ -731,7 +758,6 @@ async function copyOrderNo() {
 }
 .erp-group {
   border: 1px solid #D5DAE2;
-  border-left: 3px solid var(--erp-primary);
   border-radius: 6px;
   padding: 8px 12px 2px;
   margin-bottom: 12px;

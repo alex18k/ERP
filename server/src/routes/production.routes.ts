@@ -12,9 +12,13 @@ router.get("/orders", requirePermission("production:view"), productionController
 router.get("/planners", requirePermission("production:view"), productionController.plannersHandler);
 router.get("/employees", requirePermission("production:report"), productionController.employeesHandler);
 router.get("/orders/issued-keys", requirePermission("production:view"), productionController.issuedKeysHandler);
+router.get("/orders/schedulable", requirePermission("production:view"), productionController.schedulableOrdersHandler);
 router.post("/orders", requirePermission("production:manage"), productionController.createOrderHandler);
 router.put("/orders/:id", requirePermission("production:manage"), productionController.updateOrderHandler);
+router.put("/orders/:id/status", requirePermission("production:manage"), productionController.updateStatusHandler);
 router.put("/orders/:id/cancel", requirePermission("production:manage"), productionController.cancelOrderHandler);
+router.delete("/orders/:id", requirePermission("production:manage"), operationLog("production", "delete"), productionController.deleteOrderHandler);
+router.post("/orders/batch-schedule", requirePermission("production:manage"), productionController.batchScheduleHandler);
 router.post("/orders/:id/schedule", requirePermission("production:manage"), productionController.scheduleHandler);
 
 // 报工（直接挂批次 + 订单级工序）

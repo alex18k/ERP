@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { mrpApi } from '../../../api'
 
@@ -9,8 +9,6 @@ const suggestions = ref<any[]>([])
 const generating = ref(false)
 const safetyChecking = ref(false)
 const selectedRows = ref<any[]>([])
-const page = ref(1)
-const pageSize = ref(50)
 const typeFilter = ref('')
 
 const materialTypes = computed(() =>
@@ -22,13 +20,6 @@ const filteredSuggestions = computed(() =>
     ? suggestions.value.filter((s: any) => (s.materialType || '') === typeFilter.value)
     : suggestions.value
 )
-
-const pagedSuggestions = computed(() => {
-  const start = (page.value - 1) * pageSize.value
-  return filteredSuggestions.value.slice(start, start + pageSize.value)
-})
-
-watch(typeFilter, () => { page.value = 1 })
 
 function onSelectionChange(rows: any[]) {
   selectedRows.value = rows
@@ -55,7 +46,6 @@ async function loadData() {
       run.value = null
       suggestions.value = []
     }
-    if ((page.value - 1) * pageSize.value >= suggestions.value.length) page.value = 1
     selectedRows.value = []
   } finally { loading.value = false }
 }
@@ -149,7 +139,7 @@ onMounted(loadData)
         <el-button @click="loadData"><el-icon><Refresh /></el-icon>刷新</el-button>
       </div>
 
-      <el-table :data="pagedSuggestions" v-loading="loading" stripe :row-key="rowKey" @selection-change="onSelectionChange" max-height="calc(100vh - 260px)">
+      <el-table :data="filteredSuggestions" v-loading="loading" stripe :row-key="rowKey" @selection-change="onSelectionChange" max-height="calc(100vh - 260px)">
         <el-table-column type="selection" width="45" :selectable="selectable" reserve-selection />
         <el-table-column type="expand">
           <template #default="{ row }">
@@ -206,9 +196,7 @@ onMounted(loadData)
         </template>
 </el-table>
 
-      <div class="pagination-wrap">
-        <el-pagination v-model:current-page="page" v-model:page-size="pageSize" :total="filteredSuggestions.length" :page-sizes="[20, 50, 100]" layout="total, sizes, prev, pager, next" />
-      </div>
     </div>
+
   </div>
 </template>

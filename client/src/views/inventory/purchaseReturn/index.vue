@@ -193,10 +193,6 @@ async function submitReturn() {
       ElMessage.warning(`${line.material?.code || ''} 请选择仓库`)
       return
     }
-    if (lineBinManaged(line) && !line.binId) {
-      ElMessage.warning(`${line.material?.code || ''} 该仓库启用货位管理，请选择货位`)
-      return
-    }
     if (lineBatchRequired(line) && !line.batchNo) {
       ElMessage.warning(`${line.material?.code || ''} 请选择批号`)
       return

@@ -1,4 +1,4 @@
-export type QueryOperator = 'eq' | 'gt' | 'lt' | 'contains' | 'range'
+export type QueryOperator = 'eq' | 'ne' | 'gt' | 'lt' | 'gte' | 'lte' | 'contains' | 'range'
 export type QueryFieldType = 'text' | 'number' | 'date' | 'enum'
 
 export interface QueryFieldOption {
@@ -24,20 +24,23 @@ export interface QueryCondition {
 
 export const OPERATOR_LABELS: Record<QueryOperator, string> = {
   eq: '=',
+  ne: '<>',
   gt: '>',
   lt: '<',
+  gte: '>=',
+  lte: '<=',
   contains: '包含',
   range: '范围',
 }
 
 const OPERATOR_BY_TYPE: Record<QueryFieldType, QueryOperator[]> = {
-  text: ['eq', 'contains'],
-  number: ['eq', 'gt', 'lt', 'range'],
-  date: ['eq', 'gt', 'lt', 'range'],
-  enum: ['eq'],
+  text: ['eq', 'ne', 'contains'],
+  number: ['eq', 'ne', 'gt', 'lt', 'gte', 'lte', 'range'],
+  date: ['eq', 'ne', 'gt', 'lt', 'gte', 'lte', 'range'],
+  enum: ['eq', 'ne'],
 }
 
-const ALL_OPERATORS: QueryOperator[] = ['eq', 'gt', 'lt', 'contains', 'range']
+const ALL_OPERATORS: QueryOperator[] = ['eq', 'ne', 'gt', 'lt', 'gte', 'lte', 'contains', 'range']
 
 export function operatorOptionsForType(type: QueryFieldType) {
   const allowed = new Set(OPERATOR_BY_TYPE[type] || [])
@@ -49,6 +52,7 @@ export function operatorOptionsForType(type: QueryFieldType) {
 }
 
 export function defaultOperatorForType(type: QueryFieldType): QueryOperator {
+  if (type === 'text') return 'contains'
   return (OPERATOR_BY_TYPE[type] || ['eq'])[0]
 }
 

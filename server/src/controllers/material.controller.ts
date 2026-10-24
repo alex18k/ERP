@@ -42,6 +42,16 @@ export async function optionHandler(req: Request, res: Response) {
   }
 }
 
+// 已使用过的计量单位（去重），供物料表单单位下拉使用，避免拉取整表
+export async function unitHandler(_req: Request, res: Response) {
+  try {
+    const data = await materialService.listMaterialUnits();
+    return success(res, data);
+  } catch (error: any) {
+    return fail(res, 500, error.message, 500);
+  }
+}
+
 export async function getHandler(req: Request, res: Response) {
   try {
     const data = await materialService.getMaterial(Number(req.params.id));

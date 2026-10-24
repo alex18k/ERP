@@ -102,7 +102,8 @@ async function loadBatchOptions(row: any) {
   row.batchOptions = []
   if (!row.materialId || !row.warehouseId) return
   try {
-    const r: any = await stockApi.batches({ materialId: row.materialId, warehouseId: row.warehouseId, binId: row.binId || undefined, pageSize: 200 })
+    const scopeBin = warehouseBinManaged(row.warehouseId) && !row.binId ? "none" : row.binId || undefined
+    const r: any = await stockApi.batches({ materialId: row.materialId, warehouseId: row.warehouseId, binId: scopeBin, pageSize: 200 })
     row.batchOptions = r.data.items || []
   } catch {
     row.batchOptions = []
@@ -178,10 +179,6 @@ async function submit() {
   for (const l of items) {
     if (!l.warehouseId) {
       ElMessage.warning('请为每条发运明细选择出库仓库')
-      return
-    }
-    if (warehouseBinManaged(l.warehouseId) && !l.binId) {
-      ElMessage.warning('该仓库启用货位管理，请为发运明细选择货位')
       return
     }
   }

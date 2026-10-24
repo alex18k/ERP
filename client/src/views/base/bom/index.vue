@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { Printer } from '@element-plus/icons-vue'
 import { bomApi, materialApi } from '../../../api'
 
 const loading = ref(false)
@@ -181,13 +182,31 @@ function onItemMaterialChange(item: any, val: any) {
   }
 }
 
-// ===== 打印 =====
+// ===== 打印（弹窗预览，不直接打印） =====
 function fmtQty(n: number) {
   return Math.round(n * 10000) / 10000
 }
 
 const esc = (s: any) =>
   String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+
+const printDialogVisible = ref(false)
+const printHtmlContent = ref('')
+const printFrameRef = ref<HTMLIFrameElement>()
+
+function printFromDialog() {
+  const win = printFrameRef.value?.contentWindow
+  if (!win) {
+    ElMessage.warning('打印视图创建失败，请刷新页面后重试')
+    return
+  }
+  try {
+    win.focus()
+    win.print()
+  } catch {
+    ElMessage.warning('打印失败，请刷新页面后重试')
+  }
+}
 
 async function handlePrint(row: any) {
   const res: any = await bomApi.getTree(row.id)
@@ -261,17 +280,10 @@ async function handlePrint(row: any) {
     </tr></thead>
     <tbody>${body}</tbody>
   </table>
-  <script>window.onload = function () { window.print(); }<\/script>
-</body></html>`
+  </body></html>`
 
-  const w = window.open('', '_blank')
-  if (!w) {
-    ElMessage.warning('浏览器拦截了打印窗口，请允许弹出窗口后重试')
-    return
-  }
-  w.document.open()
-  w.document.write(html)
-  w.document.close()
+  printHtmlContent.value = html
+  printDialogVisible.value = true
 }
 
 // ===== 编辑对话框：标记有激活子BOM的物料 =====
@@ -438,6 +450,16 @@ onMounted(() => {
         <el-button type="primary" @click="handleSave">保存</el-button>
       </template>
     </el-dialog>
+
+    <el-dialog v-model="printDialogVisible" title="BOM 打印预览" width="960px" top="4vh" destroy-on-close append-to-body>
+      <div class="print-preview">
+        <iframe ref="printFrameRef" :srcdoc="printHtmlContent" class="print-frame" />
+      </div>
+      <template #footer>
+        <el-button @click="printDialogVisible = false">关闭</el-button>
+        <el-button type="primary" @click="printFromDialog"><el-icon><Printer /></el-icon>打印</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -457,5 +479,19 @@ onMounted(() => {
 .items-editor .el-select__wrapper.is-focused {
   box-shadow: 0 0 0 1px var(--erp-copper) inset;
   background: var(--el-fill-color-blank);
+}
+/* 打印预览：iframe 内为真实打印文档 */
+.print-preview {
+  border: 1px solid #d5dae2;
+  border-radius: 4px;
+  background: #eee;
+  overflow: hidden;
+}
+.print-frame {
+  display: block;
+  width: 100%;
+  height: 68vh;
+  border: 0;
+  background: #fff;
 }
 </style>

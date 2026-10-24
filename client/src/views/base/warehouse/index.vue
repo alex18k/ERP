@@ -131,7 +131,7 @@ onMounted(loadData)
         </el-form-item>
         <el-form-item label="货位管理">
           <el-switch v-model="form.binManaged" />
-          <span style="margin-left: 8px; color: #909399; font-size: 12px">启用后该仓库库存按货位细分，出入库必须指定货位</span>
+          <span style="margin-left: 8px; color: #909399; font-size: 12px">启用后该仓库库存按货位细分，出入库可选填货位，不选记入无货位库存</span>
         </el-form-item>
         <el-form-item label="地址">
           <el-input v-model="form.address" />

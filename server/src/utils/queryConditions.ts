@@ -1,7 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { parseLocalDateEnd, parseLocalDateStart } from "./date";
 
-export type QueryOperator = "eq" | "gt" | "lt" | "contains" | "range";
+export type QueryOperator = "eq" | "ne" | "gt" | "lt" | "gte" | "lte" | "contains" | "range";
 export type QueryFieldType = "text" | "number" | "date" | "enum";
 
 export interface QueryCondition {
@@ -23,17 +23,17 @@ export interface BuiltSqlQueryFilters {
   havingParts: Prisma.Sql[];
 }
 
-const OPERATORS: QueryOperator[] = ["eq", "gt", "lt", "contains", "range"];
+const OPERATORS: QueryOperator[] = ["eq", "ne", "gt", "lt", "gte", "lte", "contains", "range"];
 
 export function isQueryConditionError(error: any): boolean {
   return /查询(条件|字段)/.test(String(error?.message || ""));
 }
 
 const ALLOWED_OPERATORS: Record<QueryFieldType, QueryOperator[]> = {
-  text: ["eq", "contains"],
-  number: ["eq", "gt", "lt", "range"],
-  date: ["eq", "gt", "lt", "range"],
-  enum: ["eq"],
+  text: ["eq", "ne", "contains"],
+  number: ["eq", "ne", "gt", "lt", "gte", "lte", "range"],
+  date: ["eq", "ne", "gt", "lt", "gte", "lte", "range"],
+  enum: ["eq", "ne"],
 };
 
 function escapeLike(value: any) {
@@ -121,16 +121,41 @@ function compareByType(type: QueryFieldType, operator: QueryOperator, expr: Pris
     return Prisma.sql`${expr} = ${value}`;
   }
 
-  if (operator === "gt" || operator === "lt") {
+  if (operator === "ne") {
     if (type === "number") {
       const value = cleanNumber(condition.value);
       if (value === null) throw new Error(`查询字段 ${condition.field} 需要数字`);
-      return operator === "gt" ? Prisma.sql`${expr} > ${value}` : Prisma.sql`${expr} < ${value}`;
+      return Prisma.sql`${expr} <> ${value}`;
     }
     if (type === "date") {
       const value = cleanDate(condition.value);
       if (!value) throw new Error(`查询字段 ${condition.field} 需要日期`);
-      return operator === "gt" ? Prisma.sql`${expr} > ${parseLocalDateEnd(value)}` : Prisma.sql`${expr} < ${parseLocalDateStart(value)}`;
+      return Prisma.sql`(${expr} < ${parseLocalDateStart(value)} OR ${expr} > ${parseLocalDateEnd(value)})`;
+    }
+    const value = cleanText(condition.value);
+    if (!value) throw new Error(`查询字段 ${condition.field} 缺少值`);
+    if (Array.isArray(options) && !options.some((option: any) => String(option.value) === String(value))) {
+      throw new Error(`查询字段 ${condition.field} 的值不正确`);
+    }
+    return Prisma.sql`${expr} <> ${value}`;
+  }
+
+  if (operator === "gt" || operator === "lt" || operator === "gte" || operator === "lte") {
+    if (type === "number") {
+      const value = cleanNumber(condition.value);
+      if (value === null) throw new Error(`查询字段 ${condition.field} 需要数字`);
+      if (operator === "gt") return Prisma.sql`${expr} > ${value}`;
+      if (operator === "lt") return Prisma.sql`${expr} < ${value}`;
+      if (operator === "gte") return Prisma.sql`${expr} >= ${value}`;
+      return Prisma.sql`${expr} <= ${value}`;
+    }
+    if (type === "date") {
+      const value = cleanDate(condition.value);
+      if (!value) throw new Error(`查询字段 ${condition.field} 需要日期`);
+      if (operator === "gt") return Prisma.sql`${expr} > ${parseLocalDateEnd(value)}`;
+      if (operator === "lt") return Prisma.sql`${expr} < ${parseLocalDateStart(value)}`;
+      if (operator === "gte") return Prisma.sql`${expr} >= ${parseLocalDateStart(value)}`;
+      return Prisma.sql`${expr} <= ${parseLocalDateEnd(value)}`;
     }
     throw new Error(`查询字段 ${condition.field} 不支持运算符 ${operator}`);
   }

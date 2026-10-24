@@ -4,6 +4,8 @@ import { localDateCompact, parseLocalDateStart, parseLocalDateEnd } from "../uti
 import { retryOnDuplicate, lockOrderNo, ORDER_NO_LOCK } from "../utils/retry";
 import { applyBatchOut, resolveBinId, generateDocNo, getDefaultCompanyId } from "./stock.service";
 import { resolveUnitRateMap, toBaseQty } from "../utils/unit";
+import { parseQueryConditions } from "../utils/queryConditions";
+import { buildPrismaQueryWhere, type PrismaQueryFieldDefinition } from "../utils/prismaQueryConditions";
 
 export interface SalesOrderCreateInput {
   customerId?: number;
@@ -113,6 +115,62 @@ export async function listShippableOrders(where: any) {
   return { total, page: pageNum, pageSize: sizeNum, items };
 }
 
+// 销售订单查询页高级查询字段（主表 + 明细行；明细条件统一挂 items，多个明细条件合并为同一个 items.some）
+export const SALES_QUERY_FIELDS: Record<string, PrismaQueryFieldDefinition> = {
+  // 主表
+  orderNo: { type: "text", column: "orderNo" },
+  customerName: { type: "text", column: "customerName" },
+  customerCode: { type: "text", column: "customerCode" },
+  contactPerson: { type: "text", column: "contactPerson" },
+  contactPhone: { type: "text", column: "contactPhone" },
+  channel: { type: "text", column: "channel" },
+  seller1: { type: "text", column: "seller1" },
+  seller2: { type: "text", column: "seller2" },
+  paymentMethod: { type: "text", column: "paymentMethod" },
+  status: {
+    type: "enum",
+    column: "status",
+    options: [
+      { label: "草稿", value: "draft" },
+      { label: "已确认", value: "confirmed" },
+      { label: "生产中", value: "in_production" },
+      { label: "已完工", value: "completed" },
+      { label: "已发货", value: "shipped" },
+      { label: "已取消", value: "cancelled" },
+    ],
+  },
+  orderDate: { type: "date", column: "orderDate" },
+  deliveryDate: { type: "date", column: "deliveryDate" },
+  totalAmount: { type: "number", column: "totalAmount" },
+  remark: { type: "text", column: "remark" },
+  createdAt: { type: "date", column: "createdAt" },
+  // 明细行
+  line: { type: "number", column: "line", relation: { name: "items", toMany: true } },
+  materialCode: { type: "text", column: "code", relation: { name: "items", toMany: true, inner: ["material"] } },
+  materialName: { type: "text", column: "name", relation: { name: "items", toMany: true, inner: ["material"] } },
+  specification: { type: "text", column: "specification", relation: { name: "items", toMany: true, inner: ["material"] } },
+  unit: { type: "text", column: "unit", relation: { name: "items", toMany: true } },
+  quantity: { type: "number", column: "quantity", relation: { name: "items", toMany: true } },
+  unitPrice: { type: "number", column: "unitPrice", relation: { name: "items", toMany: true } },
+  taxRate: { type: "number", column: "taxRate", relation: { name: "items", toMany: true } },
+  amount: { type: "number", column: "amount", relation: { name: "items", toMany: true } },
+  deliveredQty: { type: "number", column: "deliveredQty", relation: { name: "items", toMany: true } },
+  itemDeliveryDate: { type: "date", column: "deliveryDate", relation: { name: "items", toMany: true } },
+  itemStatus: {
+    type: "enum",
+    column: "status",
+    relation: { name: "items", toMany: true },
+    options: [
+      { label: "待生产", value: "pending" },
+      { label: "生产中", value: "in_production" },
+      { label: "已完工", value: "completed" },
+      { label: "已发货", value: "shipped" },
+      { label: "已取消", value: "cancelled" },
+    ],
+  },
+  itemRemark: { type: "text", column: "remark", relation: { name: "items", toMany: true } },
+};
+
 export async function listOrders(where: any) {
   const { orderNo, customerName, status, page = 1, pageSize = 20, startDate, endDate } = where;
 
@@ -127,6 +185,13 @@ export async function listOrders(where: any) {
     };
   }
 
+  // 高级查询条件（与基础条件 AND 叠加）
+  const advancedConditions = parseQueryConditions((where as any).conditions);
+  if (advancedConditions.length) {
+    const advanced = buildPrismaQueryWhere(advancedConditions, SALES_QUERY_FIELDS);
+    filters.AND = [...(Array.isArray(filters.AND) ? filters.AND : []), advanced];
+  }
+
   // 按订单号从大到小排序
   const [total, items] = await Promise.all([
     prisma.salesOrder.count({ where: filters }),
@@ -135,7 +200,7 @@ export async function listOrders(where: any) {
       include: {
         customer: { select: { id: true, name: true } },
         items: {
-          include: { material: { select: { id: true, code: true, name: true, unit: true } } },
+          include: { material: { select: { id: true, code: true, name: true, unit: true, specification: true } } },
           orderBy: { line: "asc" },
         },
         productionOrders: { select: { id: true, orderNo: true, status: true } },
@@ -198,10 +263,26 @@ function assertDeliveryNotBeforeOrder(orderDate?: string | Date | null, delivery
 }
 
 function assertItemLines(items: { line?: number }[]) {
+  const seen = new Set<number>();
   items.forEach((item, idx) => {
     const lineNo = Number(item.line);
     if (!Number.isInteger(lineNo) || lineNo < 1) {
       throw new Error(`第 ${idx + 1} 行明细未填写行号`);
+    }
+    if (seen.has(lineNo)) throw new Error(`行号 ${lineNo} 重复`);
+    seen.add(lineNo);
+  });
+}
+
+function assertItemsPositive(items: { quantity: number; unitPrice?: number }[]) {
+  items.forEach((item, idx) => {
+    if (!Number.isFinite(item.quantity) || item.quantity <= 0) {
+      throw new Error(`第 ${idx + 1} 行数量必须大于0`);
+    }
+    if (item.unitPrice !== undefined && item.unitPrice !== null) {
+      if (!Number.isFinite(item.unitPrice) || item.unitPrice < 0) {
+        throw new Error(`第 ${idx + 1} 行单价不能为负数`);
+      }
     }
   });
 }
@@ -212,6 +293,7 @@ export async function createOrder(data: SalesOrderCreateInput, userId: number) {
   }
   assertDeliveryNotBeforeOrder(data.orderDate, data.deliveryDate);
   assertItemLines(data.items);
+  assertItemsPositive(data.items);
 
   for (const item of data.items) {
     const exists = await prisma.material.findUnique({ where: { id: item.materialId } });
@@ -288,17 +370,27 @@ export async function updateOrder(id: number, data: Partial<SalesOrderCreateInpu
     throw new Error("已发货或已取消的订单不能修改");
   }
   assertDeliveryNotBeforeOrder(data.orderDate ?? exists.orderDate, data.deliveryDate ?? exists.deliveryDate);
-  if (data.items) assertItemLines(data.items);
+  if (data.items) {
+    assertItemLines(data.items);
+    assertItemsPositive(data.items);
+  }
 
   const rateMap = data.items
     ? await resolveUnitRateMap(data.items.map((i) => ({ materialId: i.materialId, unit: i.unit })))
     : null;
 
   return prisma.$transaction(async (tx) => {
+    // 与发运/取消共用订单锁，避免编辑期间订单被发运后又按旧数据重建明细
+    await lockOrderNo(tx, ORDER_NO_LOCK.SO);
+    const freshOrder = await tx.salesOrder.findUnique({ where: { id } });
+    if (!freshOrder) throw new Error("订单不存在");
+    if (freshOrder.status === "shipped" || freshOrder.status === "cancelled") {
+      throw new Error("已发货或已取消的订单不能修改");
+    }
     const existingItems = await tx.salesOrderItem.findMany({ where: { orderId: id } });
     const totalAmount = data.items
       ? data.items.reduce((sum, item) => sum + item.quantity * (item.unitPrice ?? 0), 0)
-      : exists.totalAmount;
+      : freshOrder.totalAmount;
 
     const order = await tx.salesOrder.update({
       where: { id },
@@ -308,21 +400,29 @@ export async function updateOrder(id: number, data: Partial<SalesOrderCreateInpu
         customerCode: data.customerCode,
         contactPerson: data.contactPerson,
         contactPhone: data.contactPhone,
-        orderDate: data.orderDate ? new Date(data.orderDate) : exists.orderDate,
+        orderDate: data.orderDate ? new Date(data.orderDate) : freshOrder.orderDate,
         channel: data.channel,
         seller1: data.seller1,
         seller2: data.seller2,
         paymentMethod: data.paymentMethod,
-        deliveryDate: data.deliveryDate ? new Date(data.deliveryDate) : exists.deliveryDate,
+        deliveryDate: data.deliveryDate ? new Date(data.deliveryDate) : freshOrder.deliveryDate,
         remark: data.remark,
         totalAmount,
-        status: exists.status === "draft" ? "confirmed" : undefined,
+        status: freshOrder.status === "draft" ? "confirmed" : undefined,
       },
     });
 
     if (data.items) {
-      // 已发运明细保护：有发货记录的行不允许删除，数量也不允许改到小于已发量
+      // 已发运明细保护：有发货记录的行不允许删除，数量/物料/单位/行号也不允许变更
       const existingById = new Map(existingItems.map((it) => [it.id, it]));
+      const seenItemIds = new Set<number>();
+      for (const item of data.items) {
+        if (!item.id) continue;
+        if (!existingById.has(item.id)) throw new Error(`明细 ${item.id} 不属于该订单，请刷新后重试`);
+        if (seenItemIds.has(item.id)) throw new Error(`销售明细重复提交（id ${item.id}）`);
+        seenItemIds.add(item.id);
+      }
+
       const keptIds = new Set<number>();
       for (const item of data.items) {
         if (item.id && existingById.has(item.id)) keptIds.add(item.id);
@@ -335,8 +435,19 @@ export async function updateOrder(id: number, data: Partial<SalesOrderCreateInpu
       data.items.forEach((item, idx) => {
         const old = item.id ? existingById.get(item.id) : undefined;
         const delivered = old?.deliveredQty ?? 0;
-        if (delivered > 1e-6 && item.quantity < delivered - 1e-6) {
-          throw new Error(`第 ${item.line ?? idx + 1} 行明细已发运 ${delivered}，数量不能小于已发量`);
+        if (delivered > 1e-6) {
+          if (old!.materialId !== item.materialId) {
+            throw new Error(`行号 ${old!.line} 的明细已发运 ${delivered}，不能更换物料`);
+          }
+          if ((old!.unit || "") !== (item.unit || "")) {
+            throw new Error(`行号 ${old!.line} 的明细已发运 ${delivered}，不能变更计量单位`);
+          }
+          if (Number(item.line) !== old!.line) {
+            throw new Error(`行号 ${old!.line} 的明细已发运 ${delivered}，不能变更行号`);
+          }
+          if (item.quantity < delivered - 1e-6) {
+            throw new Error(`第 ${item.line ?? idx + 1} 行明细已发运 ${delivered}，数量不能小于已发量`);
+          }
         }
       });
 
@@ -363,7 +474,8 @@ export async function updateOrder(id: number, data: Partial<SalesOrderCreateInpu
             deliveryDate: item.deliveryDate ? new Date(item.deliveryDate) : null,
             remark: item.remark,
             deliveredQty: delivered,
-            status: delivered > 1e-6 ? (old?.status ?? "pending") : "pending",
+            // 保留原明细状态（尤其是 cancelled），避免编辑时把已取消行复活
+            status: old?.status ?? "pending",
           },
         });
       }
@@ -423,7 +535,33 @@ export async function cancelOrder(id: number, opts?: { cancelProduction?: boolea
   if (exists.status === "cancelled") throw new Error("订单已取消");
 
   return prisma.$transaction(async (tx) => {
+    await lockOrderNo(tx, ORDER_NO_LOCK.SO);
+    const fresh = await tx.salesOrder.findUnique({ where: { id } });
+    if (!fresh) throw new Error("订单不存在");
+    if (fresh.status === "shipped") throw new Error("已发货订单不能取消");
+    if (fresh.status === "cancelled") throw new Error("订单已取消");
+
+    // 已发生发运的订单不能直接取消，否则库存已出但订单被作废
+    const deliveredCount = await tx.salesOrderItem.count({
+      where: { orderId: id, deliveredQty: { gt: 1e-6 } },
+    });
+    if (deliveredCount > 0) {
+      throw new Error("订单存在已发运明细，请先处理退货/冲销后再取消");
+    }
+
     if (opts?.cancelProduction) {
+      // 已领料/已入库的生产订单不能随销售订单直接取消
+      const [issuedCount, receivedCount] = await Promise.all([
+        tx.productionBatchMaterial.count({
+          where: { batch: { productionOrder: { salesOrderId: id } }, issuedQty: { gt: 1e-6 } },
+        }),
+        tx.productionBatch.count({
+          where: { productionOrder: { salesOrderId: id }, receivedQty: { gt: 1e-6 } },
+        }),
+      ]);
+      if (issuedCount > 0 || receivedCount > 0) {
+        throw new Error("关联生产订单已领料或已入库，请先退料/冲回后再取消");
+      }
       // 未开工的生产订单：整单取消（含其全部批次）
       const planned = await tx.productionOrder.findMany({
         where: { salesOrderId: id, status: "planned" },
@@ -461,37 +599,71 @@ export async function cancelOrder(id: number, opts?: { cancelProduction?: boolea
   });
 }
 
-export async function shipOrder(id: number, userId: number) {
+// 删除已取消的销售订单：仅允许没有排产（无生产订单）且没有发运记录的订单
+export async function deleteOrder(id: number) {
   const order = await prisma.salesOrder.findUnique({
     where: { id },
-    include: { items: { include: { material: true } } },
+    include: { items: { select: { deliveredQty: true } } },
   });
   if (!order) throw new Error("订单不存在");
-  if (order.status !== "completed") throw new Error("仅已完工订单可以发货");
+  if (order.status !== "cancelled") throw new Error("仅已取消的销售订单可以删除");
 
-  const salesperson = sellerNamesOf(order);
+  const [productionCount, stockRecordCount] = await Promise.all([
+    prisma.productionOrder.count({ where: { salesOrderId: id } }),
+    prisma.stockRecord.count({ where: { relatedType: "sales-order", relatedId: id } }),
+  ]);
+  if (productionCount > 0) throw new Error("该订单已有生产订单/排产记录，不能删除");
+  if (stockRecordCount > 0) throw new Error("该订单已有发运/出库记录，不能删除");
+  if (order.items.some((it) => (it.deliveredQty ?? 0) > 1e-6)) {
+    throw new Error("该订单已有发运记录，不能删除");
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.salesOrderItem.deleteMany({ where: { orderId: id } });
+    await tx.salesOrder.delete({ where: { id } });
+  });
+  return { success: true };
+}
+
+export async function shipOrder(id: number, userId: number) {
   const shipType = await prisma.stockTransactionType.findUnique({ where: { code: "ISS-SO" } });
   const companyId = await getDefaultCompanyId();
 
   return prisma.$transaction(async (tx) => {
+    // 先锁库存单号/订单锁，再重新读取订单：并发/重试时基于最新 deliveredQty 判断，避免重复扣库存
     await lockOrderNo(tx, ORDER_NO_LOCK.ST);
+    await lockOrderNo(tx, ORDER_NO_LOCK.SO);
+    const order = await tx.salesOrder.findUnique({
+      where: { id },
+      include: { items: { include: { material: true } } },
+    });
+    if (!order) throw new Error("订单不存在");
+    if (order.status !== "completed") throw new Error("仅已完工订单可以发货");
+
+    const salesperson = sellerNamesOf(order);
     const docNo = await generateDocNo(tx, shipType?.documentPrefix || "ISSSO");
     const activeItems = order.items.filter((it) => it.status !== "cancelled");
     if (activeItems.length === 0) throw new Error("订单没有可发货的明细");
+
     for (const [idx, item] of order.items.entries()) {
       if (item.status === "cancelled") continue;
-      await tx.salesOrderItem.update({
-        where: { id: item.id },
-        data: { status: "shipped", deliveredQty: item.quantity },
-      });
 
-      // 制造类成品发货自动出库（必须库存充足；不足时提示改用销售发运按仓库出库）
-      if (item.material.category === "manufacture") {
-        const fullBase = item.baseQty && item.baseQty > 0 ? item.baseQty : item.quantity;
-        // 已按销售发运部分出库的量（deliveredQty 为录入单位，折回基本单位），自动发货只补差值，避免双倍扣库存
-        const deliveredBase = toBaseQty(item.deliveredQty ?? 0, item.conversionRate ?? 1);
-        const shipBase = Number((fullBase - deliveredBase).toFixed(6));
-        if (shipBase <= 1e-6) continue;
+      const deliveredQty = item.deliveredQty ?? 0;
+      const remainingQty = Number((item.quantity - deliveredQty).toFixed(6));
+      if (remainingQty <= 1e-6) {
+        if (item.status !== "shipped") {
+          await tx.salesOrderItem.update({ where: { id: item.id }, data: { status: "shipped" } });
+        }
+        continue;
+      }
+
+      const rate = item.conversionRate || 1;
+      const fullBase = item.baseQty && item.baseQty > 0 ? item.baseQty : toBaseQty(item.quantity, rate);
+      // 已按销售发运部分出库的量（deliveredQty 为录入单位，折回基本单位），自动发货只补差值，避免双倍扣库存
+      const deliveredBase = toBaseQty(deliveredQty, rate);
+      const shipBase = Number((fullBase - deliveredBase).toFixed(6));
+
+      if (shipBase > 1e-6) {
         // 自动发货只允许从启用仓库的有效货位出库，跳过停用仓库/停用货位上的历史库存
         const stockRows = await tx.stock.findMany({
           where: { materialId: item.materialId, quantity: { gt: 0 } },
@@ -503,101 +675,122 @@ export async function shipOrder(id: number, userId: number) {
         });
         const stock = stockRows.find((s: any) => {
           if (s.warehouse.status !== 1) return false;
-          if (s.warehouse.binManaged) return !!s.bin && s.bin.status === 1 && s.bin.warehouseId === s.warehouseId;
+          if (s.warehouse.binManaged) return s.binId === null || (!!s.bin && s.bin.status === 1 && s.bin.warehouseId === s.warehouseId);
           return s.binId === null;
         });
         if (!stock || stock.quantity < shipBase - 1e-6) {
           throw new Error(`物料 ${item.material?.code ?? item.materialId} 库存不足（可用 ${stock?.quantity ?? 0}），请使用销售发运按仓库分批出库`);
         }
-        if (stock && stock.quantity > 0) {
-          const deduct = shipBase;
-          const stockUpd = await tx.stock.updateMany({
-            where: { id: stock.id, quantity: { gte: deduct } },
-            data: { quantity: { decrement: deduct }, lastOutDate: new Date() },
+
+        const stockUpd = await tx.stock.updateMany({
+          where: { id: stock.id, quantity: { gte: shipBase } },
+          data: { quantity: { decrement: shipBase }, lastOutDate: new Date() },
+        });
+        if (stockUpd.count === 0) {
+          throw new Error(`物料 ${item.material?.code ?? item.materialId} 库存不足`);
+        }
+
+        // 批次分配：只要该库存行存在批次，就先进先出扣批次（非批号管理物料同样适用），
+        // 避免“只扣 Stock 不扣批次”导致批次合计大于现存量。
+        const batches = await tx.materialBatch.findMany({
+          where: { materialId: item.materialId, warehouseId: stock.warehouseId, binId: stock.binId, quantity: { gt: 0 } },
+          orderBy: { createdAt: "asc" },
+        });
+        const batchTotal = batches.reduce((sum: number, b: any) => sum + Number(b.quantity || 0), 0);
+        if (item.material.batchManaged && batchTotal < shipBase - 1e-6) {
+          throw new Error(`物料 ${item.material?.code ?? item.materialId} 批次库存不足（可用 ${batchTotal}），请使用销售发运处理`);
+        }
+
+        let remaining = shipBase;
+        for (const b of batches) {
+          if (remaining <= 1e-6) break;
+          const use = Math.min(remaining, Number(b.quantity));
+          if (use <= 1e-6) continue;
+          const batchUpd = await tx.materialBatch.updateMany({
+            where: { id: b.id, quantity: { gte: use } },
+            data: { quantity: { decrement: use } },
           });
-          if (stockUpd.count === 0) {
-            throw new Error(`物料 ${item.material?.code ?? item.materialId} 库存不足`);
+          if (batchUpd.count === 0) {
+            throw new Error(`批号 ${b.batchNo} 库存不足`);
           }
-          // 批号管理物料：自动出库按批号先进先出分配，逐批记录流水
+          await tx.stockRecord.create({
+            data: {
+              materialId: item.materialId,
+              warehouseId: stock.warehouseId,
+              binId: stock.binId,
+              type: "out",
+              quantity: use,
+              batchNo: b.batchNo,
+              relatedType: "sales-order",
+              relatedId: id,
+              transactionTypeId: shipType?.id,
+              documentNo: docNo,
+              orderNo: order.orderNo,
+              address: order.customerCode || null,
+              salesperson,
+              contactName: order.contactPerson || null,
+              contactPhone: order.contactPhone || null,
+              price: item.unitPrice ?? null,
+              um: item.unit || null,
+              companyId,
+              lineNo: idx + 1,
+              operatorId: userId,
+              remark: "销售订单发货出库",
+            },
+          });
+          remaining = Number((remaining - use).toFixed(6));
+        }
+        // 非批号管理物料可能同时存在未分批余量，剩余部分按无批号流水出库
+        if (remaining > 1e-6) {
           if (item.material.batchManaged) {
-            const batches = await tx.materialBatch.findMany({
-              where: { materialId: item.materialId, warehouseId: stock.warehouseId, binId: stock.binId, quantity: { gt: 0 } },
-              orderBy: { createdAt: "asc" },
-            });
-            const batchTotal = batches.reduce((sum, b) => sum + Number(b.quantity || 0), 0);
-            if (batchTotal < deduct - 1e-6) {
-              throw new Error(`物料 ${item.material?.code ?? item.materialId} 批次库存不足（可用 ${batchTotal}），请使用销售发运处理`);
-            }
-            let remaining = deduct;
-            for (const b of batches) {
-              if (remaining <= 0) break;
-              const use = Math.min(remaining, b.quantity);
-              const batchUpd = await tx.materialBatch.updateMany({
-                where: { id: b.id, quantity: { gte: use } },
-                data: { quantity: { decrement: use } },
-              });
-              if (batchUpd.count === 0) {
-                throw new Error(`批号 ${b.batchNo} 库存不足`);
-              }
-              await tx.stockRecord.create({
-                data: {
-                  materialId: item.materialId,
-                  warehouseId: stock.warehouseId,
-                  binId: stock.binId,
-                  type: "out",
-                  quantity: use,
-                  batchNo: b.batchNo,
-                  relatedType: "sales-order",
-                  relatedId: id,
-                  transactionTypeId: shipType?.id,
-                  documentNo: docNo,
-                  orderNo: order.orderNo,
-                  address: order.customerCode || null,
-                  salesperson,
-                                    contactName: order.contactPerson || null,
-                  contactPhone: order.contactPhone || null,
-                  price: item.unitPrice ?? null,
-                  um: item.unit || null,
-                  companyId,
-                  lineNo: idx + 1,
-                  operatorId: userId,
-                  remark: "销售订单发货出库",
-                },
-              });
-              remaining -= use;
-            }
-            if (remaining > 1e-6) throw new Error(`物料 ${item.material?.code ?? item.materialId} 批次库存分配异常`);
-          } else {
-            await tx.stockRecord.create({
-              data: {
-                materialId: item.materialId,
-                warehouseId: stock.warehouseId,
-                binId: stock.binId,
-                type: "out",
-                quantity: deduct,
-                relatedType: "sales-order",
-                relatedId: id,
-                transactionTypeId: shipType?.id,
-                documentNo: docNo,
-                orderNo: order.orderNo,
-                address: order.customerCode || null,
-                salesperson,
-                                contactName: order.contactPerson || null,
-                contactPhone: order.contactPhone || null,
-                price: item.unitPrice ?? null,
-                um: item.unit || null,
-                companyId,
-                lineNo: idx + 1,
-                operatorId: userId,
-                remark: "销售订单发货出库",
-              },
-            });
+            throw new Error(`物料 ${item.material?.code ?? item.materialId} 批次库存分配异常`);
           }
+          await tx.stockRecord.create({
+            data: {
+              materialId: item.materialId,
+              warehouseId: stock.warehouseId,
+              binId: stock.binId,
+              type: "out",
+              quantity: remaining,
+              relatedType: "sales-order",
+              relatedId: id,
+              transactionTypeId: shipType?.id,
+              documentNo: docNo,
+              orderNo: order.orderNo,
+              address: order.customerCode || null,
+              salesperson,
+              contactName: order.contactPerson || null,
+              contactPhone: order.contactPhone || null,
+              price: item.unitPrice ?? null,
+              um: item.unit || null,
+              companyId,
+              lineNo: idx + 1,
+              operatorId: userId,
+              remark: "销售订单发货出库",
+            },
+          });
+        }
+      }
+
+      // 条件更新：仅当仍有未发数量时置为已发，防止并发/重试重复累加
+      const deliveredUpd = await tx.salesOrderItem.updateMany({
+        where: { id: item.id, status: { not: "cancelled" }, deliveredQty: { lt: item.quantity - 1e-6 } },
+        data: { status: "shipped", deliveredQty: item.quantity },
+      });
+      if (deliveredUpd.count === 0) {
+        const fresh = await tx.salesOrderItem.findUnique({ where: { id: item.id } });
+        if (fresh && fresh.status !== "cancelled" && (fresh.deliveredQty ?? 0) < item.quantity - 1e-6) {
+          throw new Error(`物料 ${item.material?.code ?? item.materialId} 已发数量更新失败，请重试`);
         }
       }
     }
 
-    await tx.salesOrder.update({ where: { id }, data: { status: "shipped" } });
+    // 仅当所有未取消明细都已发完时，订单才置为已发货
+    const items = await tx.salesOrderItem.findMany({ where: { orderId: id } });
+    const active = items.filter((it) => it.status !== "cancelled");
+    if (active.length > 0 && active.every((it) => it.status === "shipped")) {
+      await tx.salesOrder.update({ where: { id }, data: { status: "shipped" } });
+    }
     return tx.salesOrder.findUnique({ where: { id } });
   });
 }
@@ -632,11 +825,10 @@ export async function shipOrderItems(
     throw new Error("当前订单状态不能发运");
   }
 
-  const salesperson = sellerNamesOf(order);
   const shipType = await prisma.stockTransactionType.findUnique({ where: { code: "ISS-SO" } });
   const companyId = await getDefaultCompanyId();
 
-  // 校验明细归属与数量
+  // 校验明细归属与数量（进入事务后会基于锁内最新数据再次校验）
   const itemMap = new Map(order.items.map((it) => [it.id, it]));
   for (const line of data.items) {
     const item = itemMap.get(line.itemId);
@@ -649,10 +841,30 @@ export async function shipOrderItems(
 
   return prisma.$transaction(async (tx) => {
     await lockOrderNo(tx, ORDER_NO_LOCK.ST);
+    // 与订单编辑/取消共用订单锁，并在锁内重新读取，避免用过期 deliveredQty 重复发运
+    await lockOrderNo(tx, ORDER_NO_LOCK.SO);
+    const currentOrder = await tx.salesOrder.findUnique({
+      where: { id },
+      include: { items: { include: { material: true } } },
+    });
+    if (!currentOrder) throw new Error("订单不存在");
+    if (!["confirmed", "in_production", "completed"].includes(currentOrder.status)) {
+      throw new Error("当前订单状态不能发运");
+    }
+    const currentItemMap = new Map(currentOrder.items.map((it) => [it.id, it]));
+    for (const line of data.items) {
+      const item = currentItemMap.get(line.itemId);
+      if (!item) throw new Error("发运明细不属于该订单");
+      if (item.status === "cancelled") throw new Error(`${item.material?.code ?? item.materialId} 明细已取消，不能发运`);
+      if (!Number.isFinite(line.quantity) || line.quantity <= 0) throw new Error("发运数量必须大于0");
+      const remaining = item.quantity - (item.deliveredQty ?? 0);
+      if (line.quantity > remaining + 1e-6) throw new Error(`${item.material?.code} 发运数量超过未发数量 ${remaining}`);
+    }
+    const currentSalesperson = sellerNamesOf(currentOrder);
     const docNo = await generateDocNo(tx, shipType?.documentPrefix || "ISSSO");
     const shippedItems: { itemId: number; deliveredQty: number }[] = [];
     for (const [idx, line] of data.items.entries()) {
-      const item = itemMap.get(line.itemId)!;
+      const item = currentItemMap.get(line.itemId)!;
 
       // 换算为基本单位出库（换算率取订单明细快照）
       const baseQty = toBaseQty(line.quantity, item.conversionRate || 1);
@@ -688,12 +900,12 @@ export async function shipOrderItems(
           relatedId: id,
           transactionTypeId: shipType?.id,
           documentNo: docNo,
-          orderNo: order.orderNo,
+          orderNo: currentOrder.orderNo,
           deliveryNo: data.deliveryNo?.trim() || null,
-          address: order.customerCode || null,
-          salesperson,
-                    contactName: order.contactPerson || null,
-          contactPhone: order.contactPhone || null,
+          address: currentOrder.customerCode || null,
+          salesperson: currentSalesperson,
+          contactName: currentOrder.contactPerson || null,
+          contactPhone: currentOrder.contactPhone || null,
           price: item.unitPrice ?? null,
           um: item.unit || null,
           companyId,
@@ -727,9 +939,10 @@ export async function shipOrderItems(
       shippedItems.push({ itemId: item.id, deliveredQty: newDelivered });
     }
 
-    // 全部分批发完后订单状态置为已发货
+    // 全部有效明细分批发完后订单状态置为已发货（已取消明细不参与判断）
     const items = await tx.salesOrderItem.findMany({ where: { orderId: id } });
-    const allShipped = items.length > 0 && items.every((it) => it.status === "shipped");
+    const activeItems = items.filter((it) => it.status !== "cancelled");
+    const allShipped = activeItems.length > 0 && activeItems.every((it) => it.status === "shipped");
     if (allShipped) {
       await tx.salesOrder.update({ where: { id }, data: { status: "shipped" } });
     }

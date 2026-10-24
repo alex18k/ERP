@@ -64,7 +64,9 @@ function buildStockFilters(where: any) {
     };
   }
   if (warehouseId) filters.warehouseId = Number(warehouseId);
-  if (binId !== undefined && binId !== "" && binId !== null) filters.binId = Number(binId);
+  if (binId !== undefined && binId !== "" && binId !== null) {
+    filters.binId = String(binId) === "none" ? null : Number(binId);
+  }
   return filters;
 }
 
@@ -93,6 +95,10 @@ function escapeLike(value: any) {
 // SQL 过滤条件（使用 s/m 别名），供明细/分组的数据库分页复用
 function buildStockSqlParts(where: any): Prisma.Sql[] {
   const parts: Prisma.Sql[] = [Prisma.sql`s.quantity > 0`];
+  if (where.materialId !== undefined && where.materialId !== "" && where.materialId !== null) {
+    const id = Number(where.materialId);
+    if (Number.isFinite(id)) parts.push(Prisma.sql`s."materialId" = ${id}`);
+  }
   if (where.materialCode) {
     parts.push(Prisma.sql`m.code LIKE ${`%${escapeLike(where.materialCode)}%`}`);
   }
@@ -105,8 +111,12 @@ function buildStockSqlParts(where: any): Prisma.Sql[] {
     if (Number.isFinite(id)) parts.push(Prisma.sql`s."warehouseId" = ${id}`);
   }
   if (where.binId !== undefined && where.binId !== "" && where.binId !== null) {
-    const id = Number(where.binId);
-    if (Number.isFinite(id)) parts.push(Prisma.sql`s."binId" = ${id}`);
+    if (String(where.binId) === "none") {
+      parts.push(Prisma.sql`s."binId" IS NULL`);
+    } else {
+      const id = Number(where.binId);
+      if (Number.isFinite(id)) parts.push(Prisma.sql`s."binId" = ${id}`);
+    }
   }
   return parts;
 }
@@ -380,9 +390,9 @@ export async function listStockSummary(where: any) {
 // 口径：流水有符号增量 = 入库(+) / 出库(-)，红单（负数量）自动反向冲抵；
 // 期末 = 现存量 - 期间结束之后仍发生的净变动；期初 = 期末 - 本期入库 + 本期出库。
 // 行 = 物料 × 仓库（含期间内有流水但现存为 0 的物料）。
-export async function listPsiReport(where: any) {
+export async function listPsiReport(where: any, opts?: { all?: boolean }) {
   const { pageNum, sizeNum, offset } = clampPage(where.page, where.pageSize);
-  const all = where.all === "1" || where.all === true;
+  const all = opts?.all === true;
   const showZero = where.showZero === "1" || where.showZero === true;
 
   const startDate = /^\d{4}-\d{2}-\d{2}$/.test(String(where.startDate ?? "").trim())
@@ -568,7 +578,9 @@ export async function listStocks(where: any) {
       ...s,
       availableQty: s.quantity - s.reservedQty,
       isLow: s.material.safetyStock > 0 && (totals.get(s.materialId) ?? 0) <= s.material.safetyStock,
-      batches: batchByKey.get(`${s.materialId}|${s.warehouseId}|${s.binId ?? ""}`) ?? [],
+      batches: (batchByKey.get(`${s.materialId}|${s.warehouseId}|${s.binId ?? ""}`) ?? []).filter(
+        (b) => Number(b.quantity) > 1e-6
+      ),
     })),
   };
 }
@@ -704,7 +716,29 @@ export async function listStockRecordsByDocument(documentNo: string) {
     },
     orderBy: [{ lineNo: "asc" }, { id: "asc" }],
   });
-  return { documentNo: no, items };
+  // 销售发运单：流水数量是基本单位，而 price/um 存的是订单录入口径，
+  // 这里按 SalesOrderItem.conversionRate 还原录入数量，保证 数量×单价=金额（同 listSalesShipments 口径）
+  const shipOrderIds = [...new Set(items.filter((i) => i.relatedType === "sales-order" && i.relatedId).map((i) => i.relatedId as number))];
+  const shipOrders = shipOrderIds.length
+    ? await prisma.salesOrder.findMany({
+        where: { id: { in: shipOrderIds } },
+        select: { id: true, items: { select: { line: true, materialId: true, unit: true, conversionRate: true } } },
+      })
+    : [];
+  const shipOrderMap = new Map(shipOrders.map((o) => [o.id, o]));
+  const lines = items.map((i) => {
+    if (i.relatedType !== "sales-order" || !i.relatedId) return i;
+    const order = shipOrderMap.get(i.relatedId);
+    const item =
+      order?.items.find((it) => it.line === i.lineNo && it.materialId === i.materialId) ??
+      order?.items.find((it) => it.materialId === i.materialId);
+    if (!item) return i;
+    const rate = item.conversionRate || 1;
+    const lineQty = Math.round((i.quantity / rate) * 1e6) / 1e6;
+    const amount = i.price != null ? Math.round(lineQty * Number(i.price) * 100) / 100 : null;
+    return { ...i, lineQty, lineUnit: item?.unit || i.um || i.material?.unit || null, amount };
+  });
+  return { documentNo: no, items: lines };
 }
 
 // 编辑整张库存事务单据（销售出库维护）：仅允许修改表头字段（随单各行统一覆盖）与各行备注；
@@ -731,8 +765,17 @@ export async function updateStockDocument(
 ) {
   const no = String(documentNo ?? "").trim();
   if (!no) throw new Error("请提供单号");
-  const rows = await prisma.stockRecord.findMany({ where: { documentNo: no }, select: { id: true } });
+  const rows = await prisma.stockRecord.findMany({
+    where: { documentNo: no },
+    select: { id: true, relatedType: true, transactionType: { select: { code: true } } },
+  });
   if (rows.length === 0) throw new Error("单据不存在");
+  // 仅销售出库、材料出库、产品入库、采购入库维护页允许修改表头（只改表头元数据，不动数量/单价），
+  // 避免通过该接口篡改其它单据的审计字段
+  const editableCodes = new Set(["ISS-SO", "ISS-WO", "ISS-SUB", "RCT-WO", "RCT-MC", "RCT-PO"]);
+  if (!rows.every((r) => r.relatedType === "sales-order" || editableCodes.has(r.transactionType?.code ?? ""))) {
+    throw new Error("该单据类型不允许修改单据表头");
+  }
 
   const header: any = {};
   if (data.effectiveDate !== undefined) header.effectiveDate = data.effectiveDate ? new Date(data.effectiveDate) : null;
@@ -806,8 +849,8 @@ export async function listStockHistoryWorkshops() {
 }
 
 // ===== 仓库/货位辅助 =====
-// 校验仓库与货位：仓库必须存在且启用；启用货位管理的仓库必须指定有效货位，未启用则不允许指定货位。
-// 返回规范化后的 binId（number 或 null）。所有库存事务入口都应经过这里。
+// 校验仓库与货位：仓库必须存在且启用；启用货位管理的仓库可以选择填写货位（binId 为空落在无货位库存行），
+// 未启用则不允许指定货位。返回规范化后的 binId（number 或 null）。所有库存事务入口都应经过这里。
 export async function resolveBinId(
   tx: any,
   warehouse: { id: number; name: string; binManaged: boolean; status: number },
@@ -816,7 +859,7 @@ export async function resolveBinId(
   if (warehouse.status !== 1) throw new Error(`仓库「${warehouse.name}」已停用，不能进行库存事务`);
   const bid = binId === undefined || binId === null || binId === "" ? null : Number(binId);
   if (warehouse.binManaged) {
-    if (!bid) throw new Error(`仓库「${warehouse.name}」启用货位管理，请选择货位`);
+    if (!bid) return null;
     const bin = await tx.warehouseBin.findUnique({ where: { id: bid } });
     if (!bin || bin.warehouseId !== warehouse.id) throw new Error("货位不存在或不属于该仓库");
     if (bin.status !== 1) throw new Error(`货位「${bin.code}」已停用`);
@@ -846,8 +889,18 @@ export async function applyBatchIn(
   batchNo: string | undefined,
   quantity: number
 ): Promise<string | null> {
-  // 未提供批号且非批号管理物料：不记批次明细
-  if (!material.batchManaged && !batchNo?.trim()) return null;
+  // 未提供批号且非批号管理物料：若该库存行已有批次余量，必须指定批号，
+  // 否则新增的“未分批”库存会与批次台账并存，出库时因必须指定批号而无法扣减。
+  if (!material.batchManaged && !batchNo?.trim()) {
+    const existingBatch = await tx.materialBatch.findFirst({
+      where: { materialId: material.id, warehouseId, binId, quantity: { gt: 1e-6 } },
+      select: { batchNo: true },
+    });
+    if (existingBatch) {
+      throw new Error(`物料 ${material.code} 该仓库货位存在批次库存，入库必须指定批号`);
+    }
+    return null;
+  }
   const resolved = batchNo?.trim() ? batchNo.trim() : await generateBatchNo(tx, material);
   // upsert + 原子累加：并发下走数据库 ON CONFLICT，避免“读-改-写”丢失更新
   await tx.$executeRaw`
@@ -941,7 +994,9 @@ export async function listBatches(where: any) {
   if (materialId) filters.materialId = Number(materialId);
   if (materialKeyword) filters.material = { OR: [{ code: { contains: materialKeyword } }, { name: { contains: materialKeyword } }] };
   if (warehouseId) filters.warehouseId = Number(warehouseId);
-  if (binId !== undefined && binId !== "" && binId !== null) filters.binId = Number(binId);
+  if (binId !== undefined && binId !== "" && binId !== null) {
+    filters.binId = String(binId) === "none" ? null : Number(binId);
+  }
   const [total, items] = await Promise.all([
     prisma.materialBatch.count({ where: filters }),
     prisma.materialBatch.findMany({
@@ -1013,7 +1068,7 @@ export async function stockIn(data: { materialId: number; quantity: number; unit
     await lockOrderNo(tx, ORDER_NO_LOCK.ST);
     const docNo = await generateDocNo(tx, typeDocPrefix(transactionType));
 
-    // 校验货位（启用货位管理的仓库必须指定货位）
+    // 校验货位（启用货位管理的仓库可选填货位）
     const binId = await resolveBinId(tx, warehouse, data.binId);
 
     // upsert + 原子累加：并发建行走 ON CONFLICT，读-改-写不会丢失更新
@@ -1373,6 +1428,7 @@ export async function transferStock(data: {
   toWarehouseId: number;
   toBinId?: number | null;
   batchNo?: string;
+  toBatchNo?: string;
   effectiveDate?: string;
   orderNo?: string;
   remark?: string;
@@ -1397,8 +1453,12 @@ export async function transferStock(data: {
   // 预校验货位（正式校验在事务内再做一次）
   const preFromBinId = await resolveBinId(prisma, fromWarehouse, data.fromBinId);
   const preToBinId = await resolveBinId(prisma, toWarehouse, data.toBinId);
-  if (data.fromWarehouseId === data.toWarehouseId && preFromBinId === preToBinId) {
-    throw new Error("源与目标不能为同一仓库的同一货位");
+  // 同仓同货位视为"相同"，除非填写了不同的目标批号（同仓位改批）
+  const toBatchNoTrim = String(data.toBatchNo ?? "").trim();
+  const batchChanged = !!toBatchNoTrim && toBatchNoTrim !== String(data.batchNo ?? "").trim();
+  const sameSpot = data.fromWarehouseId === data.toWarehouseId && preFromBinId === preToBinId;
+  if (sameSpot && !batchChanged) {
+    throw new Error("源与目标不能为同一仓库的同一货位（如需同仓位改批，请填写不同的目标批号）");
   }
 
   const stock = await prisma.stock.findFirst({
@@ -1422,8 +1482,12 @@ export async function transferStock(data: {
 
     const fromBinId = await resolveBinId(tx, fromWarehouse, data.fromBinId);
     const toBinId = await resolveBinId(tx, toWarehouse, data.toBinId);
-    if (data.fromWarehouseId === data.toWarehouseId && fromBinId === toBinId) {
-      throw new Error("源与目标不能为同一仓库的同一货位");
+    const sameBin = data.fromWarehouseId === data.toWarehouseId && fromBinId === toBinId;
+    if (sameBin) {
+      const tBatch = String(data.toBatchNo ?? "").trim();
+      if (!tBatch || tBatch === String(data.batchNo ?? "").trim()) {
+        throw new Error("源与目标不能为同一仓库的同一货位（如需同仓位改批，请填写不同的目标批号）");
+      }
     }
 
     // 源：条件递减，原子校验库存充足
@@ -1439,9 +1503,10 @@ export async function transferStock(data: {
     // 源：批号扣减（批号管理物料必须指定批号）
     const resolvedBatchNo = await applyBatchOut(tx, material, data.fromWarehouseId, fromBinId, data.batchNo, baseQty);
 
-    // 目标：入库并沿用同一批号
+    // 目标：入库；目标批号默认沿用源批号，可用 toBatchNo 改批
+    const targetBatchNo = String(data.toBatchNo ?? "").trim() || resolvedBatchNo || undefined;
     await addStock(tx, data.materialId, data.toWarehouseId, toBinId, baseQty);
-    await applyBatchIn(tx, material, data.toWarehouseId, toBinId, resolvedBatchNo ?? undefined, baseQty);
+    await applyBatchIn(tx, material, data.toWarehouseId, toBinId, targetBatchNo, baseQty);
 
     const effDate = data.effectiveDate ? new Date(data.effectiveDate) : new Date();
     await tx.stockRecord.create({
@@ -1468,7 +1533,7 @@ export async function transferStock(data: {
         binId: toBinId,
         type: "in",
         quantity: baseQty,
-        batchNo: resolvedBatchNo,
+        batchNo: targetBatchNo ?? null,
         transactionTypeId: inType?.id,
         documentNo: docNo,
         orderNo: data.orderNo || null,
@@ -1479,7 +1544,7 @@ export async function transferStock(data: {
       },
     });
 
-    return { success: true, documentNo: docNo, baseQty, batchNo: resolvedBatchNo, fromBinId, toBinId };
+    return { success: true, documentNo: docNo, baseQty, batchNo: resolvedBatchNo, targetBatchNo, fromBinId, toBinId };
   });
 }
 
@@ -1489,9 +1554,10 @@ function buildZeroStockFilters(where: any = {}) {
   const relationWhere: any = {};
   if (where.warehouseId) relationWhere.warehouseId = Number(where.warehouseId);
 
-  // 只处理数量恰好为 0 的记录；负库存属于异常，不能静默删除
-  const stockWhere: any = { quantity: 0, ...relationWhere };
-  const batchWhere: any = { quantity: 0, ...relationWhere };
+  // 只处理数量为 0（含浮点残差）的记录；明显负库存属于异常，不能静默删除
+  const zeroQty = { gte: -1e-6, lte: 1e-6 };
+  const stockWhere: any = { quantity: zeroQty, ...relationWhere };
+  const batchWhere: any = { quantity: zeroQty, ...relationWhere };
   if (keyword) {
     const mf = { OR: [{ code: { contains: keyword } }, { name: { contains: keyword } }] };
     stockWhere.material = mf;
@@ -1614,12 +1680,13 @@ export async function getStockAlerts(where: any = {}) {
         currentQty,
         safetyStock: m.safetyStock,
         shortageQty: m.safetyStock - currentQty,
-        level: currentQty === 0 ? "critical" : "warning",
+        level: Math.abs(currentQty) <= 1e-6 ? "critical" : "warning",
       });
     }
   }
 
-  return alerts.sort((a, b) => a.shortageQty - b.shortageQty);
+  // 缺口最大的排前面，便于优先处理
+  return alerts.sort((a, b) => b.shortageQty - a.shortageQty);
 }
 // 所属公司：库存流水归属的默认公司（销售出库等业务记录用）
 export async function getDefaultCompanyId(): Promise<number | null> {

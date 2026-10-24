@@ -75,7 +75,10 @@ export const MATERIAL_QUERY_FIELDS: Record<string, PrismaQueryFieldDefinition> =
       { label: "是", value: "1" },
       { label: "否", value: "0" },
     ],
-    build: (value) => ({ batchManaged: value === true || value === "1" || value === 1 }),
+    build: (value, _value2, operator) => {
+      const isTrue = value === true || value === "1" || value === 1;
+      return operator === "ne" ? { batchManaged: { not: isTrue } } : { batchManaged: isTrue };
+    },
   },
   safetyStock: { type: "number", column: "safetyStock" },
   minStock: { type: "number", column: "minStock" },
@@ -103,7 +106,9 @@ export const MATERIAL_QUERY_FIELDS: Record<string, PrismaQueryFieldDefinition> =
         name:
           operator === "eq"
             ? String(value ?? "").trim()
-            : { contains: String(value ?? "").trim(), mode: "insensitive" },
+            : operator === "ne"
+              ? { not: String(value ?? "").trim() }
+              : { contains: String(value ?? "").trim(), mode: "insensitive" },
       },
     }),
   },
@@ -114,7 +119,9 @@ export const MATERIAL_QUERY_FIELDS: Record<string, PrismaQueryFieldDefinition> =
         name:
           operator === "eq"
             ? String(value ?? "").trim()
-            : { contains: String(value ?? "").trim(), mode: "insensitive" },
+            : operator === "ne"
+              ? { not: String(value ?? "").trim() }
+              : { contains: String(value ?? "").trim(), mode: "insensitive" },
       },
     }),
   },
@@ -223,6 +230,20 @@ export async function listMaterialTypes(): Promise<string[]> {
   return [...set].sort((a, b) => a.localeCompare(b, "zh"));
 }
 
+export async function listMaterialUnits(): Promise<string[]> {
+  // 物料主文件中已使用的计量单位（去重），供物料表单单位下拉使用
+  const rows = await prisma.material.findMany({
+    distinct: ["unit"],
+    select: { unit: true },
+  });
+  const set = new Set<string>();
+  for (const r of rows) {
+    const u = r.unit?.trim();
+    if (u) set.add(u);
+  }
+  return [...set].sort((a, b) => a.localeCompare(b, "zh"));
+}
+
 export interface MaterialOptionWhere {
   category?: string;
   keyword?: string;
@@ -302,6 +323,34 @@ export async function updateMaterial(id: number, data: Partial<MaterialCreateInp
   if (!exists) throw new Error("物料不存在");
 
   if (data.code && data.code !== exists.code) throw new Error("物料编码不可修改");
+
+  // 基本单位变更会导致已有库存、单据快照和换算关系的数量含义全部改变，存在业务引用时禁止直接修改
+  if (data.unit !== undefined && String(data.unit).trim() !== exists.unit.trim()) {
+    const [stockCount, batchCount, recordCount, salesItemCount, purchaseItemCount, bomItemCount, unitConvCount] =
+      await Promise.all([
+        prisma.stock.count({ where: { materialId: id, quantity: { gt: 1e-6 } } }),
+        prisma.materialBatch.count({ where: { materialId: id } }),
+        prisma.stockRecord.count({ where: { materialId: id } }),
+        prisma.salesOrderItem.count({ where: { materialId: id } }),
+        prisma.purchaseOrderItem.count({ where: { materialId: id } }),
+        prisma.bomItem.count({ where: { materialId: id } }),
+        prisma.materialUnitConversion.count({ where: { materialId: id } }),
+      ]);
+    if (stockCount + batchCount + recordCount + salesItemCount + purchaseItemCount + bomItemCount + unitConvCount > 0) {
+      throw new Error("该物料已有库存、单据或换算关系，不能修改基本单位");
+    }
+  }
+
+  // 启用批号管理前，现有库存必须已按批次维护；关闭前必须没有批次余量
+  if (data.batchManaged === true && !exists.batchManaged) {
+    const stockCount = await prisma.stock.count({ where: { materialId: id, quantity: { gt: 1e-6 } } });
+    if (stockCount > 0) throw new Error("该物料仍有库存，请先清空或按批次维护后再启用批号管理");
+  }
+  if (data.batchManaged === false && exists.batchManaged) {
+    const batchCount = await prisma.materialBatch.count({ where: { materialId: id, quantity: { gt: 1e-6 } } });
+    if (batchCount > 0) throw new Error("该物料仍有批次库存，请先清空后再关闭批号管理");
+  }
+
   const { code: _code, ...payload } = data;
   return prisma.material.update({ where: { id }, data: payload });
 }
@@ -348,7 +397,13 @@ export async function deleteMaterial(id: number) {
   if (suggestionCount > 0 || shortageCount > 0) throw new Error("物料存在采购建议或MRP缺料记录，无法删除");
   if (unitConversionCount > 0) throw new Error("物料存在计量单位换算，无法删除");
 
-  await prisma.material.update({ where: { id }, data: { status: 0 } });
+  // 未被任何业务引用的物料直接物理删除（软删除会让物料仍留在列表中，看起来删不掉）
+  try {
+    await prisma.material.delete({ where: { id } });
+  } catch (e: any) {
+    if (e?.code === "P2003") throw new Error("物料仍被其它数据引用，无法删除");
+    throw e;
+  }
   return true;
 }
 

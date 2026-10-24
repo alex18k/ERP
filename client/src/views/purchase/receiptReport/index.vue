@@ -1,24 +1,64 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
+import { ElMessage } from 'element-plus'
+import { Printer } from '@element-plus/icons-vue'
 import { purchaseApi } from '../../../api'
+import QueryConditionBuilder from '../../../components/QueryConditionBuilder.vue'
+import { createEmptyCondition, serializeConditions, validateConditions, type QueryCondition, type QueryField } from '../../../utils/queryBuilder'
 
 const router = useRouter()
 const loading = ref(false)
 const list = ref<any[]>([])
 const total = ref(0)
 const currentRow = ref<any>(null)
-const query = reactive({ page: 1, pageSize: 20, receiptNo: '', orderNo: '', materialKeyword: '', startDate: '', endDate: '' })
+const query = reactive({ page: 1, pageSize: 20 })
+const advancedConditions = ref<QueryCondition[]>([createEmptyCondition()])
 
-async function loadData() {
+const queryFields: QueryField[] = [
+  { field: 'receiptNo', label: '收货单号', type: 'text' },
+  { field: 'orderNo', label: '采购单号', type: 'text' },
+  { field: 'materialKeyword', label: '物料编码/名称/规格', type: 'text' },
+  { field: 'materialCode', label: '物料编码', type: 'text' },
+  { field: 'materialName', label: '物料名称', type: 'text' },
+  { field: 'specification', label: '型号规格', type: 'text' },
+  { field: 'supplierName', label: '供应商', type: 'text' },
+  { field: 'deliveryNo', label: '送货单号', type: 'text' },
+  { field: 'batchNo', label: '批号', type: 'text' },
+  { field: 'warehouseName', label: '仓库', type: 'text' },
+  { field: 'location', label: '库位', type: 'text' },
+  { field: 'binName', label: '货位', type: 'text' },
+  { field: 'buyer', label: '采购员', type: 'text' },
+  { field: 'settleMethod', label: '结算方式', type: 'text' },
+  { field: 'operatorName', label: '操作员', type: 'text' },
+  { field: 'startDate', label: '开始日期', type: 'date' },
+  { field: 'endDate', label: '结束日期', type: 'date' },
+]
+async function loadData(extra: Record<string, any> = {}) {
   loading.value = true
   try {
-    const res: any = await purchaseApi.receipts(query)
+    const res: any = await purchaseApi.receipts({ page: query.page, pageSize: query.pageSize, ...extra })
     list.value = res.data.items
     total.value = res.data.total
   } finally {
     loading.value = false
   }
+}
+
+function submitAdvanced(conditions: QueryCondition[]) {
+  const result = validateConditions(conditions, queryFields)
+  if (!result.ok) {
+    ElMessage.warning(result.message || '查询条件有误')
+    return
+  }
+  query.page = 1
+  loadData({ conditions: serializeConditions(result.normalized) })
+}
+
+function resetAdvanced() {
+  advancedConditions.value = [createEmptyCondition()]
+  query.page = 1
+  loadData()
 }
 
 function dateOnly(v: string | null | undefined) {
@@ -37,14 +77,11 @@ onMounted(loadData)
 <template>
   <div class="page-container">
     <div class="page-card">
-      <div class="search-bar">
-        <el-input v-model="query.receiptNo" placeholder="收货单号" clearable style="width: 170px" @keyup.enter="query.page = 1, loadData()" />
-        <el-input v-model="query.orderNo" placeholder="采购单号" clearable style="width: 160px" @keyup.enter="query.page = 1, loadData()" />
-        <el-input v-model="query.materialKeyword" placeholder="物料编码/名称/规格" clearable style="width: 200px" @keyup.enter="query.page = 1, loadData()" />
-        <el-input v-model="query.startDate" type="date" placeholder="开始" clearable style="width: 150px" @keyup.enter="query.page = 1, loadData()" />
-        <el-input v-model="query.endDate" type="date" placeholder="结束" clearable style="width: 150px" @keyup.enter="query.page = 1, loadData()" />
-        <el-button type="primary" @click="query.page = 1, loadData()"><el-icon><Search /></el-icon>查询</el-button>
-        <el-button @click="Object.assign(query, { receiptNo: '', orderNo: '', materialKeyword: '', startDate: '', endDate: '', page: 1 }), loadData()">重置</el-button>
+      <div class="advanced-query">
+        <QueryConditionBuilder v-model="advancedConditions" :fields="queryFields" @query="submitAdvanced" @reset="resetAdvanced" />
+      </div>
+
+      <div class="toolbar">
         <div style="flex: 1" />
         <el-button type="primary" plain :disabled="!currentRow?.receiptNo && !currentRow?.documentNo" @click="handlePrint"><el-icon><Printer /></el-icon>打印收货单</el-button>
       </div>
@@ -53,25 +90,17 @@ onMounted(loadData)
         <el-table-column label="收货日期" width="90">
           <template #default="{ row }">{{ dateOnly(row.effectiveDate || row.createdAt) }}</template>
         </el-table-column>
-        <el-table-column label="类型" width="80" align="center">
-          <template #default="{ row }">
-            <el-tag :type="row.isReturn ? 'danger' : 'success'" size="small" effect="plain">{{ row.isReturn ? '退货' : '收货' }}</el-tag>
-          </template>
-        </el-table-column>
         <el-table-column label="收货单号" width="160">
           <template #default="{ row }">{{ row.receiptNo || row.documentNo }}</template>
-        </el-table-column>
-        <el-table-column label="送货单号" width="120">
-          <template #default="{ row }">{{ row.deliveryNo || '-' }}</template>
         </el-table-column>
         <el-table-column prop="orderNo" label="采购单号" width="120">
           <template #default="{ row }">{{ row.orderNo || '-' }}</template>
         </el-table-column>
-        <el-table-column prop="supplierName" label="供应商" min-width="220">
-          <template #default="{ row }">{{ row.supplierName || '未指定' }}</template>
-        </el-table-column>
         <el-table-column prop="lineNo" label="行号" width="70">
           <template #default="{ row }">{{ row.lineNo ?? '-' }}</template>
+        </el-table-column>
+        <el-table-column prop="supplierName" label="供应商" min-width="220">
+          <template #default="{ row }">{{ row.supplierName || '未指定' }}</template>
         </el-table-column>
         <el-table-column label="物料编码" width="110" show-overflow-tooltip>
           <template #default="{ row }">{{ row.material?.code }}</template>
@@ -113,6 +142,9 @@ onMounted(loadData)
         <el-table-column label="采购员" width="100">
           <template #default="{ row }">{{ row.buyer || '-' }}</template>
         </el-table-column>
+        <el-table-column label="送货单号" width="120">
+          <template #default="{ row }">{{ row.deliveryNo || '-' }}</template>
+        </el-table-column>
         <el-table-column label="批号" min-width="160">
           <template #default="{ row }">{{ row.batchNo || '-' }}</template>
         </el-table-column>
@@ -141,3 +173,19 @@ onMounted(loadData)
     </div>
   </div>
 </template>
+
+<style scoped>
+.advanced-query {
+  margin: 4px 0 8px;
+  padding: 8px 10px;
+  border: 1px solid #d5dae2;
+  border-radius: 6px;
+  background: #fafbfc;
+}
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+</style>

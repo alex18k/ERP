@@ -97,10 +97,6 @@ async function submit() {
     ElMessage.warning(`单位「${form.unit}」未维护换算关系`)
     return
   }
-  if (binRequired.value && !form.binId) {
-    ElMessage.warning('该仓库启用货位管理，请选择货位')
-    return
-  }
   const baseQty = (Number(form.quantity) || 0) * unitRate.value
   if (baseQty > remaining(current.value) + 1e-6) {
     ElMessage.warning(`入库数量超过剩余可入库数量 ${remaining(current.value)}`)
@@ -206,7 +202,7 @@ onMounted(async () => {
             <el-option v-for="w in activeWarehouses" :key="w.id" :label="`${w.code} - ${w.name}`" :value="w.id" />
           </el-select>
         </el-form-item>
-        <el-form-item v-if="binRequired" label="货位" required>
+        <el-form-item v-if="binRequired" label="货位">
           <el-select v-model="form.binId" filterable clearable placeholder="选择货位" style="width: 100%">
             <el-option v-for="b in bins" :key="b.id" :label="`${b.code} - ${b.name}`" :value="b.id" />
           </el-select>

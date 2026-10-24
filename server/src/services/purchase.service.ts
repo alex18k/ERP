@@ -243,9 +243,18 @@ export async function createPurchaseOrder(data: PurchaseOrderInput, userId: numb
   assertItemsPositive(data.items);
   assertDateOrder(data.orderDate, data.expectedDate);
   const supplier = await resolveActiveSupplier(data.supplierId);
+  // 结算方式:未显式选择时沿用供应商默认,再参与必填校验
+  const settleMethod = data.settleMethod || supplier?.settleMethod || null;
+  assertConfirmable({
+    supplierId: data.supplierId,
+    settleMethod,
+    orderDate: data.orderDate ? new Date(data.orderDate) : null,
+    expectedDate: data.expectedDate ? new Date(data.expectedDate) : null,
+    buyer: data.buyer || null,
+    items: data.items,
+  });
 
   const totalAmount = data.items.reduce((s, i) => s + i.quantity * (i.unitPrice ?? 0), 0);
-  const settleMethod = data.settleMethod ?? supplier?.settleMethod ?? null;
 
   // 计量单位换算率（按明细行的计量单位解析，折算为基本单位数量入库/统计）
   const rateMap = await resolveUnitRateMap(data.items.map((i) => ({ materialId: i.materialId, unit: i.unit })));
@@ -266,7 +275,7 @@ export async function createPurchaseOrder(data: PurchaseOrderInput, userId: numb
           buyer: data.buyer || null,
           taxIncluded: data.taxIncluded ?? false,
           taxRate: data.taxRate ?? 0,
-          status: "draft",
+          status: "confirmed",
           remark: data.remark,
           createdBy: userId,
         },
@@ -313,18 +322,22 @@ export async function updatePurchaseOrder(id: number, data: PurchaseOrderInput) 
   assertDateOrder(data.orderDate, data.expectedDate);
 
   const supplier = await resolveActiveSupplier(data.supplierId);
+  // 供应商变更时自动继承新供应商的结算方式；否则保留原单值（校验用结算方式也在此处先算）
+  const settleMethod =
+    data.settleMethod || (exists.supplierId !== data.supplierId ? supplier?.settleMethod : exists.settleMethod) || null;
+  assertConfirmable({
+    supplierId: data.supplierId,
+    settleMethod,
+    orderDate: data.orderDate ? new Date(data.orderDate) : null,
+    expectedDate: data.expectedDate ? new Date(data.expectedDate) : null,
+    buyer: data.buyer || null,
+    items: data.items,
+  });
   if (exists.status !== "draft" && exists.supplierId !== data.supplierId) {
     throw new Error("已确认的采购单不能更换供应商");
   }
 
   const totalAmount = data.items.reduce((s, i) => s + i.quantity * (i.unitPrice ?? 0), 0);
-  // 供应商变更时自动继承新供应商的结算方式；否则保留原单值
-  const settleMethod =
-    data.settleMethod !== undefined && data.settleMethod !== null
-      ? data.settleMethod
-      : exists.supplierId !== data.supplierId
-        ? (supplier?.settleMethod ?? null)
-        : exists.settleMethod;
 
   // 计量单位换算率（按明细行的计量单位解析）
   const rateMap = await resolveUnitRateMap(data.items.map((i) => ({ materialId: i.materialId, unit: i.unit })));
@@ -368,6 +381,9 @@ export async function updatePurchaseOrder(id: number, data: PurchaseOrderInput) 
         if ((old!.unit || "") !== (item.unit || "")) {
           throw new Error(`行号 ${old!.line} 的明细已收货 ${alreadyReceived}，不能变更计量单位`);
         }
+        if (Number(item.line) !== old!.line) {
+          throw new Error(`行号 ${old!.line} 的明细已收货 ${alreadyReceived}，不能变更行号`);
+        }
         if (item.quantity < alreadyReceived - 1e-6) {
           throw new Error(`行号 ${old!.line} 的明细已收货 ${alreadyReceived}，数量不能小于已收量`);
         }
@@ -375,9 +391,12 @@ export async function updatePurchaseOrder(id: number, data: PurchaseOrderInput) 
     });
 
     await tx.purchaseOrderItem.deleteMany({ where: { orderId: id } });
+    // 整单重建会更换明细 id；记录新旧 id 映射，重建后把按明细退货的流水改挂到新 id，
+    // 否则 PurchaseReturnItem.relatedId 会变成孤儿，已退数量被重置并可重复退货。
+    const newItemIdByKey = new Map<string, number>();
     for (const item of data.items) {
       const rate = rateMap.get(item.materialId)?.rate ?? 1;
-      await tx.purchaseOrderItem.create({
+      const created = await tx.purchaseOrderItem.create({
         data: {
           orderId: id,
           materialId: item.materialId,
@@ -401,9 +420,21 @@ export async function updatePurchaseOrder(id: number, data: PurchaseOrderInput) 
           suggestionId: item.id ? (existingById.get(item.id)?.suggestionId ?? null) : null,
         },
       });
+      newItemIdByKey.set(`${Number(item.line)}|${item.materialId}|${item.unit || ""}`, created.id);
     }
 
-    // 主表状态不随明细编辑自动推算，仅由维护操作（确认/取消等）显式控制
+    // 把旧的按采购明细退货流水改挂到新明细 id（已收货行的行号/物料/单位禁止变更，键唯一）
+    for (const old of existingItems) {
+      if ((old.receivedQty ?? 0) <= 1e-6) continue;
+      const newId = newItemIdByKey.get(`${old.line}|${old.materialId}|${old.unit || ""}`);
+      if (!newId || newId === old.id) continue;
+      await tx.stockRecord.updateMany({
+        where: { relatedType: "PurchaseReturnItem", relatedId: old.id, type: "out" },
+        data: { relatedId: newId },
+      });
+    }
+
+    // 保存即确认：采购单维护页保存后直接置为已确认（下面 update 中统一设置）
 
     await tx.purchaseOrder.update({
       where: { id },
@@ -417,6 +448,8 @@ export async function updatePurchaseOrder(id: number, data: PurchaseOrderInput) 
         taxIncluded: data.taxIncluded ?? false,
         taxRate: data.taxRate ?? 0,
         remark: data.remark,
+        // 保存即确认：编辑/保存后直接置为已确认
+        status: "confirmed",
       },
     });
 
@@ -427,12 +460,14 @@ export async function updatePurchaseOrder(id: number, data: PurchaseOrderInput) 
 // 确认前必填项校验（草稿保存与状态流转共用，避免绕过 /confirm 直接置为已确认）
 function assertConfirmable(po: {
   supplierId: number | null;
+  settleMethod: string | null;
   orderDate: Date | null;
   expectedDate: Date | null;
   buyer: string | null;
   items: { materialId: number; quantity: number }[];
 }) {
   if (!po.supplierId) throw new Error("请先选择供应商");
+  if (!po.settleMethod) throw new Error("请先选择结算方式");
   if (!po.orderDate) throw new Error("请先选择订货日期");
   if (!po.expectedDate) throw new Error("请先选择截止日期");
   if (!po.buyer) throw new Error("请先填写采购员");
@@ -737,7 +772,7 @@ export async function listReceiptKeepers() {
 
 // ===== 采购收货记录（来源：采购单收货写入的库存流水，含采购退货）=====
 export async function listPurchaseReceipts(where: any) {
-  const { orderNo, receiptNo, materialKeyword, startDate, endDate, page = 1, pageSize = 20 } = where;
+  const { orderNo, receiptNo, materialKeyword, startDate, endDate, page = 1, pageSize = 20, conditions } = where;
 
   const and: Prisma.StockRecordWhereInput[] = [
     {
@@ -772,6 +807,154 @@ export async function listPurchaseReceipts(where: any) {
     // 展示生效日期，优先按生效日期筛选；历史流水回退创建时间
     and.push({ OR: [{ effectiveDate: range }, { effectiveDate: null, createdAt: range }] });
   }
+
+  // 高级查询条件（通用解析）
+  if (conditions) {
+    try {
+      const parsed = parseQueryConditions(conditions);
+      // 日期过滤：按展示生效日期，生效日期为空的历史流水回退创建时间
+      const dateFilter = (f: any): any => ({ OR: [{ effectiveDate: f }, { effectiveDate: null, createdAt: f }] });
+      for (const c of parsed) {
+        const v = c.value == null ? "" : String(c.value).trim();
+        const v2 = c.value2 == null ? "" : String(c.value2).trim();
+        if (!v && c.operator !== "range") continue;
+        switch (c.field) {
+          case "receiptNo":
+            if (c.operator === "eq") and.push({ documentNo: v });
+            else if (c.operator === "ne") and.push({ documentNo: { not: v } });
+            else and.push({ documentNo: { contains: v } });
+            break;
+          case "orderNo": {
+            const matched = await prisma.purchaseOrder.findMany({ where: { orderNo: { contains: v } }, select: { id: true } });
+            const pos: any = { OR: [{ relatedId: { in: matched.map((o) => o.id) } }, { orderNo: { contains: v } }] };
+            if (c.operator === "ne") and.push({ NOT: pos });
+            else and.push(pos);
+            break;
+          }
+          case "materialKeyword":
+            if (c.operator === "eq") {
+              and.push({ material: { OR: [{ code: v }, { name: v }, { specification: v }] } });
+            } else if (c.operator === "ne") {
+              and.push({ material: { NOT: { OR: [{ code: v }, { name: v }, { specification: v }] } } });
+            } else {
+              and.push({ material: { OR: [{ code: { contains: v } }, { name: { contains: v } }, { specification: { contains: v } }] } });
+            }
+            break;
+          case "materialCode":
+            if (c.operator === "eq") and.push({ material: { code: v } });
+            else if (c.operator === "ne") and.push({ material: { code: { not: v } } });
+            else and.push({ material: { code: { contains: v } } });
+            break;
+          case "materialName":
+            if (c.operator === "eq") and.push({ material: { name: v } });
+            else if (c.operator === "ne") and.push({ material: { name: { not: v } } });
+            else and.push({ material: { name: { contains: v } } });
+            break;
+          case "specification":
+            if (c.operator === "eq") and.push({ material: { specification: v } });
+            else if (c.operator === "ne") and.push({ material: { specification: { not: v } } });
+            else and.push({ material: { specification: { contains: v } } });
+            break;
+          case "supplierName": {
+            const matched = await prisma.purchaseOrder.findMany({ where: { supplier: { name: { contains: v } } }, select: { id: true } });
+            const ids = matched.map((o) => o.id);
+            if (c.operator === "ne") and.push({ relatedId: { notIn: ids } });
+            else if (ids.length) and.push({ relatedId: { in: ids } });
+            else and.push({ relatedId: -1 });
+            break;
+          }
+          case "deliveryNo":
+            if (c.operator === "eq") and.push({ deliveryNo: v });
+            else if (c.operator === "ne") and.push({ deliveryNo: { not: v } });
+            else and.push({ deliveryNo: { contains: v } });
+            break;
+          case "batchNo":
+            if (c.operator === "eq") and.push({ batchNo: v });
+            else if (c.operator === "ne") and.push({ batchNo: { not: v } });
+            else and.push({ batchNo: { contains: v } });
+            break;
+          case "warehouseName": {
+            const ws = await prisma.warehouse.findMany({ where: { name: { contains: v } }, select: { id: true } });
+            const ids = ws.map((x) => x.id);
+            if (c.operator === "ne") and.push({ warehouseId: { notIn: ids } });
+            else if (ids.length) and.push({ warehouseId: { in: ids } });
+            else and.push({ warehouseId: -1 });
+            break;
+          }
+          case "location":
+            if (c.operator === "eq") and.push({ location: v });
+            else if (c.operator === "ne") and.push({ location: { not: v } });
+            else and.push({ location: { contains: v } });
+            break;
+          case "binName": {
+            const bs = await prisma.warehouseBin.findMany({ where: { name: { contains: v } }, select: { id: true } });
+            const ids = bs.map((x) => x.id);
+            if (c.operator === "ne") and.push({ binId: { notIn: ids } });
+            else if (ids.length) and.push({ binId: { in: ids } });
+            else and.push({ binId: -1 });
+            break;
+          }
+          case "buyer": {
+            const matched = await prisma.purchaseOrder.findMany({ where: { buyer: { contains: v } }, select: { id: true } });
+            const ids = matched.map((o) => o.id);
+            if (c.operator === "ne") and.push({ relatedId: { notIn: ids } });
+            else if (ids.length) and.push({ relatedId: { in: ids } });
+            else and.push({ relatedId: -1 });
+            break;
+          }
+          case "settleMethod": {
+            const matched = await prisma.purchaseOrder.findMany({ where: { settleMethod: { contains: v } }, select: { id: true } });
+            const ids = matched.map((o) => o.id);
+            if (c.operator === "ne") and.push({ relatedId: { notIn: ids } });
+            else if (ids.length) and.push({ relatedId: { in: ids } });
+            else and.push({ relatedId: -1 });
+            break;
+          }
+          case "operatorName": {
+            const ops = await prisma.user.findMany({ where: { OR: [{ realName: { contains: v } }, { username: { contains: v } }] }, select: { id: true } });
+            const ids = ops.map((x) => x.id);
+            if (c.operator === "ne") and.push({ operatorId: { notIn: ids } });
+            else if (ids.length) and.push({ operatorId: { in: ids } });
+            else and.push({ operatorId: -1 });
+            break;
+          }
+          case "startDate":
+          case "endDate": {
+            const f: any = {};
+            let neg = false;
+            if (c.operator === "range") {
+              if (v) f.gte = parseLocalDateStart(v);
+              if (v2) f.lte = parseLocalDateEnd(v2);
+            } else if (!v) {
+              break;
+            } else if (c.operator === "eq") {
+              f.gte = parseLocalDateStart(v);
+              f.lte = parseLocalDateEnd(v);
+            } else if (c.operator === "ne") {
+              f.gte = parseLocalDateStart(v);
+              f.lte = parseLocalDateEnd(v);
+              neg = true;
+            } else if (c.operator === "gt") {
+              f.gt = parseLocalDateEnd(v);
+            } else if (c.operator === "gte") {
+              f.gte = parseLocalDateStart(v);
+            } else if (c.operator === "lt") {
+              f.lt = parseLocalDateStart(v);
+            } else if (c.operator === "lte") {
+              f.lte = parseLocalDateEnd(v);
+            }
+            if (!Object.keys(f).length) break;
+            const pos = dateFilter(f);
+            and.push(neg ? { NOT: pos } : pos);
+            break;
+          }
+        }
+      }
+    } catch (e: any) {
+      throw new Error(e?.message || "查询条件有误");
+    }
+  }
+
   const filters: Prisma.StockRecordWhereInput = { AND: and };
   const pageNum = Math.max(1, Number(page) || 1);
   const sizeNum = Math.min(1000, Math.max(1, Number(pageSize) || 20));
@@ -814,19 +997,20 @@ export async function listPurchaseReceipts(where: any) {
   const orderMapById = new Map(orders.map((o) => [o.id, o]));
   const orderMapByNo = new Map(orders.map((o) => [o.orderNo, o]));
 
-  // 已退货数量：退货流水通过 relatedId 关联到收货流水（PurchaseReturn）
-  const receiptIds = items.filter((i) => i.type === "in").map((i) => i.id);
-  const returnRows = receiptIds.length
-    ? await prisma.stockRecord.findMany({
-        where: { relatedType: "PurchaseReturn", type: "out", relatedId: { in: receiptIds } },
-        select: { relatedId: true, quantity: true },
-      })
-    : [];
-  const returnedMap = new Map<number, number>();
-  for (const r of returnRows) {
-    if (!r.relatedId) continue;
-    returnedMap.set(r.relatedId, (returnedMap.get(r.relatedId) ?? 0) + r.quantity);
-  }
+  // 已退货数量：同时统计 PurchaseReturn（按收货流水）与 PurchaseReturnItem（按采购明细），口径与退货接口一致
+  const returnedMap = await calcReturnedByReceipt(
+    prisma,
+    items
+      .filter((i) => i.type === "in")
+      .map((i) => ({
+        id: i.id,
+        relatedId: i.relatedId ?? null,
+        lineNo: i.lineNo ?? null,
+        materialId: i.materialId,
+        quantity: i.quantity,
+        createdAt: i.createdAt,
+      }))
+  );
 
   return {
     total,
@@ -947,11 +1131,9 @@ export async function listPurchaseReceiptDocuments(where: any) {
         orderBy: { id: "desc" },
       })
     : [];
-  const returnedMap = new Map<number, number>();
   const returnsByDoc = new Map<string, any[]>();
   for (const r of returnRows) {
     if (!r.relatedId) continue;
-    returnedMap.set(r.relatedId, (returnedMap.get(r.relatedId) ?? 0) + r.quantity);
     const receiptLine = lineById.get(r.relatedId);
     if (!receiptLine?.documentNo) continue;
     const docNo = receiptLine.documentNo;
@@ -972,6 +1154,21 @@ export async function listPurchaseReceiptDocuments(where: any) {
       remark: r.remark,
     });
   }
+
+  // 已退货数量：订单退货（PurchaseReturnItem）按明细 FIFO 分摊到收货流水，再叠加按收货流水退货（PurchaseReturn）
+  const returnedMap = await calcReturnedByReceipt(
+    prisma,
+    lines
+      .filter((l) => l.type === "in")
+      .map((l) => ({
+        id: l.id,
+        relatedId: l.relatedId ?? null,
+        lineNo: l.lineNo ?? null,
+        materialId: l.materialId,
+        quantity: l.quantity,
+        createdAt: l.createdAt,
+      }))
+  );
 
   const orderIds = [...new Set(lines.map((l) => l.relatedId).filter((x): x is number => !!x))];
   const orders = orderIds.length
@@ -1073,25 +1270,47 @@ export async function returnPurchaseReceiptBatch(
     const returnDocNo = await generateDocNo(tx, returnType.documentPrefix || "PV");
     const effectiveDate = data.effectiveDate ? new Date(data.effectiveDate) : new Date();
 
-    const returnedRows = await tx.stockRecord.findMany({
-      where: { relatedType: "PurchaseReturn", type: "out", relatedId: { in: ids } },
-      select: { relatedId: true, quantity: true },
-    });
-    const returnedMap = new Map<number, number>();
-    for (const r of returnedRows) {
-      if (!r.relatedId) continue;
-      returnedMap.set(r.relatedId, (returnedMap.get(r.relatedId) ?? 0) + r.quantity);
-    }
+    // 已退数量同时覆盖“按收货单退货”和“按采购单退货”两个入口，防止重复退货
+    const { items: purchaseItems, itemByReceipt } = await receiptPurchaseItems(tx, receipts as any);
+    const returnedByItem = await calcReturnedBaseByItem(
+      tx,
+      [...new Set<number>(purchaseItems.map((it: any) => Number(it.orderId)))],
+      purchaseItems
+    );
+    const requestedByItem = new Map<number, number>();
 
     let idx = 0;
     const lineCount = qtyByRecord.size;
     for (const [recordId, qty] of qtyByRecord) {
       idx += 1;
       const receipt = receiptMap.get(recordId)!;
-      const returnedQty = returnedMap.get(recordId) ?? 0;
-      const returnableQty = receipt.quantity - returnedQty;
-      if (qty > returnableQty + 1e-6) {
-        throw new Error(`物料 ${receipt.material.code} 退货数量不能超过可退数量 ${returnableQty}`);
+      const item = itemByReceipt.get(recordId);
+      let returnableQty: number;
+      if (item) {
+        const rate = item.conversionRate || 1;
+        const receivedBase = toBaseQty(item.receivedQty, rate);
+        const alreadyBase = requestedByItem.get(item.id) ?? 0;
+        const availableBase = Math.max(0, receivedBase - (returnedByItem.get(item.id) ?? 0) - alreadyBase);
+        returnableQty = Math.min(receipt.quantity, availableBase);
+        if (qty > returnableQty + 1e-6) {
+          throw new Error(`物料 ${receipt.material.code} 退货数量不能超过可退数量 ${roundQty(returnableQty)}`);
+        }
+        requestedByItem.set(item.id, alreadyBase + qty);
+      } else {
+        const returnedMap = await calcReturnedByReceipt(tx, [
+          {
+            id: receipt.id,
+            relatedId: receipt.relatedId ?? null,
+            lineNo: receipt.lineNo ?? null,
+            materialId: receipt.materialId,
+            quantity: receipt.quantity,
+            createdAt: receipt.createdAt,
+          },
+        ]);
+        returnableQty = Math.max(0, receipt.quantity - (returnedMap.get(receipt.id) ?? 0));
+        if (qty > returnableQty + 1e-6) {
+          throw new Error(`物料 ${receipt.material.code} 退货数量不能超过可退数量 ${roundQty(returnableQty)}`);
+        }
       }
       const binId = await resolveBinId(tx, receipt.warehouse, receipt.binId);
 
@@ -1204,6 +1423,114 @@ async function calcReturnedBaseByItem(
     result.set(itemId, (result.get(itemId) ?? 0) + Number(r.quantity ?? 0));
   }
   return result;
+}
+
+type ReceiptReturnRow = {
+  id: number;
+  relatedId: number | null;
+  lineNo: number | null;
+  materialId: number;
+  quantity: number;
+  createdAt?: Date;
+};
+
+// 统计每条收货流水已退数量（基本单位）。退货有两个入口：
+// - PurchaseReturn：relatedId=收货流水 id，可直接归属；
+// - PurchaseReturnItem：relatedId=采购明细 id，需要按明细把退货量 FIFO 分摊到该明细的各条收货流水。
+// 两个入口共用同一口径，避免“订单退货后再按收货单退货”造成重复退货。
+async function calcReturnedByReceipt(client: any, receipts: ReceiptReturnRow[]): Promise<Map<number, number>> {
+  const result = new Map<number, number>();
+  if (receipts.length === 0) return result;
+  const orderIds = [...new Set(receipts.map((r) => r.relatedId).filter((x): x is number => x != null))];
+  if (orderIds.length === 0) return result;
+
+  const orders = await client.purchaseOrder.findMany({
+    where: { id: { in: orderIds } },
+    select: {
+      id: true,
+      items: { select: { id: true, line: true, materialId: true, receivedQty: true, conversionRate: true } },
+    },
+  });
+  const allItems = orders.flatMap((o: any) =>
+    o.items.map((it: any) => ({ ...it, orderId: o.id }))
+  );
+  const returnedByItem = await calcReturnedBaseByItem(client, orderIds, allItems);
+
+  const directRows = await client.stockRecord.findMany({
+    where: { type: "out", relatedType: "PurchaseReturn", relatedId: { in: receipts.map((r) => r.id) } },
+    select: { relatedId: true, quantity: true },
+  });
+  for (const r of directRows) {
+    if (!r.relatedId) continue;
+    result.set(r.relatedId, (result.get(r.relatedId) ?? 0) + Number(r.quantity ?? 0));
+  }
+
+  const itemKey = (orderId: number | null | undefined, lineNo: number | null | undefined, materialId: number) =>
+    `${orderId ?? ""}|${lineNo ?? ""}|${materialId}`;
+  const itemByKey = new Map(allItems.map((it: any) => [itemKey(it.orderId, it.line, it.materialId), it]));
+  const receiptsByItem = new Map<number, ReceiptReturnRow[]>();
+  for (const r of receipts) {
+    let item: any = itemByKey.get(itemKey(r.relatedId, r.lineNo, r.materialId));
+    if (!item) {
+      const candidates = allItems.filter((it: any) => it.orderId === r.relatedId && it.materialId === r.materialId);
+      if (candidates.length === 1) item = candidates[0];
+    }
+    if (!item) continue;
+    if (!receiptsByItem.has(item.id)) receiptsByItem.set(item.id, []);
+    receiptsByItem.get(item.id)!.push(r);
+  }
+
+  for (const [itemId, rows] of receiptsByItem) {
+    const totalReturned = returnedByItem.get(itemId) ?? 0;
+    const directSum = rows.reduce((sum, r) => sum + (result.get(r.id) ?? 0), 0);
+    // 未被直接归属的退货量（PurchaseReturnItem）按收货流水时间 FIFO 分摊
+    let residual = Number((totalReturned - directSum).toFixed(6));
+    if (residual <= 1e-6) continue;
+    const sorted = [...rows].sort(
+      (a, b) => (a.createdAt?.getTime() ?? 0) - (b.createdAt?.getTime() ?? 0) || a.id - b.id
+    );
+    for (const r of sorted) {
+      if (residual <= 1e-6) break;
+      const already = result.get(r.id) ?? 0;
+      const capacity = Math.max(0, Number(r.quantity) - already);
+      const add = Math.min(capacity, residual);
+      if (add <= 1e-6) continue;
+      result.set(r.id, already + add);
+      residual = Number((residual - add).toFixed(6));
+    }
+  }
+  return result;
+}
+
+// 收货流水对应的采购明细（用于跨入口的“可退数量”校验）
+async function receiptPurchaseItems(
+  client: any,
+  receipts: { id: number; relatedId: number | null; lineNo: number | null; materialId: number }[]
+) {
+  const orderIds = [...new Set(receipts.map((r) => r.relatedId).filter((x): x is number => x != null))];
+  const orders = orderIds.length
+    ? await client.purchaseOrder.findMany({
+        where: { id: { in: orderIds } },
+        select: {
+          id: true,
+          items: { select: { id: true, line: true, materialId: true, receivedQty: true, conversionRate: true } },
+        },
+      })
+    : [];
+  const items = orders.flatMap((o: any) => o.items.map((it: any) => ({ ...it, orderId: o.id })));
+  const itemKey = (orderId: number | null | undefined, lineNo: number | null | undefined, materialId: number) =>
+    `${orderId ?? ""}|${lineNo ?? ""}|${materialId}`;
+  const itemByKey = new Map(items.map((it: any) => [itemKey(it.orderId, it.line, it.materialId), it]));
+  const itemByReceipt = new Map<number, any>();
+  for (const r of receipts) {
+    let item: any = itemByKey.get(itemKey(r.relatedId, r.lineNo, r.materialId));
+    if (!item) {
+      const candidates = items.filter((it: any) => it.orderId === r.relatedId && it.materialId === r.materialId);
+      if (candidates.length === 1) item = candidates[0];
+    }
+    if (item) itemByReceipt.set(r.id, item);
+  }
+  return { items, itemByReceipt };
 }
 
 // 采购退货列表（按采购订单维度）：只统计发生过收货的明细行
@@ -1478,14 +1805,30 @@ export async function returnPurchaseReceipt(
     await lockOrderNo(tx, ORDER_NO_LOCK.ST);
     const documentNo = await generateDocNo(tx, returnType.documentPrefix || "PV");
 
-    const returnedAgg = await tx.stockRecord.aggregate({
-      where: { relatedType: "PurchaseReturn", relatedId: receipt.id, type: "out" },
-      _sum: { quantity: true },
-    });
-    const returnedQty = returnedAgg._sum.quantity ?? 0;
-    const returnableQty = receipt.quantity - returnedQty;
+    // 与“按采购单退货”共用口径，避免同一收货流水被重复退货
+    const { itemByReceipt } = await receiptPurchaseItems(tx, [receipt as any]);
+    let returnableQty = receipt.quantity;
+    const item = itemByReceipt.get(receipt.id);
+    if (item) {
+      const returnedByItem = await calcReturnedBaseByItem(tx, [item.orderId], [item]);
+      const rate = item.conversionRate || 1;
+      const availableBase = Math.max(0, toBaseQty(item.receivedQty, rate) - (returnedByItem.get(item.id) ?? 0));
+      returnableQty = Math.min(receipt.quantity, availableBase);
+    } else {
+      const returnedMap = await calcReturnedByReceipt(tx, [
+        {
+          id: receipt.id,
+          relatedId: receipt.relatedId ?? null,
+          lineNo: receipt.lineNo ?? null,
+          materialId: receipt.materialId,
+          quantity: receipt.quantity,
+          createdAt: receipt.createdAt,
+        },
+      ]);
+      returnableQty = Math.max(0, receipt.quantity - (returnedMap.get(receipt.id) ?? 0));
+    }
     if (data.quantity > returnableQty + 1e-6) {
-      throw new Error(`退货数量不能超过可退数量 ${returnableQty}`);
+      throw new Error(`退货数量不能超过可退数量 ${roundQty(returnableQty)}`);
     }
 
     const binId = await resolveBinId(tx, receipt.warehouse, receipt.binId);

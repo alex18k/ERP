@@ -1,4 +1,5 @@
 import prisma from "../config/prisma";
+import { parseLocalDateStart, parseLocalDateEnd } from "../utils/date";
 
 export interface ReportQuery {
   from?: string;
@@ -8,15 +9,29 @@ export interface ReportQuery {
 
 type GroupBy = "day" | "week" | "month";
 
+// 查询参数校验错误：controller 据此返回 400 可读消息（其它错误一律脱敏为 500）
+export class ReportQueryError extends Error {}
+
+const REPORT_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+function checkDate(value: unknown, label: string): string {
+  const s = String(value ?? "");
+  if (!REPORT_DATE_RE.test(s)) throw new ReportQueryError(`查询条件：${label}格式不正确（应为 YYYY-MM-DD）`);
+  const [y, m, d] = s.split("-").map(Number);
+  const probe = new Date(y, m - 1, d);
+  if (probe.getFullYear() !== y || probe.getMonth() + 1 !== m || probe.getDate() !== d) {
+    throw new ReportQueryError(`查询条件：${label}不是有效日期`);
+  }
+  return s;
+}
+
 function parseRange(q: ReportQuery) {
-  const groupBy: GroupBy = q.groupBy ?? "month";
+  const groupBy: GroupBy = q.groupBy === "day" || q.groupBy === "week" ? q.groupBy : "month";
   let from: Date | undefined;
   let to: Date | undefined;
-  if (q.from) from = new Date(q.from);
-  if (q.to) {
-    to = new Date(q.to);
-    to.setHours(23, 59, 59, 999);
-  }
+  if (q.from) from = parseLocalDateStart(checkDate(q.from, "开始日期"));
+  if (q.to) to = parseLocalDateEnd(checkDate(q.to, "结束日期"));
+  if (from && to && from.getTime() > to.getTime()) throw new ReportQueryError("查询条件：开始日期不能晚于结束日期");
   return { from, to, groupBy };
 }
 
@@ -162,7 +177,6 @@ export async function getSalesReport(q: ReportQuery) {
     select: { salesOrderId: true, actualEndDate: true },
   });
   const dueMap = new Map(orders.filter((o) => o.deliveryDate).map((o) => [o.id, o.deliveryDate]));
-  const lateSet = new Set<number>();
   const onTimeCountByBucket = new Map<string, number>();
   const lateCountByBucket = new Map<string, number>();
   for (const p of doneProd) {
@@ -170,7 +184,6 @@ export async function getSalesReport(q: ReportQuery) {
     if (!due || !p.actualEndDate) continue;
     const key = bucketKey(p.actualEndDate, groupBy);
     if (p.actualEndDate > due) {
-      lateSet.add(p.salesOrderId!);
       lateCountByBucket.set(key, (lateCountByBucket.get(key) ?? 0) + 1);
     } else {
       onTimeCountByBucket.set(key, (onTimeCountByBucket.get(key) ?? 0) + 1);
@@ -186,6 +199,10 @@ export async function getSalesReport(q: ReportQuery) {
       return { period, value: total > 0 ? round((good / total) * 100) : 100 };
     });
 
+  // 准时率与趋势使用同一分子/分母（生产订单完工次数），避免用销售订单 id 去减生产订单数
+  const onTimeTotal = [...onTimeCountByBucket.values()].reduce((s, v) => s + v, 0);
+  const lateTotal = [...lateCountByBucket.values()].reduce((s, v) => s + v, 0);
+
   return {
     summary: {
       totalAmount: round(totalAmount),
@@ -193,7 +210,7 @@ export async function getSalesReport(q: ReportQuery) {
       completedCount,
       completedRate: orders.length > 0 ? round((completedCount / orders.length) * 100) : 0,
       overdueCount,
-      onTimeRate: doneProd.length > 0 ? round(((doneProd.length - lateSet.size) / doneProd.length) * 100) : 100,
+      onTimeRate: onTimeTotal + lateTotal > 0 ? round((onTimeTotal / (onTimeTotal + lateTotal)) * 100) : 100,
     },
     amountSeries: buildSeries(amountByBucket),
     onTimeRateTrend,
@@ -214,7 +231,18 @@ export async function getPurchaseReport(q: ReportQuery) {
     where: { orderDate: dateFilter },
     include: {
       supplier: { select: { id: true, name: true } },
-      items: { select: { id: true, expectedDate: true, receivedQty: true } },
+      items: {
+        select: {
+          id: true,
+          line: true,
+          materialId: true,
+          quantity: true,
+          unitPrice: true,
+          status: true,
+          expectedDate: true,
+          receivedQty: true,
+        },
+      },
     },
     orderBy: { orderDate: "asc" },
   });
@@ -230,7 +258,12 @@ export async function getPurchaseReport(q: ReportQuery) {
     if (o.status !== "confirmed") continue;
     orderCount++;
     totalAmount += o.totalAmount ?? 0;
-    inTransitAmount += o.totalAmount ?? 0;
+    // 在途金额只统计仍可收货的明细（空白状态且未收完）的剩余金额
+    for (const it of o.items) {
+      if ((it.status ?? "") !== "") continue;
+      const remaining = Number(it.quantity ?? 0) - Number(it.receivedQty ?? 0);
+      if (remaining > 1e-6) inTransitAmount += remaining * Number(it.unitPrice ?? 0);
+    }
     const key = bucketKey(o.orderDate ?? o.createdAt, groupBy);
     amountByBucket.set(key, (amountByBucket.get(key) ?? 0) + (o.totalAmount ?? 0));
     supplierMap.set(o.supplier?.name ?? "未知", (supplierMap.get(o.supplier?.name ?? "未知") ?? 0) + (o.totalAmount ?? 0));
@@ -241,27 +274,39 @@ export async function getPurchaseReport(q: ReportQuery) {
   const supplierRateMap = new Map<string, { total: number; onTime: number }>();
   const rateBucketMap = new Map<string, { total: number; onTime: number }>();
 
+  // 一次性加载所有收货流水，避免逐订单查询造成 N+1
+  const receivedOrderIds = receivedOrders.map((o) => o.id);
+  const allReceiptRecords = receivedOrderIds.length
+    ? await prisma.stockRecord.findMany({
+        where: { relatedType: "PurchaseOrder", relatedId: { in: receivedOrderIds }, type: "in" },
+        select: { relatedId: true, materialId: true, lineNo: true, createdAt: true },
+        orderBy: { createdAt: "asc" },
+      })
+    : [];
+  const receiptsByOrder = new Map<number, typeof allReceiptRecords>();
+  for (const r of allReceiptRecords) {
+    if (!r.relatedId) continue;
+    if (!receiptsByOrder.has(r.relatedId)) receiptsByOrder.set(r.relatedId, []);
+    receiptsByOrder.get(r.relatedId)!.push(r);
+  }
+
   for (const o of receivedOrders) {
-    const items = await prisma.purchaseOrderItem.findMany({
-      where: { orderId: o.id, expectedDate: { not: null } },
-      select: { materialId: true, expectedDate: true, receivedQty: true },
-    });
+    const items = (o.items || []).filter((it) => it.expectedDate && (it.receivedQty ?? 0) > 0);
     if (items.length === 0) continue;
 
-    const stockRecords = await prisma.stockRecord.findMany({
-      where: { relatedType: "PurchaseOrder", relatedId: o.id, type: "in" },
-      select: { materialId: true, createdAt: true },
-      orderBy: { createdAt: "asc" },
-    });
+    const stockRecords = receiptsByOrder.get(o.id) ?? [];
 
     for (const it of items) {
-      if (!it.expectedDate || (it.receivedQty ?? 0) <= 0) continue;
-      const rec = stockRecords.find((r) => r.materialId === it.materialId);
+      // 优先按行号+物料匹配，避免同一物料多行时取错收货流水
+      const rec =
+        stockRecords.find((r) => r.lineNo === it.line && r.materialId === it.materialId) ??
+        stockRecords.find((r) => r.materialId === it.materialId);
       if (!rec) continue;
-      const expEnd = new Date(it.expectedDate);
+      const expEnd = new Date(it.expectedDate as Date);
       expEnd.setHours(23, 59, 59, 999);
-      const isOnTime = rec.createdAt <= expEnd;
-      const key = bucketKey(rec.createdAt, groupBy);
+      const recAt = rec.createdAt ?? new Date();
+      const isOnTime = recAt <= expEnd;
+      const key = bucketKey(recAt, groupBy);
       const s = supplierRateMap.get(o.supplier?.name ?? "未知") ?? { total: 0, onTime: 0 };
       s.total++;
       if (isOnTime) s.onTime++;
@@ -297,7 +342,7 @@ export async function getPurchaseReport(q: ReportQuery) {
       .map(([name, value]) => ({ name, value: round(value) }))
       .sort((a, b) => b.value - a.value)
       .slice(0, 10),
-    supplierRate: supplierRate.sort((a, b) => a.total - b.total).slice(0, 10),
+    supplierRate: supplierRate.sort((a, b) => b.rate - a.rate || b.total - a.total).slice(0, 10),
   };
 }
 
@@ -305,7 +350,9 @@ export async function getPurchaseReport(q: ReportQuery) {
 export async function getInventoryReport(q: ReportQuery) {
   const { from, to, groupBy } = parseRange(q);
 
+  // 与库存预警/明细查询口径一致：低库存只看启用仓库的库存
   const stocks = await prisma.stock.findMany({
+    where: { warehouse: { status: 1 } },
     include: {
       material: { select: { id: true, code: true, name: true, category: true, unit: true, safetyStock: true } },
       warehouse: { select: { id: true, name: true } },
@@ -315,15 +362,23 @@ export async function getInventoryReport(q: ReportQuery) {
 
   const inByBucket = new Map<string, number>();
   const outByBucket = new Map<string, number>();
+  // 流水日期口径与库存事务列表一致：优先 effectiveDate，未填写时回退 createdAt
   const records = await prisma.stockRecord.findMany({
     where: {
       type: { in: ["in", "out"] },
-      createdAt: from || to ? { gte: from ?? undefined, lte: to ?? undefined } : undefined,
+      ...(from || to
+        ? {
+            OR: [
+              { effectiveDate: { gte: from ?? undefined, lte: to ?? undefined } },
+              { effectiveDate: null, createdAt: { gte: from ?? undefined, lte: to ?? undefined } },
+            ],
+          }
+        : {}),
     },
-    select: { type: true, quantity: true, createdAt: true },
+    select: { type: true, quantity: true, createdAt: true, effectiveDate: true },
   });
   for (const r of records) {
-    const key = bucketKey(r.createdAt, groupBy);
+    const key = bucketKey(r.effectiveDate ?? r.createdAt, groupBy);
     if (r.type === "in") inByBucket.set(key, (inByBucket.get(key) ?? 0) + r.quantity);
     else outByBucket.set(key, (outByBucket.get(key) ?? 0) + r.quantity);
   }

@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import * as orderService from "../services/salesOrder.service";
 import * as exportService from "../services/export.service";
 import { success, fail } from "../utils/response";
+import { isQueryConditionError } from "../utils/queryConditions";
 import { AuthRequest } from "../middleware/auth";
 import { sendCsv } from "../utils/export";
 
@@ -46,6 +47,7 @@ export async function listHandler(req: Request, res: Response) {
     const data = await orderService.listOrders(req.query as any);
     return success(res, data);
   } catch (error: any) {
+    if (isQueryConditionError(error)) return fail(res, 400, error.message, 400);
     return fail(res, 500, error.message, 500);
   }
 }
@@ -102,6 +104,15 @@ export async function cancelHandler(req: Request, res: Response) {
       cancelProduction: Boolean(req.body?.cancelProduction),
     });
     return success(res, data, "订单已取消");
+  } catch (error: any) {
+    return fail(res, 400, error.message);
+  }
+}
+
+export async function deleteHandler(req: Request, res: Response) {
+  try {
+    const data = await orderService.deleteOrder(Number(req.params.id));
+    return success(res, data, "销售订单已删除");
   } catch (error: any) {
     return fail(res, 400, error.message);
   }

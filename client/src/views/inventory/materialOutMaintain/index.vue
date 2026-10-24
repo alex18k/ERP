@@ -59,7 +59,8 @@ async function loadData() {
   try {
     // 事务类型默认涵盖 ISS-WO(材料出库) + ISS-SUB(委外出库)，单选其一则只查该类型
     const ids = query.transactionTypeId ? [Number(query.transactionTypeId)] : materialOutTypeIds
-    const res: any = await stockApi.records({ ...query, transactionTypeIds: ids.join(',') })
+    // 白名单为空时传 -1，避免退化为查询全部库存流水
+    const res: any = await stockApi.records({ ...query, transactionTypeIds: ids.join(',') || '-1' })
     list.value = res.data.items
     total.value = res.data.total
     currentRow.value = null

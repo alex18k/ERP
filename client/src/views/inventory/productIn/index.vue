@@ -88,10 +88,6 @@ function preventNegativeKey(e: KeyboardEvent) {
   if (e.key === '-' || e.key === '+' || e.key.toLowerCase() === 'e') e.preventDefault()
 }
 
-function batchPlaceholder(row: any) {
-  return row.material?.batchManaged ? '留空自动生成，或选择/输入批号' : '可选：输入或选择批号（留空不记批次）'
-}
-
 // 单价取物料主文件成本；按录入单位换算（1 录入单位 = N 基本单位）
 function rowUnitCost(row: any) {
   const cost = Number(row.material?.cost) || 0
@@ -110,9 +106,9 @@ const filledLines = computed(() => form.items.filter((r: any) => r.materialId &&
 const totalQty = computed(() => form.items.reduce((s: number, r: any) => (r.materialId && Number(r.quantity) !== 0 ? s + Number(r.quantity) : s), 0))
 const totalAmount = computed(() => form.items.reduce((s: number, r: any) => (r.materialId && Number(r.quantity) !== 0 ? s + rowAmount(r) : s), 0))
 
-// 已填行的即时反馈：淡蓝底标识"本次将提交的行"
-function itemRowClass({ row }: any) {
-  return row.materialId && Number(row.quantity) !== 0 ? 'row-shipping' : ''
+// 已填行不用变色：明细行保持白底
+function itemRowClass() {
+  return ''
 }
 
 async function searchRowMaterials(row: any, keyword: string) {
@@ -166,18 +162,16 @@ async function onRowBinChange(row: any) {
 async function loadRowStock(row: any) {
   row.stockQty = null
   if (!row.materialId || !row.warehouseId) return
+  const scopeBin = warehouseBinManaged(row.warehouseId) && !row.binId ? "none" : row.binId || undefined
   try {
     const res: any = await stockApi.list({
       materialId: row.materialId,
       warehouseId: row.warehouseId,
-      binId: row.binId || undefined,
+      binId: scopeBin,
       pageSize: 1000,
     })
     const items = res.data.items || []
-    // 启用货位管理但尚未选货位时，显示该仓库所有货位的合计库存
-    row.stockQty = warehouseBinManaged(row.warehouseId) && !row.binId
-      ? items.reduce((sum: number, it: any) => sum + Number(it.quantity || 0), 0)
-      : Number(items[0]?.quantity ?? 0)
+    row.stockQty = Number(items[0]?.quantity ?? 0)
   } catch {
     row.stockQty = null
   }
@@ -187,12 +181,12 @@ async function loadRowBatches(row: any) {
   row.batchNo = ''
   row.batches = []
   if (!row.materialId || !row.warehouseId) return
-  if (warehouseBinManaged(row.warehouseId) && !row.binId) return
+  const scopeBin = warehouseBinManaged(row.warehouseId) && !row.binId ? "none" : row.binId || undefined
   try {
     const res: any = await stockApi.batches({
       materialId: row.materialId,
       warehouseId: row.warehouseId,
-      binId: row.binId || undefined,
+      binId: scopeBin,
       pageSize: 200,
     })
     row.batches = res.data.items || []
@@ -232,7 +226,8 @@ async function loadRedDocument(no: string) {
       row.materialId = r.materialId ?? null
       row.material = m
       row.materialOptions = m ? [m] : []
-      row.unit = r.um || m?.unit || ''
+      // 红单数量是流水的基本单位数量，单位必须使用基本单位，避免后端再次换算
+      row.unit = m?.unit || ''
       row.unitOptions = row.unit ? [row.unit] : []
       row.warehouseId = r.warehouseId ?? null
       row.binId = r.binId ?? null
@@ -269,7 +264,6 @@ function validateForm(): boolean {
     const line = `第 ${i + 1} 行`
     if (!row.materialId) { ElMessage.warning(`${line}请选择物料`); return false }
     if (!row.warehouseId) { ElMessage.warning(`${line}请选择仓库`); return false }
-    if (warehouseBinManaged(row.warehouseId) && !row.binId) { ElMessage.warning(`${line}所在仓库启用货位管理，请选择货位`); return false }
     if (isRed.value ? !(Number(row.quantity) < 0) : !(Number(row.quantity) > 0)) {
       ElMessage.warning(isRed.value ? `${line}红单数量必须为负数` : `${line}数量必须大于0`)
       return false
@@ -379,8 +373,8 @@ onMounted(async () => {
         <div class="erp-group">
           <div class="kd-grid">
             <div class="kd-field">
-              <el-form-item label="单号">
-                <el-input v-model="form.orderNo" class="kd-flex" placeholder="手工单号（可选）" clearable />
+              <el-form-item label="生效日期">
+                <el-date-picker v-model="form.effectiveDate" type="date" value-format="YYYY-MM-DD" class="kd-flex kd-date" placeholder="选择日期" />
               </el-form-item>
             </div>
             <div class="kd-field">
@@ -391,15 +385,15 @@ onMounted(async () => {
               </el-form-item>
             </div>
             <div class="kd-field">
-              <el-form-item label="生效日期">
-                <el-date-picker v-model="form.effectiveDate" type="date" value-format="YYYY-MM-DD" class="kd-flex kd-date" placeholder="选择日期" />
+              <el-form-item label="生产车间">
+                <el-select v-model="form.departmentId" filterable clearable placeholder="选择生产车间" class="kd-flex">
+                  <el-option v-for="d in departments" :key="d.id" :label="`${d.code} - ${d.name}`" :value="d.id" />
+                </el-select>
               </el-form-item>
             </div>
             <div class="kd-field">
-              <el-form-item label="部门">
-                <el-select v-model="form.departmentId" filterable clearable placeholder="选择部门" class="kd-flex">
-                  <el-option v-for="d in departments" :key="d.id" :label="`${d.code} - ${d.name}`" :value="d.id" />
-                </el-select>
+              <el-form-item label="来源单号">
+                <el-input v-model="form.orderNo" class="kd-flex" placeholder="手工来源单号（可选）" clearable />
               </el-form-item>
             </div>
             <div class="kd-field">
@@ -491,15 +485,15 @@ onMounted(async () => {
         <el-table-column label="货位" width="90">
           <template #default="{ row }">
             <el-select v-if="warehouseBinManaged(row.warehouseId)" v-model="row.binId" filterable clearable placeholder="选择货位" style="width: 100%" @change="onRowBinChange(row)">
-              <el-option v-for="b in binOptionsFor(row.warehouseId)" :key="b.id" :label="`${b.code} - ${b.name}`" :value="b.id" />
+              <el-option v-for="b in binOptionsFor(row.warehouseId)" :key="b.id" :label="b.name" :value="b.id" />
             </el-select>
             <span v-else>-</span>
           </template>
         </el-table-column>
         <el-table-column label="批号" width="110">
           <template #default="{ row }">
-            <el-select v-model="row.batchNo" filterable clearable allow-create default-first-option :placeholder="batchPlaceholder(row)" style="width: 100%">
-              <el-option v-for="b in row.batches" :key="b.batchNo" :label="`${b.batchNo}（余 ${b.quantity}）`" :value="b.batchNo" />
+            <el-select v-model="row.batchNo" filterable clearable allow-create default-first-option placeholder=" " style="width: 100%">
+              <el-option v-for="b in row.batches" :key="b.batchNo" :label="b.batchNo" :value="b.batchNo" />
             </el-select>
           </template>
         </el-table-column>
@@ -607,6 +601,10 @@ onMounted(async () => {
   --el-table-header-bg-color: var(--el-fill-color-light);
   --el-table-row-hover-bg-color: var(--el-color-primary-light-9);
   border: 1px solid var(--erp-hairline);
+}
+/* 明细行统一白底 */
+.items-editor :deep(.el-table__body tr.el-table__row > td.el-table__cell) {
+  background: #fff;
 }
 .items-editor :deep(.el-table__inner-wrapper::before),
 .items-editor :deep(.el-table__inner-wrapper::after),

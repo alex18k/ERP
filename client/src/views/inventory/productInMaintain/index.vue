@@ -56,7 +56,8 @@ async function loadData() {
   try {
     const res: any = await stockApi.records({
       ...query,
-      transactionTypeIds: query.transactionTypeId ? '' : allowedTypeIds.join(','),
+      // 白名单为空时传 -1，避免退化为查询全部库存流水
+      transactionTypeIds: query.transactionTypeId ? '' : allowedTypeIds.join(',') || '-1',
     })
     list.value = res.data.items
     total.value = res.data.total
@@ -141,7 +142,7 @@ onMounted(async () => {
   ])
   warehouses.value = wRes.data.items || []
   transactionTypes.value = (tRes.data.items || []).filter(
-    (t: any) => t.status === 1 && t.direction === 'in' && (t.code === 'RCT-MC' || t.description === '自制加工'),
+    (t: any) => t.status === 1 && t.direction === 'in' && (t.code === 'RCT-WO' || t.code === 'RCT-MC' || t.description === '自制加工'),
   )
   allowedTypeIds = transactionTypes.value.map((t: any) => t.id)
   departments.value = (dRes.data || []).filter((d: any) => d.status === 1)
@@ -162,7 +163,7 @@ onMounted(async () => {
 
       <fieldset class="group-box">
         <div class="search-bar group-inner">
-          <el-input v-model="query.documentNo" placeholder="事务单号/源单号" clearable style="width: 160px" @keyup.enter="query.page = 1, loadData()" />
+          <el-input v-model="query.documentNo" placeholder="事务单号/来源单号" clearable style="width: 160px" @keyup.enter="query.page = 1, loadData()" />
           <el-input v-model="query.materialKeyword" placeholder="产品编码/名称" clearable style="width: 180px" @keyup.enter="query.page = 1, loadData()" />
           <el-select v-model="query.warehouseId" placeholder="仓库" clearable style="width: 150px">
             <el-option v-for="w in warehouses" :key="w.id" :label="w.name" :value="w.id" />
@@ -187,7 +188,7 @@ onMounted(async () => {
             <span v-else>-</span>
           </template>
         </el-table-column>
-        <el-table-column label="源单号" width="140" show-overflow-tooltip>
+        <el-table-column label="来源单号" width="140" show-overflow-tooltip>
           <template #default="{ row }">{{ row.orderNo || '-' }}</template>
         </el-table-column>
         <el-table-column label="行号" width="56" align="center">
@@ -222,7 +223,10 @@ onMounted(async () => {
             </span>
           </template>
         </el-table-column>
-        <el-table-column label="部门" width="120" show-overflow-tooltip>
+        <el-table-column label="单位" width="60" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.um || row.material?.unit || '-' }}</template>
+        </el-table-column>
+        <el-table-column label="生产车间" width="120" show-overflow-tooltip>
           <template #default="{ row }">{{ row.department?.name || '-' }}</template>
         </el-table-column>
         <el-table-column label="入库人" width="100" show-overflow-tooltip>
@@ -239,6 +243,9 @@ onMounted(async () => {
         </el-table-column>
         <el-table-column prop="remark" label="备注" min-width="110" show-overflow-tooltip>
           <template #default="{ row }">{{ row.remark || '-' }}</template>
+        </el-table-column>
+        <el-table-column prop="mainRemark" label="主备注" min-width="110" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.mainRemark || '-' }}</template>
         </el-table-column>
         <el-table-column label="时间" width="160" show-overflow-tooltip>
           <template #default="{ row }">{{ row.createdAt }}</template>
@@ -260,9 +267,9 @@ onMounted(async () => {
       <div v-loading="editSaving">
         <div class="edit-grid">
           <div class="edit-field"><span class="edit-label">生效日期</span><el-input v-model="editForm.effectiveDate" type="date" style="width: 140px" /></div>
-          <div class="edit-field"><span class="edit-label">源单号</span><el-input v-model="editForm.orderNo" style="width: 130px" /></div>
-          <div class="edit-field"><span class="edit-label">部门</span>
-            <el-select v-model="editForm.departmentId" clearable filterable placeholder="选择部门" style="width: 140px">
+          <div class="edit-field"><span class="edit-label">来源单号</span><el-input v-model="editForm.orderNo" style="width: 130px" /></div>
+          <div class="edit-field"><span class="edit-label">生产车间</span>
+            <el-select v-model="editForm.departmentId" clearable filterable placeholder="选择生产车间" style="width: 140px">
               <el-option v-for="d in departments" :key="d.id" :label="d.name" :value="d.id" />
             </el-select>
           </div>

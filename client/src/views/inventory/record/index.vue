@@ -88,7 +88,7 @@ const transferForm = reactive<any>({
   materialId: null, unit: '', quantity: 1,
   fromWarehouseId: null, fromBinId: null,
   toWarehouseId: null, toBinId: null,
-  batchNo: '', effectiveDate: todayStr(), orderNo: '', remark: '',
+  batchNo: '', toBatchNo: '', effectiveDate: todayStr(), orderNo: '', remark: '',
 })
 
 const tSelectedMaterial = computed(() => (transferForm.materialId ? transferMaterialMap.get(transferForm.materialId) : null))
@@ -145,7 +145,8 @@ async function loadTransferBatches() {
   if (!transferForm.materialId || !transferForm.fromWarehouseId) return
   transferBatchLoading.value = true
   try {
-    const res: any = await stockApi.batches({ materialId: transferForm.materialId, warehouseId: transferForm.fromWarehouseId, binId: transferForm.fromBinId || undefined, pageSize: 200 })
+    const scopeBin = tFromWarehouse.value?.binManaged && !transferForm.fromBinId ? "none" : transferForm.fromBinId || undefined
+    const res: any = await stockApi.batches({ materialId: transferForm.materialId, warehouseId: transferForm.fromWarehouseId, binId: scopeBin, pageSize: 200 })
     transferBatchOptions.value = res.data.items || []
   } catch {
     transferBatchOptions.value = []
@@ -185,7 +186,7 @@ function openTransfer() {
     materialId: null, unit: '', quantity: 1,
     fromWarehouseId: null, fromBinId: null,
     toWarehouseId: null, toBinId: null,
-    batchNo: '', effectiveDate: todayStr(), orderNo: '', remark: '',
+    batchNo: '', toBatchNo: '', effectiveDate: todayStr(), orderNo: '', remark: '',
   })
   fromBins.value = []
   toBins.value = []
@@ -201,12 +202,13 @@ function isTransferDirty() {
 function validateTransfer(): boolean {
   if (!transferForm.materialId) { ElMessage.warning('请选择物料'); return false }
   if (!transferForm.fromWarehouseId) { ElMessage.warning('请选择源仓库'); return false }
-  if (tFromBinRequired.value && !transferForm.fromBinId) { ElMessage.warning('源仓库启用货位管理，请选择源货位'); return false }
   if (!transferForm.toWarehouseId) { ElMessage.warning('请选择目标仓库'); return false }
-  if (tToBinRequired.value && !transferForm.toBinId) { ElMessage.warning('目标仓库启用货位管理，请选择目标货位'); return false }
   if (transferForm.fromWarehouseId === transferForm.toWarehouseId && (transferForm.fromBinId || null) === (transferForm.toBinId || null)) {
-    ElMessage.warning('源与目标不能相同')
-    return false
+    const tBatch = String(transferForm.toBatchNo || '').trim()
+    if (!tBatch || tBatch === String(transferForm.batchNo || '').trim()) {
+      ElMessage.warning('源与目标不能相同（如需同仓位改批，请填写不同的目标批号）')
+      return false
+    }
   }
   if (!(transferForm.quantity > 0)) { ElMessage.warning('移库数量必须大于0'); return false }
   if (tBatchRequired.value && !transferForm.batchNo) { ElMessage.warning('该物料或源货位存在批次库存，请选择批号'); return false }
@@ -225,10 +227,11 @@ async function doTransfer(): Promise<boolean> {
       unit: transferForm.unit || undefined,
       quantity: transferForm.quantity,
       fromWarehouseId: transferForm.fromWarehouseId,
-      fromBinId: tFromBinRequired.value ? transferForm.fromBinId : undefined,
+      fromBinId: transferForm.fromBinId,
       toWarehouseId: transferForm.toWarehouseId,
-      toBinId: tToBinRequired.value ? transferForm.toBinId : undefined,
+      toBinId: transferForm.toBinId,
       batchNo: transferForm.batchNo || undefined,
+      toBatchNo: transferForm.toBatchNo || undefined,
       effectiveDate: transferForm.effectiveDate || todayStr(),
       orderNo: transferForm.orderNo || undefined,
       remark: transferForm.remark || undefined,
@@ -470,9 +473,9 @@ onMounted(async () => {
             <el-option v-for="w in activeWarehouses" :key="w.id" :label="`${w.code} - ${w.name}`" :value="w.id" />
           </el-select>
         </el-form-item>
-        <el-form-item v-if="tFromBinRequired" label="源货位" required>
-          <el-select v-model="transferForm.fromBinId" placeholder="选择源货位" filterable style="width: 100%" @change="loadTransferBatches">
-            <el-option v-for="b in fromBins" :key="b.id" :label="`${b.code} - ${b.name}`" :value="b.id" />
+        <el-form-item label="源货位">
+          <el-select v-model="transferForm.fromBinId" :disabled="!tFromBinRequired" :placeholder="tFromBinRequired ? '选择源货位（可选）' : '仓库未启用货位管理'" filterable clearable style="width: 100%" @change="loadTransferBatches">
+            <el-option v-for="b in fromBins" :key="b.id" :label="b.name" :value="b.id" />
           </el-select>
         </el-form-item>
         <el-form-item label="批号" :required="tBatchRequired">
@@ -487,10 +490,13 @@ onMounted(async () => {
             <el-option v-for="w in activeWarehouses" :key="w.id" :label="`${w.code} - ${w.name}`" :value="w.id" />
           </el-select>
         </el-form-item>
-        <el-form-item v-if="tToBinRequired" label="目标货位" required>
-          <el-select v-model="transferForm.toBinId" placeholder="选择目标货位" filterable style="width: 100%">
-            <el-option v-for="b in toBins" :key="b.id" :label="`${b.code} - ${b.name}`" :value="b.id" />
+        <el-form-item label="目标货位">
+          <el-select v-model="transferForm.toBinId" :disabled="!tToBinRequired" :placeholder="tToBinRequired ? '选择目标货位（可选）' : '仓库未启用货位管理'" filterable clearable style="width: 100%">
+            <el-option v-for="b in toBins" :key="b.id" :label="b.name" :value="b.id" />
           </el-select>
+        </el-form-item>
+        <el-form-item label="目标批号">
+          <el-input v-model="transferForm.toBatchNo" :placeholder="transferForm.batchNo ? `默认与源批号一致（${transferForm.batchNo}）` : '默认与源批号一致'" clearable />
         </el-form-item>
 
         <el-form-item label="数量" required>

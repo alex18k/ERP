@@ -1,6 +1,6 @@
 import prisma from "../config/prisma";
 import { toCsv, today } from "../utils/export";
-import { listPsiReport } from "./stock.service";
+import { listPsiReport, listStockDetail } from "./stock.service";
 
 const categoryLabel: Record<string, string> = { purchase: "采购", manufacture: "制造" };
 
@@ -53,70 +53,33 @@ export async function orderExport() {
 }
 
 // ===== 库存现况 =====
-// 与库存明细查询保持一致：支持筛选、按批号平铺、显示货位，低库存按物料全仓（启用仓库）合计
+// 完全复用库存明细查询（含高级筛选 conditions、批号平铺、货位、低库存口径），按页拉取避免全量加载
 export async function stockExport(where: any = {}) {
-  const filters: any = { quantity: { gt: 0 } };
-  if (where.materialCode || where.materialName) {
-    filters.material = {
-      ...(where.materialCode && { code: { contains: where.materialCode } }),
-      ...(where.materialName && { OR: [{ name: { contains: where.materialName } }, { specification: { contains: where.materialName } }] }),
-    };
-  }
-  if (where.warehouseId) filters.warehouseId = Number(where.warehouseId);
-  if (where.binId !== undefined && where.binId !== "" && where.binId !== null) filters.binId = Number(where.binId);
-
-  const list = await prisma.stock.findMany({
-    where: filters,
-    include: {
-      material: { select: { id: true, code: true, name: true, specification: true, category: true, unit: true, safetyStock: true } },
-      warehouse: { select: { id: true, code: true, name: true } },
-      bin: { select: { id: true, code: true, name: true } },
-    },
-    orderBy: [{ material: { code: "asc" } }, { warehouseId: "asc" }, { binId: "asc" }],
-  });
-
-  const materialIds = [...new Set(list.map((s) => s.materialId))];
-  const batchRows = materialIds.length
-    ? await prisma.materialBatch.findMany({
-        where: { materialId: { in: materialIds }, warehouseId: { in: [...new Set(list.map((s) => s.warehouseId))] } },
-        orderBy: { batchNo: "asc" },
-      })
-    : [];
-  const batchByKey = new Map<string, { batchNo: string; quantity: number }[]>();
-  for (const b of batchRows) {
-    const key = `${b.materialId}|${b.warehouseId}|${b.binId ?? ""}`;
-    if (!batchByKey.has(key)) batchByKey.set(key, []);
-    batchByKey.get(key)!.push({ batchNo: b.batchNo, quantity: b.quantity });
-  }
-  const totalRows = materialIds.length
-    ? await prisma.stock.groupBy({
-        by: ["materialId"],
-        where: { materialId: { in: materialIds }, warehouse: { status: 1 } },
-        _sum: { quantity: true },
-      })
-    : [];
-  const totalByMaterial = new Map(totalRows.map((g) => [g.materialId, g._sum.quantity ?? 0]));
-
   const headers = ["物料编码", "物料名称", "规格型号", "类别", "仓库", "货位", "批号", "批内数量", "现存量", "单位", "预占", "可用量", "安全库存", "是否预警"];
   const rows: any[][] = [];
-  for (const s of list) {
-    const batches = (batchByKey.get(`${s.materialId}|${s.warehouseId}|${s.binId ?? ""}`) ?? []).filter((b) => Number(b.quantity) > 0);
-    let batchSum = 0;
-    const totalQty = totalByMaterial.get(s.materialId) ?? 0;
-    const isLow = s.material.safetyStock > 0 && totalQty <= s.material.safetyStock;
-    const base = [
-      s.material.code, s.material.name, s.material.specification ?? "",
-      categoryLabel[s.material.category] ?? s.material.category,
-      s.warehouse?.name ?? "", s.bin ? `${s.bin.code} - ${s.bin.name}` : "",
-    ];
-    for (const b of batches) {
-      batchSum += Number(b.quantity) || 0;
-      rows.push([...base, b.batchNo, b.quantity, s.quantity, s.material.unit ?? "", s.reservedQty, s.quantity - s.reservedQty, s.material.safetyStock, isLow ? "低库存" : "正常"]);
+  const pageSize = 1000;
+  for (let page = 1; page <= 10000; page++) {
+    const res = await listStockDetail({ ...where, page, pageSize });
+    for (const s of res.items) {
+      rows.push([
+        s.material?.code ?? "",
+        s.material?.name ?? "",
+        s.material?.specification ?? "",
+        categoryLabel[s.material?.category] ?? s.material?.category ?? "",
+        s.warehouse?.name ?? "",
+        s.bin ? `${s.bin.code} - ${s.bin.name}` : "",
+        s.batchNo ?? "",
+        s.batchQty ?? 0,
+        // 批号行只展示批内数量，避免同一库存行的“现存量”被重复求和
+        s.batchNo ? "" : s.quantity,
+        s.material?.unit ?? "",
+        s.reservedQty,
+        Number((s.quantity - s.reservedQty).toFixed(6)),
+        s.material?.safetyStock ?? 0,
+        s.isLow ? "低库存" : "正常",
+      ]);
     }
-    const remainder = Number(s.quantity || 0) - batchSum;
-    if (batches.length === 0 || remainder > 1e-6) {
-      rows.push([...base, "", remainder, s.quantity, s.material.unit ?? "", s.reservedQty, s.quantity - s.reservedQty, s.material.safetyStock, isLow ? "低库存" : "正常"]);
-    }
+    if (page * pageSize >= Number(res.total ?? 0)) break;
   }
   return { filename: `库存现况_${today()}.csv`, csv: toCsv(headers, rows) };
 }
@@ -221,7 +184,8 @@ export async function purchaseExport() {
 }
 // ===== 进销存报表 =====
 export async function psiReportExport(where: any = {}) {
-  const data = await listPsiReport({ ...where, all: "1" });
+  const { all: _ignored, ...rest } = where;
+  const data = await listPsiReport(rest, { all: true });
   const headers = [
     "物料编码", "物料名称", "规格型号", "类别", "单位", "仓库",
     "期初数量", "期初金额", "入库数量", "入库金额", "出库数量", "出库金额", "期末数量", "期末金额",

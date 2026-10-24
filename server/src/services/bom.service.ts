@@ -1,5 +1,6 @@
 import prisma from "../config/prisma";
 import { Prisma } from "@prisma/client";
+import { resolveUnitRateMap } from "../utils/unit";
 
 export interface BomCreateInput {
   code?: string;
@@ -119,9 +120,26 @@ function defaultBomCode(productCode: string): string {
   return productCode.trim() || "BOM";
 }
 
+// BOM 明细校验：数量必须为正、同一物料不能重复、计量单位必须能折算到基本单位。
+// 排产/MRP 会把 BOM 用量直接当作基本单位使用，未维护换算关系会导致需求数量错误。
+async function assertBomItems(items: BomCreateInput["items"]) {
+  if (!items || items.length === 0) throw new Error("BOM至少需要一个子件");
+  const seen = new Set<number>();
+  for (const item of items) {
+    if (!item.materialId) throw new Error("BOM子件不能为空");
+    if (!Number.isFinite(item.quantity) || item.quantity <= 0) {
+      throw new Error("BOM子件数量必须大于0");
+    }
+    if (seen.has(item.materialId)) throw new Error("同一子件不能重复添加到BOM");
+    seen.add(item.materialId);
+  }
+  await resolveUnitRateMap(items.map((it) => ({ materialId: it.materialId, unit: it.unit })));
+}
+
 export async function createBom(data: BomCreateInput) {
   const product = await prisma.material.findUnique({ where: { id: data.productId } });
   if (!product) throw new Error("成品物料不存在");
+  await assertBomItems(data.items);
 
   if (!data.items || data.items.length === 0) {
     throw new Error("BOM至少需要一个明细项");
@@ -183,6 +201,7 @@ export async function updateBom(id: number, data: Partial<BomCreateInput>) {
     const dup = await prisma.bom.findFirst({ where: { code: data.code, NOT: { id } } });
     if (dup) throw new Error("BOM编码已存在");
   }
+  if (data.items) await assertBomItems(data.items);
 
   return prisma.$transaction(async (tx) => {
     const bom = await tx.bom.update({

@@ -91,6 +91,7 @@ export async function receiptsHandler(req: Request, res: Response) {
     const data = await purchaseService.listPurchaseReceipts(req.query as any);
     return success(res, data);
   } catch (error: any) {
+    if (isQueryConditionError(error)) return fail(res, 400, error.message, 400);
     return fail(res, 500, error.message, 500);
   }
 }

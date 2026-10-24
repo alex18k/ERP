@@ -43,7 +43,8 @@ async function loadRowBatches(row: any) {
     return
   }
   try {
-    const r: any = await stockApi.batches({ materialId: row.materialId, warehouseId: row.warehouseId, binId: row.binId || undefined, pageSize: 200 })
+    const scopeBin = warehouseBinManaged(row.warehouseId) && !row.binId ? "none" : row.binId || undefined
+    const r: any = await stockApi.batches({ materialId: row.materialId, warehouseId: row.warehouseId, binId: scopeBin, pageSize: 200 })
     row.batchOptions = r.data.items || []
   } catch {
     row.batchOptions = []
@@ -212,10 +213,6 @@ async function submitReceive(): Promise<boolean> {
   for (const it of lines) {
     if (!it.warehouseId) {
       ElMessage.warning(`${it.materialCode} 请选择库位`)
-      return false
-    }
-    if (warehouseBinManaged(it.warehouseId) && !it.binId) {
-      ElMessage.warning(`${it.materialCode} 所在仓库启用货位管理，请选择货位`)
       return false
     }
   }
@@ -424,9 +421,7 @@ onMounted(async () => {
         </el-table-column>
         <el-table-column label="本次收货" width="110">
           <template #default="{ row }">
-            <el-tooltip content="双击填充未收数量" placement="top">
-              <el-input-number v-model="row.receiveQty" :min="0" :max="row.remaining" :precision="2" :controls="false" size="small" style="width: 100%" @dblclick="row.receiveQty = row.remaining" />
-            </el-tooltip>
+            <el-input-number v-model="row.receiveQty" class="receive-qty" :min="0" :max="row.remaining" :precision="2" :controls="false" size="small" style="width: 100%" @dblclick="row.receiveQty = row.remaining" />
           </template>
         </el-table-column>
         <el-table-column label="库位" width="150">
@@ -439,7 +434,7 @@ onMounted(async () => {
         <el-table-column label="货位" width="130">
           <template #default="{ row }">
             <el-select v-if="warehouseBinManaged(row.warehouseId)" v-model="row.binId" size="small" filterable clearable placeholder="选择货位" style="width: 100%" @change="loadRowBatches(row)">
-              <el-option v-for="b in binOptionsFor(row.warehouseId)" :key="b.id" :label="`${b.code} - ${b.name}`" :value="b.id" />
+              <el-option v-for="b in binOptionsFor(row.warehouseId)" :key="b.id" :label="b.name" :value="b.id" />
             </el-select>
             <span v-else>-</span>
           </template>
@@ -585,6 +580,9 @@ onMounted(async () => {
 }
 .ship-items :deep(.el-input-number .el-input__inner) {
   text-align: right;
+}
+.ship-items :deep(.receive-qty .el-input__inner) {
+  color: var(--erp-green);
 }
 /* 表头字段：金蝶式下划线，无方框 */
 .ship-field :deep(.el-input__wrapper),

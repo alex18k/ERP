@@ -28,17 +28,20 @@ export async function getExecutiveDashboard() {
   const latestRun = await prisma.mrpRun.findFirst({ orderBy: { startedAt: "desc" } });
   const shortageCount = latestRun?.shortageCount ?? 0;
 
-  // 库存预警数
-  const alertStocks = await prisma.stock.findMany({
-    include: { material: true },
+  // 库存预警数：与 /stocks/alert 同口径——仅启用仓库、按物料全仓合计，且包含无库存行的物料
+  const alertMaterials = await prisma.material.findMany({
+    where: { status: 1, safetyStock: { gt: 0 } },
+    select: { id: true, safetyStock: true },
   });
-  const stockByMaterial = new Map<number, { qty: number; safety: number }>();
-  for (const s of alertStocks) {
-    const cur = stockByMaterial.get(s.materialId) ?? { qty: 0, safety: s.material.safetyStock };
-    cur.qty += s.quantity;
-    stockByMaterial.set(s.materialId, cur);
-  }
-  const lowStockCount = [...stockByMaterial.values()].filter((x) => x.safety > 0 && x.qty <= x.safety).length;
+  const alertGrouped = await prisma.stock.groupBy({
+    by: ["materialId"],
+    where: { warehouse: { status: 1 } },
+    _sum: { quantity: true },
+  });
+  const alertQtyMap = new Map(alertGrouped.map((g) => [g.materialId, g._sum.quantity ?? 0]));
+  const lowStockCount = alertMaterials.filter(
+    (m) => (alertQtyMap.get(m.id) ?? 0) <= m.safetyStock
+  ).length;
 
   // 生产中批次数
   const activeBatches = await prisma.productionBatch.count({
@@ -223,15 +226,25 @@ export async function getInventoryDashboard() {
   const stocks = await prisma.stock.findMany({
     include: {
       material: { select: { id: true, code: true, name: true, category: true, unit: true, safetyStock: true } },
-      warehouse: { select: { id: true, code: true, name: true } },
+      warehouse: { select: { id: true, code: true, name: true, status: true } },
     },
     orderBy: { material: { code: "asc" } },
   });
 
+  // 低库存按物料全仓合计（仅启用仓库）判断，避免同一物料多仓库被重复计数
+  const totalByMaterial = new Map<number, number>();
+  for (const s of stocks) {
+    if (s.warehouse.status !== 1) continue;
+    totalByMaterial.set(s.materialId, (totalByMaterial.get(s.materialId) ?? 0) + s.quantity);
+  }
+  const isLowStock = (s: (typeof stocks)[number]) =>
+    s.material.safetyStock > 0 && (totalByMaterial.get(s.materialId) ?? 0) <= s.material.safetyStock;
+  const lowMaterialIds = new Set(stocks.filter(isLowStock).map((s) => s.materialId));
+
   const summary = {
     totalMaterials: new Set(stocks.map((s) => s.materialId)).size,
     totalValue: stocks.reduce((sum, s) => sum + s.quantity, 0),
-    lowStockCount: 0,
+    lowStockCount: lowMaterialIds.size,
   };
 
   const categorized = new Map<string, any[]>();
@@ -241,9 +254,8 @@ export async function getInventoryDashboard() {
     categorized.get(cat)!.push({
       ...s,
       availableQty: s.quantity - s.reservedQty,
-      isLow: s.material.safetyStock > 0 && s.quantity <= s.material.safetyStock,
+      isLow: isLowStock(s),
     });
-    if (s.material.safetyStock > 0 && s.quantity <= s.material.safetyStock) summary.lowStockCount++;
   }
 
   return {
@@ -251,7 +263,7 @@ export async function getInventoryDashboard() {
     stocks: stocks.map((s) => ({
       ...s,
       availableQty: s.quantity - s.reservedQty,
-      isLow: s.material.safetyStock > 0 && s.quantity <= s.material.safetyStock,
+      isLow: isLowStock(s),
     })),
     byCategory: Object.fromEntries(categorized),
   };

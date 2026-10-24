@@ -126,13 +126,6 @@ onMounted(() => {
           <template #default="{ row }">{{ row.material?.code }} - {{ row.material?.name }}</template>
         </el-table-column>
         <el-table-column prop="quantity" label="数量" width="90" align="right" />
-        <el-table-column label="来源订单" min-width="130">
-          <template #default="{ row }">
-            <span v-if="row.salesOrder">{{ row.salesOrder.orderNo }}<br /><small>{{ row.salesOrder.customerName }}</small></span>
-            <span v-else-if="row.salesOrderNo">{{ row.salesOrderNo }}</span>
-            <span v-else>-</span>
-          </template>
-        </el-table-column>
         <el-table-column label="计划周期" min-width="190">
           <template #default="{ row }">
             <span v-if="row.planStartDate">{{ row.planStartDate?.slice(0, 10) }} ~ {{ row.planEndDate?.slice(0, 10) }}</span>
@@ -157,6 +150,13 @@ onMounted(() => {
         <el-table-column label="状态" width="90">
           <template #default="{ row }">
             <el-tag :type="statusType(row.status)" size="small">{{ statusLabel(row.status) }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="来源订单" min-width="190" show-overflow-tooltip>
+          <template #default="{ row }">
+            <span v-if="row.salesOrder">{{ row.salesOrder.orderNo }} {{ row.salesOrder.customerName }}</span>
+            <span v-else-if="row.salesOrderNo">{{ row.salesOrderNo }}</span>
+            <span v-else>-</span>
           </template>
         </el-table-column>
               <template #empty>
