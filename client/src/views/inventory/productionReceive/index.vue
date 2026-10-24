@@ -54,8 +54,20 @@ function remaining(row: any) {
   return (row.quantity ?? 0) - (row.receivedQty ?? 0)
 }
 
-function statusLabel(s: string) {
-  return ({ planned: '已计划', in_progress: '生产中', completed: '已完成', cancelled: '已取消' } as any)[s] || s
+// 状态：与生产领料页一致，显示所属生产订单的状态
+const statusOptions = [
+  { label: '已计划', value: 'planned', type: 'info' },
+  { label: '生产中', value: 'in_progress', type: 'warning' },
+  { label: '已完成', value: 'completed', type: 'success' },
+  { label: '已取消', value: 'cancelled', type: 'danger' },
+]
+
+function statusLabel(s: any) {
+  return statusOptions.find((o) => o.value === s)?.label || s || '-'
+}
+
+function statusType(s: any) {
+  return statusOptions.find((o) => o.value === s)?.type || 'info'
 }
 
 async function loadData() {
@@ -163,9 +175,9 @@ onMounted(async () => {
         <el-table-column label="剩余" width="90" align="right">
           <template #default="{ row }">{{ remaining(row) }}</template>
         </el-table-column>
-        <el-table-column label="批次状态" width="100">
+        <el-table-column label="状态" width="100">
           <template #default="{ row }">
-            <el-tag size="small" effect="plain">{{ statusLabel(row.status) }}</el-tag>
+            <el-tag size="small" :type="statusType(row.productionOrder?.status)">{{ statusLabel(row.productionOrder?.status) }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column label="操作" width="90" fixed="right">

@@ -88,7 +88,7 @@ async function onOrderChange() {
   selectedOrder.value = [...orderOptionMap.values()].find((o) => o.orderNo === form.orderNo) || null
   if (!selectedOrder.value) return
   batchOptions.value = (selectedOrder.value.batches || []).filter(
-    (b: any) => b.status !== 'cancelled' && b.status !== 'completed',
+    (b: any) => b.status !== 'cancelled' && b.status !== 'completed' && b.status !== 'closed',
   )
   try {
     const res: any = await productionApi.orderRoute(selectedOrder.value.id)
@@ -137,7 +137,7 @@ async function refreshAfterSave() {
   registerOrderOptions(res.data.items || [])
   selectedOrder.value = [...orderOptionMap.values()].find((o) => o.orderNo === form.orderNo) || selectedOrder.value
   batchOptions.value = (selectedOrder.value?.batches || []).filter(
-    (b: any) => b.status !== 'cancelled' && b.status !== 'completed',
+    (b: any) => b.status !== 'cancelled' && b.status !== 'completed' && b.status !== 'closed',
   )
   if (form.batchId && !batchOptions.value.some((b: any) => b.id === form.batchId)) form.batchId = null
 }

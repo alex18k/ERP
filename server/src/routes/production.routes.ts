@@ -19,6 +19,9 @@ router.put("/orders/:id/status", requirePermission("production:manage"), product
 router.put("/orders/:id/cancel", requirePermission("production:manage"), productionController.cancelOrderHandler);
 router.delete("/orders/:id", requirePermission("production:manage"), operationLog("production", "delete"), productionController.deleteOrderHandler);
 router.post("/orders/batch-schedule", requirePermission("production:manage"), productionController.batchScheduleHandler);
+router.put("/batches/:id/status", requirePermission("production:manage"), productionController.updateBatchStatusHandler);
+router.put("/batches/:id/close", requirePermission("production:manage"), productionController.closeBatchHandler);
+router.put("/batches/:id/reopen", requirePermission("production:manage"), productionController.reopenBatchHandler);
 router.post("/orders/:id/schedule", requirePermission("production:manage"), productionController.scheduleHandler);
 
 // 报工（直接挂批次 + 订单级工序）

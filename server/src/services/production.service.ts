@@ -205,7 +205,7 @@ export async function cancelProductionOrder(id: number) {
 
   return prisma.$transaction(async (tx) => {
     await tx.productionBatch.updateMany({
-      where: { productionOrderId: id, status: { in: ["planned", "in_progress"] } },
+      where: { productionOrderId: id, status: { in: ["planned", "in_progress", "closed"] } },
       data: { status: "cancelled" },
     });
 
@@ -391,7 +391,7 @@ export async function listSchedulableOrders() {
   return orders
     .map((o) => {
       const scheduledQty = (o.batches || [])
-        .filter((b) => b.status !== "cancelled")
+        .filter((b) => b.status !== "cancelled" && b.status !== "closed")
         .reduce((s, b) => s + (b.quantity || 0), 0);
       const remain = Math.round(Math.max(0, o.quantity - scheduledQty) * 100) / 100;
       return {
@@ -517,7 +517,7 @@ export async function scheduleProduction(
 
   // 已排产量（未取消批次之和）
   const scheduledAgg = await prisma.productionBatch.aggregate({
-    where: { productionOrderId, status: { not: "cancelled" } },
+    where: { productionOrderId, status: { notIn: ["cancelled", "closed"] } },
     _sum: { quantity: true },
   });
   const scheduledQty = scheduledAgg._sum.quantity ?? 0;
@@ -686,6 +686,7 @@ async function applyBatchReport(tx: Prisma.TransactionClient, batchId: number, d
   });
   if (!batch) throw new Error("批次不存在");
   if (batch.status === "cancelled") throw new Error("批次已取消，不能报工");
+  if (batch.status === "closed") throw new Error("批次已关闭，不能报工");
   if (batch.status === "completed") throw new Error("批次已完成，不能重复报工");
   if (!Number.isFinite(data.quantity) || data.quantity <= 0) throw new Error("报工数量必须大于0");
 
@@ -737,11 +738,11 @@ async function applyBatchReport(tx: Prisma.TransactionClient, batchId: number, d
   // 所有非取消批次完工 且 已排产量≥生产订单数量 → 关闭生产订单及其销售订单
   if (batchCompleted) {
     const notDone = await tx.productionBatch.count({
-      where: { productionOrderId: batch.productionOrderId, status: { notIn: ["completed", "cancelled"] } },
+      where: { productionOrderId: batch.productionOrderId, status: { notIn: ["completed", "cancelled", "closed"] } },
     });
     if (notDone === 0) {
       const batchAgg = await tx.productionBatch.aggregate({
-        where: { productionOrderId: batch.productionOrderId, status: { not: "cancelled" } },
+        where: { productionOrderId: batch.productionOrderId, status: { notIn: ["cancelled", "closed"] } },
         _sum: { quantity: true },
       });
       const scheduledQty = batchAgg._sum.quantity ?? 0;
@@ -985,6 +986,53 @@ async function attachUnitInfo(materials: any[]) {
   }
 }
 
+// 直接指定批次状态（列表编辑弹窗内下拉保存）
+export async function updateProductionBatchStatus(batchId: number, status: string) {
+  if (!["planned", "in_progress", "completed", "closed"].includes(status)) throw new Error("不支持的批次状态");
+  const batch = await prisma.productionBatch.findUnique({ where: { id: batchId } });
+  if (!batch) throw new Error("批次不存在");
+  if (batch.status === "cancelled") throw new Error("批次已取消，不能改状态");
+  if (batch.status === status) return batch;
+  return prisma.productionBatch.update({ where: { id: batchId }, data: { status } });
+}
+
+// ===== 批次关闭 / 重新打开（批次级） =====
+// 关闭后：不能报工、不能领料、不能入库，且不参与 MRP（在制量/需求来源均剔除）
+export async function closeProductionBatch(batchId: number) {
+  const batch = await prisma.productionBatch.findUnique({ where: { id: batchId } });
+  if (!batch) throw new Error("批次不存在");
+  if (batch.status === "cancelled") throw new Error("批次已取消，不能关闭");
+  if (batch.status === "closed") return batch;
+  return prisma.productionBatch.update({ where: { id: batchId }, data: { status: "closed" } });
+}
+
+// 重新打开：按已有报工重算状态（末道工序累计达标→已完成；有报工→生产中；否则→已计划）
+export async function reopenProductionBatch(batchId: number) {
+  const batch = await prisma.productionBatch.findUnique({ where: { id: batchId } });
+  if (!batch) throw new Error("批次不存在");
+  if (batch.status === "cancelled") throw new Error("批次已取消，不能重新打开");
+  if (batch.status !== "closed") return batch;
+
+  const orderRoute = await prisma.productionOrderRoute.findUnique({
+    where: { productionOrderId: batch.productionOrderId },
+    include: { steps: { orderBy: { sequence: "asc" } } },
+  });
+  let status = "planned";
+  const anyReport = await prisma.workReport.count({ where: { batchId } });
+  if (orderRoute && orderRoute.steps.length > 0) {
+    const lastStep = orderRoute.steps[orderRoute.steps.length - 1];
+    const agg = await prisma.workReport.aggregate({
+      where: { batchId, processStepId: lastStep.id },
+      _sum: { quantity: true },
+    });
+    const lastQty = agg._sum.quantity ?? 0;
+    status = lastQty >= batch.quantity - 1e-6 ? "completed" : anyReport > 0 ? "in_progress" : "planned";
+  } else if (anyReport > 0) {
+    status = "in_progress";
+  }
+  return prisma.productionBatch.update({ where: { id: batchId }, data: { status } });
+}
+
 // 批量发料：异常行（数量非法/超未发/库存不足）跳过，其余正常出库
 export async function issueBatchMaterials(
   batchId: number,
@@ -998,6 +1046,7 @@ export async function issueBatchMaterials(
   const batch = await prisma.productionBatch.findUnique({ where: { id: batchId } });
   if (!batch) throw new Error("批次不存在");
   if (batch.status === "cancelled") throw new Error("批次已取消，不能发料");
+  if (batch.status === "closed") throw new Error("批次已关闭，不能发料");
   const warehouse = await prisma.warehouse.findUnique({ where: { id: warehouseId } });
   if (!warehouse) throw new Error("仓库不存在");
 
@@ -1334,7 +1383,7 @@ export async function replaceOrderRouteSteps(
 
 export async function listReceivableBatches(where: any) {
   const { orderNo, onlyReceivable, page = 1, pageSize = 20 } = where;
-  const filters: Prisma.ProductionBatchWhereInput = { status: { not: "cancelled" } };
+  const filters: Prisma.ProductionBatchWhereInput = { status: { notIn: ["cancelled", "closed"] } };
   if (orderNo) filters.productionOrder = { orderNo: { contains: orderNo } };
   if (onlyReceivable === "true" || onlyReceivable === true) {
     filters.receivedQty = { lt: prisma.productionBatch.fields.quantity };
@@ -1376,6 +1425,7 @@ export async function receiveBatchProduct(
   });
   if (!batch) throw new Error("批次不存在");
   if (batch.status === "cancelled") throw new Error("批次已取消，不能入库");
+  if (batch.status === "closed") throw new Error("批次已关闭，不能入库");
   const material = batch.productionOrder.material;
   // 计量单位换算：录入数量按换算率折算为基本单位后入库
   const { rate } = await resolveUnitRate(material.id, unit);

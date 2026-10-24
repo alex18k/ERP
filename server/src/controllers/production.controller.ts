@@ -128,6 +128,35 @@ export async function schedulableOrdersHandler(_req: Request, res: Response) {
   }
 }
 
+// 直接指定批次状态
+export async function updateBatchStatusHandler(req: AuthRequest, res: Response) {
+  try {
+    const data = await productionService.updateProductionBatchStatus(Number(req.params.id), String(req.body?.status || ""));
+    return success(res, data, "批次状态已更新");
+  } catch (error: any) {
+    return fail(res, 400, error.message);
+  }
+}
+
+// 批次关闭 / 重新打开
+export async function closeBatchHandler(req: AuthRequest, res: Response) {
+  try {
+    const data = await productionService.closeProductionBatch(Number(req.params.id));
+    return success(res, data, "批次已关闭");
+  } catch (error: any) {
+    return fail(res, 400, error.message);
+  }
+}
+
+export async function reopenBatchHandler(req: AuthRequest, res: Response) {
+  try {
+    const data = await productionService.reopenProductionBatch(Number(req.params.id));
+    return success(res, data, "批次已重新打开");
+  } catch (error: any) {
+    return fail(res, 400, error.message);
+  }
+}
+
 // 批量排产：逐单独立事务，返回成功/失败明细
 export async function batchScheduleHandler(req: AuthRequest, res: Response) {
   try {

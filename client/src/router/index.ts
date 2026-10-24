@@ -41,7 +41,7 @@ const routes = [
       // 订单
       { path: 'order/sales', name: 'SalesOrder', component: () => import('../views/order/sales/index.vue'), meta: { title: '销售订单' } },
       { path: 'order/maintain', name: 'SalesOrderMaintain', component: () => import('../views/order/maintain/index.vue'), meta: { title: '销售订单维护' } },
-      { path: 'order/sales-query', name: 'SalesOrderQuery', component: () => import('../views/order/salesQuery/index.vue'), meta: { title: '销售订单查询' } },
+      { path: 'order/sales-query', name: 'SalesOrderQuery', component: () => import('../views/order/salesQuery/index.vue'), meta: { title: '销售订单明细' } },
       { path: 'order/print', name: 'OrderPrint', component: () => import('../views/order/print/index.vue'), meta: { title: '打印销售订单' } },
       { path: 'order/tracking', name: 'OrderTracking', component: () => import('../views/order/tracking/index.vue'), meta: { title: '订单跟踪' } },
       { path: 'order/production', name: 'OrderProduction', component: () => import('../views/order/production/index.vue'), meta: { title: '订单转生产' } },

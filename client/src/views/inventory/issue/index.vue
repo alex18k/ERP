@@ -11,10 +11,10 @@ const warehouses = ref<any[]>([])
 const query = reactive({ page: 1, pageSize: 20, orderNo: '', status: '' })
 
 const statusOptions = [
-  { label: '已计划', value: 'planned' },
-  { label: '生产中', value: 'in_progress' },
-  { label: '已完成', value: 'completed' },
-  { label: '已取消', value: 'cancelled' },
+  { label: '已计划', value: 'planned', type: 'info' },
+  { label: '生产中', value: 'in_progress', type: 'warning' },
+  { label: '已完成', value: 'completed', type: 'success' },
+  { label: '已取消', value: 'cancelled', type: 'danger' },
 ]
 
 const dialogVisible = ref(false)
@@ -90,8 +90,13 @@ function statusLabel(s: string) {
   return statusOptions.find((o) => o.value === s)?.label || s
 }
 
+function statusType(s: string) {
+  return statusOptions.find((o) => o.value === s)?.type || 'info'
+}
+
 function batchList(order: any) {
-  return (order?.batches || []).filter((b: any) => b.status !== 'cancelled')
+  // 已关闭批次不能领料
+  return (order?.batches || []).filter((b: any) => b.status !== 'cancelled' && b.status !== 'closed')
 }
 
 async function loadData() {
@@ -260,7 +265,7 @@ onMounted(async () => {
         </el-table-column>
         <el-table-column label="状态" width="100">
           <template #default="{ row }">
-            <el-tag size="small" effect="plain">{{ statusLabel(row.status) }}</el-tag>
+            <el-tag size="small" :type="statusType(row.status)">{{ statusLabel(row.status) }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column label="操作" width="90" fixed="right">

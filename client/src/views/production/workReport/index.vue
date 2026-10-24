@@ -47,7 +47,7 @@ function orderStatusType(s: string) {
   return map[s] || 'info'
 }
 function batchStatusLabel(s: string) {
-  const map: Record<string, string> = { planned: '待开工', in_progress: '加工中', completed: '已完成', cancelled: '已取消' }
+  const map: Record<string, string> = { planned: '待开工', in_progress: '加工中', completed: '已完成', closed: '已关闭', cancelled: '已取消' }
   return map[s] || s
 }
 
@@ -73,7 +73,7 @@ async function loadOrder() {
       const key = `${r.batchId}:${r.processStepId}`
       reportMap.set(key, (reportMap.get(key) || 0) + r.quantity)
     }
-    const batches = (currentOrder.value.batches || []).filter((b: any) => b.status !== 'cancelled')
+    const batches = (currentOrder.value.batches || []).filter((b: any) => b.status !== 'cancelled' && b.status !== 'closed')
     const out: any[] = []
     for (const b of batches) {
       for (const s of steps.value) {
@@ -84,7 +84,7 @@ async function loadOrder() {
           reported: reportMap.get(`${b.id}:${s.id}`) || 0,
           quantity: 0,
           scrapQty: 0,
-          workHours: s.standardTime ?? 0,
+          workHours: Math.round(((s.standardTime ?? 0) * 60) * 100) / 100, // 界面按分钟录入
           remark: '',
         })
       }
@@ -106,7 +106,7 @@ async function handleSubmit() {
       processStepId: r.step.id,
       quantity: r.quantity,
       scrapQty: r.scrapQty || 0,
-      workHours: r.workHours || 0,
+      workHours: Math.round(((r.workHours || 0) / 60) * 1e6) / 1e6, // 分钟 → 小时
       remark: r.remark || undefined,
     }))
   if (items.length === 0) {
@@ -125,6 +125,22 @@ async function handleSubmit() {
   }
 }
 
+// 批量填入：按「计划量 − 已报工」自动填入本次数量
+function fillRemaining() {
+  let filled = 0
+  for (const r of rows.value) {
+    const remain = Math.max(0, (Number(r.batch?.quantity) || 0) - (Number(r.reported) || 0))
+    r.quantity = Math.round(remain * 100) / 100
+    if (r.quantity > 0) filled++
+  }
+  if (filled === 0) ElMessage.info('各行工序均已报满，无需填入')
+}
+
+// 清除：清空本次数量
+function clearQuantities() {
+  for (const r of rows.value) r.quantity = 0
+}
+
 onMounted(loadOrderOptions)
 </script>
 
@@ -134,6 +150,8 @@ onMounted(loadOrderOptions)
       <div class="table-toolbar">
         <span class="toolbar-title">批次报工</span>
         <div style="flex: 1" />
+        <el-button :disabled="!currentOrder || rows.length === 0" @click="fillRemaining"><el-icon><MagicStick /></el-icon>批量报工</el-button>
+        <el-button :disabled="!currentOrder || rows.length === 0" @click="clearQuantities"><el-icon><Delete /></el-icon>清除</el-button>
         <el-button :loading="submitting" type="primary" :disabled="!currentOrder" @click="handleSubmit"><el-icon><Check /></el-icon>提交报工</el-button>
         <el-button :disabled="!currentOrder" @click="loadOrder"><el-icon><Refresh /></el-icon>刷新</el-button>
       </div>
@@ -184,14 +202,14 @@ onMounted(loadOrderOptions)
               <el-input-number v-model="row.quantity" :min="0" :controls="false" size="small" style="width: 100%" />
             </template>
           </el-table-column>
-          <el-table-column label="报废数量" width="110">
+          <el-table-column label="不良数量" width="110">
             <template #default="{ row }">
               <el-input-number v-model="row.scrapQty" :min="0" :controls="false" size="small" style="width: 100%" />
             </template>
           </el-table-column>
-          <el-table-column label="工时(h)" width="110">
+          <el-table-column label="工时(分)" width="110">
             <template #default="{ row }">
-              <el-input-number v-model="row.workHours" :min="0" :precision="2" :step="0.1" :controls="false" size="small" style="width: 100%" />
+              <el-input-number v-model="row.workHours" :min="0" :precision="2" :step="1" :controls="false" size="small" style="width: 100%" />
             </template>
           </el-table-column>
           <el-table-column label="备注" min-width="130">

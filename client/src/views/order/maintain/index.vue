@@ -687,11 +687,10 @@ async function copyOrderNo() {
 }
 .erp-group {
   border: 1px solid #D5DAE2;
-  border-left: 3px solid var(--erp-primary);
   border-radius: 6px;
   padding: 8px 12px 2px;
   margin-bottom: 12px;
-  background: #FAFBFC;
+  background: #fff;
 }
 .erp-group-title {
   font-weight: 600;

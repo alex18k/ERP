@@ -392,15 +392,17 @@ export async function runMrp(params: MrpParams = {}, userId?: number, existingRu
       materialId: true,
       salesOrderId: true,
       quantity: true,
-      batches: { where: { status: { not: "cancelled" } }, select: { receivedQty: true } },
+      batches: { where: { status: { not: "cancelled" } }, select: { status: true, quantity: true, receivedQty: true } },
     },
   });
     const wipMap = new Map<number, number>(); // materialId -> 在制供给量
     const openByOrderKey = new Map<string, number>(); // `${materialId}:${salesOrderId}` -> 在制量（生产建议扣减用）
     const manualWipMap = new Map<number, number>(); // materialId -> 手工生产订单（无销售订单）在制剩余量
   for (const o of openProductionRows) {
-    const received = o.batches.reduce((s, b) => s + b.receivedQty, 0);
-    const remaining = Math.max(0, o.quantity - received);
+    // 已关闭批次不参与 MRP：其计划数量从在制量中剔除
+    const closedQty = o.batches.filter((b) => b.status === "closed").reduce((s, b) => s + b.quantity, 0);
+    const received = o.batches.filter((b) => b.status !== "closed").reduce((s, b) => s + b.receivedQty, 0);
+    const remaining = Math.max(0, o.quantity - closedQty - received);
     if (remaining <= 0) continue;
     wipMap.set(o.materialId, (wipMap.get(o.materialId) ?? 0) + remaining);
     if (o.salesOrderId == null) {

@@ -426,7 +426,7 @@ model ProductionBatch {
   planStartDate     DateTime?
   planEndDate       DateTime?
   receivedQty       Float           @default(0) // 成品已入库量
-  status            String          @default("planned") // planned, in_progress, completed, cancelled
+  status            String          @default("planned") // planned, in_progress, completed, closed, cancelled
   remark            String?
   createdAt         DateTime        @default(now())
   materials         ProductionBatchMaterial[]
