@@ -443,7 +443,7 @@ model ProductionOrderMaterial {
   cancelledQty      Float           @default(0) // 已取消未发量（不再需要发料的部分）
   cancelledAt       DateTime?
   unit              String?
-  status            String          @default("pending") // pending, partial, issued
+  status            String          @default("pending") // pending, partial, issued, cancelled
   remark            String?
   createdAt         DateTime        @default(now())
 

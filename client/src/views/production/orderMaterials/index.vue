@@ -71,6 +71,7 @@ const queryFields: QueryField[] = [
       { label: '待领料', value: 'pending' },
       { label: '部分领料', value: 'partial' },
       { label: '已领料', value: 'issued' },
+      { label: '已取消未发', value: 'cancelled' },
     ],
   },
   { field: 'remark', label: '备注', type: 'text', placeholder: '备注' },
@@ -106,6 +107,7 @@ const issueStatusOptions = [
   { label: '待领料', value: 'pending', type: 'info' },
   { label: '部分领料', value: 'partial', type: 'warning' },
   { label: '已领料', value: 'issued', type: 'success' },
+  { label: '已取消未发', value: 'cancelled', type: 'info' },
 ]
 function issueStatusLabel(s: string) {
   return issueStatusOptions.find((o) => o.value === s)?.label || s || '-'

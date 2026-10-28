@@ -22,6 +22,7 @@ const statusOptions = [
   { label: '待领料', value: 'pending', type: 'info' },
   { label: '部分领料', value: 'partial', type: 'warning' },
   { label: '已领料', value: 'issued', type: 'success' },
+  { label: '已取消未发', value: 'cancelled', type: 'info' },
 ]
 function statusLabel(s: string) {
   return statusOptions.find((o) => o.value === s)?.label || s

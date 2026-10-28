@@ -293,6 +293,10 @@ function recalc() {
   const qty = Number(form.issueQty) || 0
   const planQty = Number(currentWorkOrder.value?.plannedQty) || 0
   for (const line of detail.value) {
+    if (line.cancelRemain) {
+      line.issueQty = 0
+      continue
+    }
     const remain = lineRemain(line)
     const perUnit = planQty > 0 ? line.requiredQty / planQty : 0
     const baseSuggest = Math.min(remain, Math.round(perUnit * qty * 100) / 100)
@@ -327,7 +331,7 @@ async function submit() {
     ElMessage.warning('请选择库位')
     return
   }
-  if (detail.value.some((l) => Number(l.issueQty) > 0 && l.material?.batchManaged && !l.batchNo)) {
+  if (detail.value.some((l) => !l.cancelRemain && Number(l.issueQty) > 0 && l.material?.batchManaged && !l.batchNo)) {
     ElMessage.warning('批号管理物料必须选择批号')
     return
   }

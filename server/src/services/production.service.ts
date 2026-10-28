@@ -1013,6 +1013,9 @@ export async function issueProductionOrderMaterials(
   if (order.status === "closed") throw new Error("生产订单已关闭，不能发料");
   if (order.execStatus === "none") throw new Error("该生产订单尚未排产，不能发料");
   if (order.execStatus === "closed") throw new Error("生产订单执行已关闭，不能发料");
+  if (cancelIds.length > 0 && !["pending", "in_progress"].includes(order.execStatus)) {
+    throw new Error("生产订单已完工，不能取消未发");
+  }
   let warehouse: any = null;
   if (items.length > 0) {
     warehouse = await prisma.warehouse.findUnique({ where: { id: warehouseId! } });
@@ -1229,10 +1232,11 @@ export async function updateProductionOrderMaterial(
   if (!row) throw new Error("物料行不存在");
   if (row.productionOrder.status === "closed") throw new Error("生产订单已关闭，不能修改领料单");
   if (row.productionOrder.execStatus === "closed") throw new Error("生产订单执行已关闭，不能修改物料");
-  if (data.materialId !== undefined && data.materialId !== row.materialId) {
+  const materialChanged = data.materialId !== undefined && data.materialId !== row.materialId;
+  if (materialChanged) {
     if (row.issuedQty > 0) throw new Error("已发料的行不能更换物料");
     const dup = await prisma.productionOrderMaterial.findUnique({
-      where: { productionOrderId_materialId: { productionOrderId: row.productionOrderId, materialId: data.materialId } },
+      where: { productionOrderId_materialId: { productionOrderId: row.productionOrderId, materialId: data.materialId! } },
     });
     if (dup && dup.id !== row.id) throw new Error("该物料已在清单中");
   }
@@ -1244,22 +1248,29 @@ export async function updateProductionOrderMaterial(
   if (requiredQty < row.issuedQty - 1e-6) {
     throw new Error(`需求量不能小于已发料数量（${row.issuedQty}）`);
   }
-  // 需求量改小时取消量随之收敛，保证 需求量 ≥ 已发 + 已取消
-  const cancelledQty = Math.min(row.cancelledQty, Math.max(0, requiredQty - row.issuedQty));
+  // 需求量改小时取消量随之收敛，保证 需求量 ≥ 已发 + 已取消；换物料视为重新提需求，取消量清零
+  const cancelledQty = materialChanged ? 0 : Math.min(row.cancelledQty, Math.max(0, requiredQty - row.issuedQty));
   const left = requiredQty - row.issuedQty - cancelledQty;
   const material = await prisma.material.findUnique({ where: { id: materialId } });
-  return prisma.productionOrderMaterial.update({
-    where: { id },
-    data: {
-      materialId,
-      requiredQty,
-      cancelledQty,
-      cancelledAt: cancelledQty > 1e-6 ? row.cancelledAt : null,
-      unit: data.unit !== undefined ? data.unit || material?.unit || null : row.unit,
-      remark: data.remark !== undefined ? data.remark || null : row.remark,
-      status: left <= 1e-6 ? (row.issuedQty > 1e-6 ? "issued" : "cancelled") : row.issuedQty > 1e-6 ? "partial" : "pending",
-    },
-    include: { material: { select: { id: true, code: true, name: true, specification: true, unit: true, location: true } } },
+  // CAS 写回：并发取消/发料期间行已变化时中止，避免把 cancelledQty 静默覆盖回旧值
+  return prisma.$transaction(async (tx) => {
+    const upd = await tx.productionOrderMaterial.updateMany({
+      where: { id, issuedQty: row.issuedQty, cancelledQty: row.cancelledQty },
+      data: {
+        materialId,
+        requiredQty,
+        cancelledQty,
+        cancelledAt: cancelledQty > 1e-6 ? row.cancelledAt : null,
+        unit: data.unit !== undefined ? data.unit || material?.unit || null : row.unit,
+        remark: data.remark !== undefined ? data.remark || null : row.remark,
+        status: left <= 1e-6 ? (row.issuedQty > 1e-6 ? "issued" : "cancelled") : row.issuedQty > 1e-6 ? "partial" : "pending",
+      },
+    });
+    if (upd.count === 0) throw new Error("领料行已被其他操作修改，请刷新后重试");
+    return tx.productionOrderMaterial.findUnique({
+      where: { id },
+      include: { material: { select: { id: true, code: true, name: true, specification: true, unit: true, location: true } } },
+    });
   });
 }
 
@@ -1445,7 +1456,7 @@ export async function listReceivableProductionOrders(where: any) {
       include: {
         material: { select: { id: true, code: true, name: true, unit: true, location: true } },
         // 发料状态：按领料明细 已发/需求量 汇总
-        materials: { select: { requiredQty: true, issuedQty: true } },
+        materials: { select: { requiredQty: true, issuedQty: true, cancelledQty: true } },
       },
       orderBy: { id: "desc" },
       skip: (Number(page) - 1) * Number(pageSize),

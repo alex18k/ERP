@@ -445,6 +445,8 @@ export async function runMrp(params: MrpParams = {}, userId?: number, existingRu
 
   // 已取消未发量（冲抵量）：销售订单下达的生产订单里被「取消未发」标记的部分，需求已声明不再需要，
   // 与已发料同口径冲抵。手工单在上面的需求侧已扣减，这里只统计有销售订单的单，避免重复冲减。
+  // 按「物料 × 销售订单」限幅：取消量最多冲减该销售订单自身对该物料的毛需求，
+  // 避免 BOM 外手工追加行/超量取消把别的订单的需求也冲掉（漏采购）。
   const cancelledWipRows = await prisma.productionOrderMaterial.findMany({
     where: {
       materialId: { in: [...materialIds] },
@@ -455,11 +457,21 @@ export async function runMrp(params: MrpParams = {}, userId?: number, existingRu
         execStatus: { in: ["pending", "in_progress"] },
       },
     },
-    select: { materialId: true, cancelledQty: true },
+    select: { materialId: true, cancelledQty: true, productionOrder: { select: { salesOrderId: true } } },
   });
+  const ownDemandByOrder = new Map<string, number>(); // `${materialId}:${salesOrderId}` -> 该销售订单自身毛需求
+  for (const [materialId, lineMap] of demandMap) {
+    for (const d of lineMap.values()) {
+      if (!d.orderId || d.orderId <= 0) continue;
+      const k = `${materialId}:${d.orderId}`;
+      ownDemandByOrder.set(k, (ownDemandByOrder.get(k) ?? 0) + d.quantity);
+    }
+  }
   const cancelledWipMap = new Map<number, number>();
   for (const r of cancelledWipRows) {
-    cancelledWipMap.set(r.materialId, (cancelledWipMap.get(r.materialId) ?? 0) + r.cancelledQty);
+    const own = ownDemandByOrder.get(`${r.materialId}:${r.productionOrder.salesOrderId}`) ?? 0;
+    const capped = Math.min(r.cancelledQty, own);
+    if (capped > 1e-6) cancelledWipMap.set(r.materialId, (cancelledWipMap.get(r.materialId) ?? 0) + capped);
   }
 
   // 计算净需求（按物料的订货周期对需求分桶：周期内合并，周期外拆分）
