@@ -354,7 +354,7 @@ onMounted(async () => {
   <div class="page-container">
     <div class="page-card">
       <div class="table-toolbar">
-        <span class="toolbar-title">生产领料</span>
+        <span class="toolbar-title">生产发料</span>
         <div style="flex: 1" />
         <el-button @click="loadData"><el-icon><Refresh /></el-icon>刷新</el-button>
       </div>
@@ -404,7 +404,7 @@ onMounted(async () => {
       </div>
     </div>
 
-    <el-dialog v-model="dialogVisible" title="生产领料" width="960px" top="6vh" destroy-on-close>
+    <el-dialog v-model="dialogVisible" title="生产发料" width="960px" top="6vh" destroy-on-close>
       <el-descriptions :column="4" border size="small" style="margin-bottom: 12px">
         <el-descriptions-item label="生产订单">{{ currentOrder?.orderNo }}</el-descriptions-item>
         <el-descriptions-item label="产品">{{ currentOrder?.material?.code }} - {{ currentOrder?.material?.name }}</el-descriptions-item>

@@ -104,7 +104,7 @@ const menuItems: MenuNode[] = [
           { path: '/inventory/receipt-report', title: '采购收货报表', icon: 'Tickets' },
         ],
       },
-      { path: '/inventory/issue', title: '生产领料', icon: 'Upload' },
+      { path: '/inventory/issue', title: '生产发料', icon: 'Upload' },
       { path: '/inventory/production-receive', title: '生产入库', icon: 'Download' },
       { path: '/inventory/shipping', title: '销售发运', icon: 'Van' },
       { path: '/inventory/shipment-record', title: '销售发运记录', icon: 'Tickets' },
