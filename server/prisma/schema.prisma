@@ -440,6 +440,8 @@ model ProductionOrderMaterial {
   material          Material        @relation(fields: [materialId], references: [id])
   requiredQty       Float
   issuedQty         Float           @default(0) // 已领料量
+  cancelledQty      Float           @default(0) // 已取消未发量（不再需要发料的部分）
+  cancelledAt       DateTime?
   unit              String?
   status            String          @default("pending") // pending, partial, issued
   remark            String?
@@ -705,6 +707,7 @@ model MrpCheckLine {
   inTransit              Float    @default(0) // 在途冲抵量
   wipQuantity            Float    @default(0) // 在制冲抵量
   issuedQuantity         Float    @default(0) // 已发料冲抵量
+  cancelledQuantity      Float    @default(0) // 已取消未发冲抵量
   netDemand              Float    @default(0) // 净需求（短缺）
   leadTime               Int? // 提前期（天）
   orderDate              DateTime? // 建议下单/开工日期 = 需求日期 - 提前期
