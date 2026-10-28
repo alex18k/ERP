@@ -5,14 +5,52 @@ import { productionApi, mrpApi, materialApi, orderApi, processRouteApi } from '.
 
 const loading = ref(false)
 const list = ref<any[]>([])
+const currentRow = ref<any | null>(null)
+
+function onCurrentChange(row: any) {
+  currentRow.value = row || null
+}
+
+function requireCurrentRow(): any | null {
+  if (!currentRow.value) {
+    ElMessage.warning('请先点击选中一行生产订单')
+    return null
+  }
+  return currentRow.value
+}
+
+function handleToolbarEdit() {
+  const row = requireCurrentRow()
+  if (row) openEditDialog(row)
+}
+
+function handleToolbarSchedule() {
+  const row = requireCurrentRow()
+  if (!row) return
+  if (!canSchedule(row)) {
+    ElMessage.warning('该生产订单不能排产（已排产、已完成或已关闭）')
+    return
+  }
+  handleSchedule(row)
+}
+
+async function handleToolbarDelete() {
+  const row = requireCurrentRow()
+  if (!row) return
+  if (row.status !== 'closed') {
+    ElMessage.warning('仅已关闭的生产订单可以删除')
+    return
+  }
+  await handleDelete(row)
+}
 const total = ref(0)
 const query = reactive({ page: 1, pageSize: 20, orderNo: '', status: '', materialName: '' })
 
+// 生产订单状态不再保留「已完成」：完工由执行状态 execStatus=completed 表达
 const statusOptions = [
   { label: '已计划', value: 'planned', type: 'info' },
   { label: '生产中', value: 'in_progress', type: 'warning' },
-  { label: '已完成', value: 'completed', type: 'success' },
-  { label: '已取消', value: 'cancelled', type: 'danger' },
+  { label: '已关闭', value: 'closed', type: 'info' },
 ]
 
 const createDialogVisible = ref(false)
@@ -22,13 +60,16 @@ const selectedProd = ref<number[]>([])
 const creating = ref(false)
 
 const editDialogVisible = ref(false)
-const editReadonly = ref(false)
+const editOriginalStatus = ref('')
+const editOriginalExec = ref('')
 const saving = ref(false)
 const editFormRef = ref()
 const editForm = reactive<any>({
-  id: null, orderNo: '', materialName: '', salesOrderNo: '', quantity: 0, planStartDate: '', planEndDate: '', planner: '', releaseDate: '', remark: '', status: '',
-  batchId: null, batchNo: null, batchStatus: '', batchStatusOriginal: '',
+  id: null, orderNo: '', materialName: '', salesOrderNo: '', quantity: 0, planStartDate: '', planEndDate: '', planner: '', releaseDate: '', remark: '', status: '', execStatus: '',
 })
+// 已关闭 / 已完工（执行状态 completed）：弹窗内仅可改状态，其他字段只读；改回可编辑状态后解锁
+const formLocked = computed(() => editForm.status === 'closed' || editForm.execStatus === 'completed')
+const editExecOptions = computed(() => execStatusOptions.filter((o) => o.value !== 'none'))
 const editRules = {
   quantity: [{ required: true, message: '请输入生产数量', trigger: 'blur' }],
   planStartDate: [{ required: true, message: '请选择计划开始日期', trigger: 'change' }],
@@ -162,62 +203,34 @@ async function submitManualOrder() {
 const scheduleDialogVisible = ref(false)
 const scheduling = ref(false)
 const scheduleOrder = ref<any>(null)
-const scheduleBatches = ref<any[]>([])
 const schedulePlanner = ref('')
-const scheduledQty = computed(() =>
-  (scheduleOrder.value?.batches || [])
-    .filter((b: any) => b.status !== 'cancelled')
-    .reduce((s: number, b: any) => s + b.quantity, 0)
-)
-const remainingQty = computed(() => Math.max(0, (scheduleOrder.value?.quantity || 0) - scheduledQty.value))
-const batchTotal = computed(() => scheduleBatches.value.reduce((s: number, b: any) => s + (Number(b.quantity) || 0), 0))
-
-function orderScheduledQty(row: any) {
-  return (row.batches || [])
-    .filter((b: any) => b.status !== 'cancelled' && b.status !== 'closed')
-    .reduce((s: number, b: any) => s + b.quantity, 0)
-}
-
-// 批次状态（含已关闭）
-const batchStatusOptions = [
-  { label: '已计划', value: 'planned', type: 'info' },
+// 执行状态
+const execStatusOptions = [
+  { label: '未排产', value: 'none', type: 'info' },
+  { label: '待开工', value: 'pending', type: 'info' },
   { label: '生产中', value: 'in_progress', type: 'warning' },
   { label: '已完成', value: 'completed', type: 'success' },
   { label: '已关闭', value: 'closed', type: 'info' },
-  { label: '已取消', value: 'cancelled', type: 'danger' },
 ]
-function batchStatusLabel(s: string) {
-  return batchStatusOptions.find((o) => o.value === s)?.label || s
+function execStatusLabel(s: string) {
+  return execStatusOptions.find((o) => o.value === s)?.label || s
 }
-function batchStatusType(s: string) {
-  return batchStatusOptions.find((o) => o.value === s)?.type || 'info'
+function execStatusType(s: string) {
+  return execStatusOptions.find((o) => o.value === s)?.type || 'info'
 }
 
 function canSchedule(row: any) {
-  return row.status !== 'completed' && row.status !== 'cancelled' && orderScheduledQty(row) < row.quantity - 1e-6
+  return row.status !== 'closed' && row.execStatus === 'none'
 }
 
-// 完成数量 = 各未取消批次的已入库数量之和（成品入库）
+// 已入库数量：未排产的订单不计
 function orderReceivedQty(row: any) {
-  const total = (row.batches || [])
-    .filter((b: any) => b.status !== 'cancelled')
-    .reduce((s: number, b: any) => s + (b.receivedQty || 0), 0)
+  const total = row.execStatus !== 'none' ? (row.receivedQty || 0) : 0
   return Math.round(total * 100) / 100
 }
 
-// 列表按批次平铺：一行 = 一个批次（未排产订单占一行）
-const flatRows = computed(() => {
-  const out: any[] = []
-  for (const o of list.value) {
-    const batches = (o.batches || []).filter((b: any) => b.status !== 'cancelled')
-    if (batches.length === 0) {
-      out.push({ ...o, batch: null })
-      continue
-    }
-    for (const b of batches) out.push({ ...o, batch: b })
-  }
-  return out
-})
+// 一张生产订单一行，执行信息在同一行上展示
+const flatRows = computed(() => list.value)
 
 async function loadData() {
   loading.value = true
@@ -225,6 +238,7 @@ async function loadData() {
     const res: any = await productionApi.orders(query)
     list.value = res.data.items
     total.value = res.data.total
+    currentRow.value = null
   } finally { loading.value = false }
 }
 
@@ -238,7 +252,7 @@ function statusType(s: string) {
 
 // 未完工订单（待办语义）：计划结束/下达日期逾期红色、今日琥珀
 function isOpenOrder(row: any) {
-  return row.status === 'planned' || row.status === 'in_progress'
+  return row.status !== 'closed' && row.execStatus !== 'completed'
 }
 
 function dueClassOf(value: string | null | undefined, open: boolean) {
@@ -261,7 +275,7 @@ async function openCreateDialog() {
   mrpRun.value = detail.data
   const issued = new Set((keysRes.data || []).map((k: any) => `${k.materialId}-${k.salesOrderId ?? 'null'}`))
   suggestions.value = (detail.data.result?.productionOrders || [])
-    // 手工加工单来源的建议 relatedOrderId 为负数，对应新建的生产订单 salesOrderId 为空
+    // 手工来源的建议 relatedOrderId 为负数，对应新建的生产订单 salesOrderId 为空
     .filter((s: any) => !issued.has(`${s.materialId}-${s.relatedOrderId > 0 ? s.relatedOrderId : 'null'}`))
     .map((s: any) => ({ ...s, issued: false, planStartDate: s.orderDate?.slice?.(0, 10) || '', planEndDate: s.needDate?.slice?.(0, 10) || '' }))
   selectedProd.value = []
@@ -305,13 +319,7 @@ async function handleCreateOrders() {
   }
 }
 
-function openEditDialog(row: any, batch?: any) {
-  // 已完成订单：弹窗打开但内容只读（不可保存）
-  editReadonly.value = row.status === 'completed'
-  editForm.batchId = batch?.id ?? null
-  editForm.batchNo = batch?.batchNo ?? null
-  editForm.batchStatus = batch?.status ?? ''
-  editForm.batchStatusOriginal = batch?.status ?? ''
+function openEditDialog(row: any) {
   Object.assign(editForm, {
     id: row.id,
     orderNo: row.orderNo,
@@ -324,38 +332,51 @@ function openEditDialog(row: any, batch?: any) {
     releaseDate: row.releaseDate?.slice(0, 10) || '',
     remark: row.remark || '',
     status: row.status || '',
+    execStatus: row.execStatus || '',
   })
+  editOriginalStatus.value = row.status || ''
+  editOriginalExec.value = row.execStatus || ''
   editDialogVisible.value = true
 }
 
 async function handleUpdate() {
-  const batchChanged = !!(editForm.batchId && editForm.batchStatus && editForm.batchStatus !== editForm.batchStatusOriginal)
-  if (!editReadonly.value) {
+  const statusChanged = editForm.status !== editOriginalStatus.value
+  const execChanged = editForm.execStatus !== editOriginalExec.value
+  const wasLocked = editOriginalStatus.value === 'closed' || editOriginalExec.value === 'completed'
+  const fieldsEditable = !formLocked.value
+  if (formLocked.value && !statusChanged && !execChanged) return
+  if (fieldsEditable) {
     try { await editFormRef.value.validate() } catch { return }
     if (!editForm.quantity || editForm.quantity <= 0) {
       ElMessage.warning('生产数量必须大于0')
       return
     }
-  } else if (!batchChanged) {
-    return // 已完成订单只读，未改批次状态时无需保存
   }
   saving.value = true
   try {
-    // 弹窗内修改了批次状态时，先保存批次状态（只读弹窗同样可保存状态）
-    if (batchChanged) {
-      await productionApi.updateBatchStatus(editForm.batchId, { status: editForm.batchStatus })
+    const fields = {
+      quantity: editForm.quantity,
+      planStartDate: editForm.planStartDate || '',
+      planEndDate: editForm.planEndDate || '',
+      planner: editForm.planner,
+      releaseDate: editForm.releaseDate || '',
+      remark: editForm.remark,
     }
-    if (!editReadonly.value) {
-      await productionApi.updateOrder(editForm.id, {
-        quantity: editForm.quantity,
-        planStartDate: editForm.planStartDate || '',
-        planEndDate: editForm.planEndDate || '',
-        planner: editForm.planner,
-        releaseDate: editForm.releaseDate || '',
-        remark: editForm.remark,
-      })
+    const pushFields = async () => { if (fieldsEditable) await productionApi.updateOrder(editForm.id, fields) }
+    const pushStatus = async () => { if (statusChanged) await productionApi.updateStatus(editForm.id, { status: editForm.status }) }
+    const pushExec = async () => { if (execChanged) await productionApi.updateExecStatus(editForm.id, { execStatus: editForm.execStatus }) }
+    if (wasLocked && fieldsEditable) {
+      // 由锁定态（已关闭/已完工）解锁：先改状态，后端才允许字段编辑
+      await pushStatus()
+      await pushExec()
+      await pushFields()
+    } else {
+      // 否则先存字段再改状态，避免改成已关闭/已完工后字段修改被后端拒绝
+      await pushFields()
+      await pushStatus()
+      await pushExec()
     }
-    ElMessage.success(editReadonly.value ? '批次状态已更新' : '更新成功')
+    ElMessage.success('更新成功')
     editDialogVisible.value = false
     loadData()
   } catch { /* error shown */ } finally {
@@ -365,49 +386,19 @@ async function handleUpdate() {
 
 async function handleSchedule(row: any) {
   scheduleOrder.value = row
-  const scheduled = (row.batches || [])
-    .filter((b: any) => b.status !== 'cancelled')
-    .reduce((s: number, b: any) => s + b.quantity, 0)
-  const remain = Math.max(0, (row.quantity || 0) - scheduled)
-  scheduleBatches.value = [
-    { quantity: remain, planStartDate: row.planStartDate?.slice(0, 10) || '', planEndDate: row.planEndDate?.slice(0, 10) || '' },
-  ]
   schedulePlanner.value = row.planner || ''
   scheduleDialogVisible.value = true
 }
 
-function addBatch() {
-  scheduleBatches.value.push({ quantity: 0, planStartDate: '', planEndDate: '' })
-}
-
-function removeBatch(index: number) {
-  scheduleBatches.value.splice(index, 1)
-}
-
 async function submitSchedule() {
-  const batches = scheduleBatches.value
-  if (batches.length === 0) {
-    ElMessage.warning('请至少添加一个批次')
-    return
-  }
-  for (const b of batches) {
-    if (!b.quantity || b.quantity <= 0) {
-      ElMessage.warning('批次数量必须大于0')
-      return
-    }
-  }
-  if (batchTotal.value > remainingQty.value + 1e-6) {
-    ElMessage.warning(`本次批次合计 ${batchTotal.value} 超过剩余可排产量 ${remainingQty.value}`)
-    return
-  }
   if (!schedulePlanner.value) {
     ElMessage.warning('请选择计划员')
     return
   }
   scheduling.value = true
   try {
-    const res: any = await productionApi.schedule(scheduleOrder.value.id, { batches, planner: schedulePlanner.value })
-    ElMessage.success(`排产完成，生成 ${res.data?.batches?.length ?? 0} 个批次`)
+    await productionApi.schedule(scheduleOrder.value.id, { planner: schedulePlanner.value })
+    ElMessage.success('排产完成')
     scheduleDialogVisible.value = false
     loadData()
   } catch { /* error shown */ } finally {
@@ -436,7 +427,6 @@ async function openBatchSchedule() {
       materialCode: o.materialCode,
       materialName: o.materialName,
       remain: o.remain,
-      quantity: o.remain,
       planStartDate: o.planStartDate ? String(o.planStartDate).slice(0, 10) : todayStr(),
       planEndDate: o.planEndDate ? String(o.planEndDate).slice(0, 10) : '',
       planner: o.planner || '',
@@ -460,23 +450,12 @@ async function submitBatchSchedule() {
     ElMessage.warning('请选择计划员')
     return
   }
-  for (const r of batchSelected.value) {
-    if (!r.quantity || r.quantity <= 0) {
-      ElMessage.warning(`订单 ${r.orderNo} 的排产数量必须大于0`)
-      return
-    }
-    if (Number(r.quantity) > Number(r.remain) + 1e-6) {
-      ElMessage.warning(`订单 ${r.orderNo} 的排产数量不能超过剩余可排量 ${r.remain}`)
-      return
-    }
-  }
   batchScheduling.value = true
   try {
     const res: any = await productionApi.batchSchedule({
       planner: batchPlanner.value,
       items: batchSelected.value.map((r) => ({
         id: r.id,
-        quantity: r.quantity,
         planStartDate: r.planStartDate || null,
         planEndDate: r.planEndDate || null,
       })),
@@ -501,19 +480,10 @@ async function submitBatchSchedule() {
   }
 }
 
-async function handleCancel(row: any) {
-  try {
-    await ElMessageBox.confirm(`确定取消生产订单 ${row.orderNo} ？`, '提示', { type: 'warning' })
-    await productionApi.cancelOrder(row.id)
-    ElMessage.success('已取消')
-    loadData()
-  } catch { /* canceled */ }
-}
-
 async function handleDelete(row: any) {
   try {
     await ElMessageBox.confirm(
-      `确定删除已取消的生产订单 ${row.orderNo} ？仅允许删除没有发料、报工/工时和成品入库的订单。`,
+      `确定删除已关闭的生产订单 ${row.orderNo} ？仅允许删除没有发料、报工/工时、成品入库和库存流水的订单。`,
       '删除生产订单',
       { type: 'warning' }
     )
@@ -562,15 +532,34 @@ onMounted(() => {
         <el-button type="warning" plain @click="openBatchSchedule">
           <el-icon><AlarmClock /></el-icon>批量排产
         </el-button>
+        <el-button type="primary" plain :disabled="!currentRow" @click="handleToolbarEdit">
+          <el-icon><Edit /></el-icon>编辑
+        </el-button>
+        <el-button type="success" plain :disabled="!currentRow || !canSchedule(currentRow)" @click="handleToolbarSchedule">
+          <el-icon><Calendar /></el-icon>排产
+        </el-button>
+        <el-button type="danger" plain :disabled="!currentRow || currentRow.status !== 'closed'" @click="handleToolbarDelete">
+          <el-icon><Delete /></el-icon>删除
+        </el-button>
       </div>
 
-      <el-table :data="flatRows" v-loading="loading" stripe max-height="calc(100vh - 300px)">
-        <el-table-column prop="orderNo" label="生产订单号" width="140" />
-        <el-table-column label="物料" min-width="160">
-          <template #default="{ row }">{{ row.material?.code }} - {{ row.material?.name }}</template>
+      <el-table :data="flatRows" v-loading="loading" stripe max-height="calc(100vh - 300px)" highlight-current-row @current-change="onCurrentChange">
+        <el-table-column label="生产订单号" width="140">
+          <template #default="{ row }">
+            <el-link type="primary" :underline="false" @click="openEditDialog(row)">{{ row.orderNo }}</el-link>
+          </template>
+        </el-table-column>
+        <el-table-column label="物料编码" width="130">
+          <template #default="{ row }">{{ row.material?.code || '-' }}</template>
+        </el-table-column>
+        <el-table-column label="物料名称" min-width="160" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.material?.name || '-' }}</template>
+        </el-table-column>
+        <el-table-column label="规格型号" min-width="160" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.material?.specification || '-' }}</template>
         </el-table-column>
         <el-table-column prop="quantity" label="数量" width="90" align="right" />
-        <el-table-column label="完成数量" width="95" align="right">
+        <el-table-column label="已入库" width="95" align="right">
           <template #default="{ row }">
             <span :class="{ 'qty-done': orderReceivedQty(row) > 0 }">{{ orderReceivedQty(row) }}</span>
           </template>
@@ -584,33 +573,14 @@ onMounted(() => {
         <el-table-column label="下达日期" width="110">
           <template #default="{ row }">{{ row.releaseDate?.slice(0, 10) || '-' }}</template>
         </el-table-column>
-        <el-table-column label="批次" width="90">
+        <el-table-column label="状态" width="100">
           <template #default="{ row }">
-            <span v-if="row.batch">第{{ row.batch.batchNo }}批</span>
-            <span v-else class="batch-none">未排产</span>
+            <el-tag :type="statusType(row.status)" size="small" round>{{ statusLabel(row.status) }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="批次数量" width="95" align="right">
-          <template #default="{ row }">{{ row.batch ? row.batch.quantity : '-' }}</template>
-        </el-table-column>
-        <el-table-column label="已入库" width="90" align="right">
-          <template #default="{ row }">{{ row.batch ? (row.batch.receivedQty ?? 0) : '-' }}</template>
-        </el-table-column>
-        <el-table-column label="批次状态" width="105">
+        <el-table-column label="执行状态" width="100">
           <template #default="{ row }">
-            <el-tag v-if="row.batch" size="small" :type="batchStatusType(row.batch.status)">{{ batchStatusLabel(row.batch.status) }}</el-tag>
-            <span v-else>-</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="批次/已排" width="120">
-          <template #default="{ row }">
-            <span v-if="(row.batches || []).length">{{ (row.batches || []).filter((b: any) => b.status !== 'cancelled').length }} 批 / {{ orderScheduledQty(row) }}</span>
-            <span v-else>-</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="状态" width="90">
-          <template #default="{ row }">
-            <el-tag :type="statusType(row.status)" size="small">{{ statusLabel(row.status) }}</el-tag>
+            <el-tag size="small" round :type="execStatusType(row.execStatus)">{{ execStatusLabel(row.execStatus) }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column label="来源订单" min-width="190" show-overflow-tooltip>
@@ -625,14 +595,6 @@ onMounted(() => {
         </el-table-column>
         <el-table-column label="计划员" width="90">
           <template #default="{ row }">{{ row.planner || '-' }}</template>
-        </el-table-column>
-        <el-table-column label="操作" width="150" fixed="right">
-          <template #default="{ row }">
-            <el-button size="small" type="primary" link @click="openEditDialog(row, row.batch)">编辑</el-button>
-            <el-button v-if="canSchedule(row)" size="small" type="success" link @click="handleSchedule(row)">排产</el-button>
-            <el-button v-if="['planned', 'in_progress'].includes(row.status)" size="small" type="danger" link @click="handleCancel(row)">取消</el-button>
-            <el-button v-if="row.status === 'cancelled'" size="small" type="danger" link @click="handleDelete(row)">删除</el-button>
-          </template>
         </el-table-column>
         <template #empty>
           <el-empty description="没有符合条件的生产订单" :image-size="56">
@@ -716,14 +678,26 @@ onMounted(() => {
       </template>
     </el-dialog>
 
-    <el-dialog v-model="editDialogVisible" :title="editReadonly ? '查看生产订单（只读）' : '编辑生产订单'" width="520px">
-      <div v-if="editForm.batchId" class="edit-status-bar">
-        <span class="edit-status-label">批次（第{{ editForm.batchNo }}批）状态：</span>
-        <el-select v-model="editForm.batchStatus" size="small" style="width: 120px">
-          <el-option v-for="o in batchStatusOptions.filter((x) => x.value !== 'cancelled')" :key="o.value" :label="o.label" :value="o.value" />
+    <el-dialog v-model="editDialogVisible" :title="formLocked ? '查看生产订单（可修改状态）' : '编辑生产订单'" width="520px">
+      <div class="edit-status-bar">
+        <span class="edit-status-label">状态</span>
+        <el-select v-model="editForm.status" style="width: 140px; margin-left: 12px">
+          <el-option v-for="o in statusOptions" :key="o.value" :label="o.label" :value="o.value" />
         </el-select>
+        <span class="edit-status-label" style="margin-left: 16px">执行状态</span>
+        <el-select
+          v-model="editForm.execStatus"
+          style="width: 130px; margin-left: 8px"
+          :disabled="editOriginalExec === 'none'"
+        >
+          <el-option v-for="o in editExecOptions" :key="o.value" :label="o.label" :value="o.value" />
+        </el-select>
+        <span v-if="editOriginalExec === 'none'" class="edit-status-hint">未排产订单不能调整执行状态；排产后「已完成」由末道工序报工满数自动达成，也可在此手工标记</span>
+        <span v-else-if="editForm.execStatus === 'completed'" class="edit-status-hint">已完工：改「执行状态」为生产中可继续报工与修改字段</span>
+        <span v-else-if="editForm.status === 'closed'" class="edit-status-hint">已关闭订单：把状态改回 已计划/生产中 即可重新打开；关闭状态下不可修改其他字段</span>
+        <span v-else-if="formLocked" class="edit-status-hint">当前状态不可修改其他字段，请先改回生产中</span>
       </div>
-      <el-form ref="editFormRef" :model="editForm" :rules="editRules" label-width="100px" :disabled="editReadonly">
+      <el-form ref="editFormRef" :model="editForm" :rules="editRules" label-width="100px" :disabled="formLocked">
         <el-form-item label="生产订单号">
           <span>{{ editForm.orderNo }}</span>
         </el-form-item>
@@ -755,53 +729,31 @@ onMounted(() => {
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="editDialogVisible = false">{{ editReadonly ? '关闭' : '取消' }}</el-button>
-        <el-button v-if="!editReadonly || editForm.batchId" type="primary" :loading="saving" @click="handleUpdate">保存</el-button>
+        <el-button @click="editDialogVisible = false">{{ formLocked ? '关闭' : '取消' }}</el-button>
+        <el-button
+          v-if="!formLocked || editForm.status !== editOriginalStatus || editForm.execStatus !== editOriginalExec"
+          type="primary"
+          :loading="saving"
+          @click="handleUpdate"
+        >保存</el-button>
       </template>
     </el-dialog>
 
-    <el-dialog v-model="scheduleDialogVisible" title="排产（分批）" width="720px">
-      <el-descriptions :column="3" border size="small" style="margin-bottom: 12px">
+    <el-dialog v-model="scheduleDialogVisible" title="排产" width="560px">
+      <el-descriptions :column="2" border size="small" style="margin-bottom: 12px">
         <el-descriptions-item label="生产订单">{{ scheduleOrder?.orderNo }}</el-descriptions-item>
         <el-descriptions-item label="数量">{{ scheduleOrder?.quantity }}</el-descriptions-item>
-        <el-descriptions-item label="已排 / 剩余">{{ scheduledQty }} / {{ remainingQty }}</el-descriptions-item>
+        <el-descriptions-item label="计划开始">{{ scheduleOrder?.planStartDate?.slice(0, 10) || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="计划结束">{{ scheduleOrder?.planEndDate?.slice(0, 10) || '-' }}</el-descriptions-item>
       </el-descriptions>
-      <el-form label-width="70px" inline style="margin-bottom: 4px">
+      <el-alert type="info" :closable="false" show-icon title="排产将按工艺路线生成订单级工序，并按产品 BOM 生成领料单。" style="margin-bottom: 12px" />
+      <el-form label-width="70px">
         <el-form-item label="计划员">
           <el-select v-model="schedulePlanner" filterable clearable placeholder="选择计划员" style="width: 220px">
             <el-option v-for="p in plannerOptions" :key="p.id" :label="p.realName || p.username" :value="p.realName || p.username" />
           </el-select>
         </el-form-item>
       </el-form>
-      <div style="margin-bottom: 8px">
-        <el-button size="small" type="primary" plain @click="addBatch"><el-icon><Plus /></el-icon>添加批次</el-button>
-        <span style="margin-left: 12px; color: var(--el-text-color-secondary)">本次合计：{{ batchTotal }} / 剩余 {{ remainingQty }}</span>
-      </div>
-      <el-table :data="scheduleBatches" size="small" stripe>
-        <el-table-column label="批次" width="70">
-          <template #default="{ $index }">{{ $index + 1 }}</template>
-        </el-table-column>
-        <el-table-column label="数量" width="140">
-          <template #default="{ row }">
-            <el-input-number v-model="row.quantity" :min="0" :precision="2" :controls="false" style="width: 100%" />
-          </template>
-        </el-table-column>
-        <el-table-column label="计划开始" min-width="160">
-          <template #default="{ row }">
-            <el-date-picker v-model="row.planStartDate" type="date" value-format="YYYY-MM-DD" placeholder="开始日期" style="width: 100%" />
-          </template>
-        </el-table-column>
-        <el-table-column label="计划结束" min-width="160">
-          <template #default="{ row }">
-            <el-date-picker v-model="row.planEndDate" type="date" value-format="YYYY-MM-DD" placeholder="结束日期" style="width: 100%" />
-          </template>
-        </el-table-column>
-        <el-table-column width="60">
-          <template #default="{ $index }">
-            <el-button type="danger" link size="small" @click="removeBatch($index)">删除</el-button>
-          </template>
-        </el-table-column>
-      </el-table>
       <template #footer>
         <el-button @click="scheduleDialogVisible = false">取消</el-button>
         <el-button type="primary" :loading="scheduling" @click="submitSchedule">确认排产</el-button>
@@ -828,13 +780,8 @@ onMounted(() => {
         <el-table-column label="物料" min-width="180" show-overflow-tooltip>
           <template #default="{ row }">{{ row.materialCode }} - {{ row.materialName }}</template>
         </el-table-column>
-        <el-table-column label="剩余可排" width="100" align="right">
+        <el-table-column label="整单数量" width="100" align="right">
           <template #default="{ row }">{{ row.remain }}</template>
-        </el-table-column>
-        <el-table-column label="本次排产" width="120">
-          <template #default="{ row }">
-            <el-input-number v-model="row.quantity" :min="0" :precision="2" :controls="false" style="width: 100%" />
-          </template>
         </el-table-column>
         <el-table-column label="计划开始" min-width="150">
           <template #default="{ row }">
@@ -881,6 +828,13 @@ onMounted(() => {
 }
 .edit-status-label {
   color: var(--el-text-color-regular);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.edit-status-hint {
+  margin-left: 10px;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
 }
 .qty-done {
   color: var(--el-color-success);

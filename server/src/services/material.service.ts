@@ -369,7 +369,7 @@ export async function deleteMaterial(id: number) {
     stockCount,
     batchCount,
     stockRecordCount,
-    batchMaterialCount,
+    productionOrderMaterialCount,
     suggestionCount,
     shortageCount,
     unitConversionCount,
@@ -382,7 +382,7 @@ export async function deleteMaterial(id: number) {
     prisma.stock.count({ where: { materialId: id } }),
     prisma.materialBatch.count({ where: { materialId: id } }),
     prisma.stockRecord.count({ where: { materialId: id } }),
-    prisma.productionBatchMaterial.count({ where: { materialId: id } }),
+    prisma.productionOrderMaterial.count({ where: { materialId: id } }),
     prisma.purchaseSuggestion.count({ where: { materialId: id } }),
     prisma.mrpShortage.count({ where: { materialId: id } }),
     prisma.materialUnitConversion.count({ where: { materialId: id } }),
@@ -393,7 +393,7 @@ export async function deleteMaterial(id: number) {
   if (purchaseItemCount > 0) throw new Error("物料已被采购订单引用，无法删除");
   if (productionOrderCount > 0) throw new Error("物料已被生产订单引用，无法删除");
   if (stockCount > 0 || batchCount > 0 || stockRecordCount > 0) throw new Error("物料存在库存、批次或库存流水，无法删除");
-  if (batchMaterialCount > 0) throw new Error("物料已被生产批次用料引用，无法删除");
+  if (productionOrderMaterialCount > 0) throw new Error("物料已被生产订单用料引用，无法删除");
   if (suggestionCount > 0 || shortageCount > 0) throw new Error("物料存在采购建议或MRP缺料记录，无法删除");
   if (unitConversionCount > 0) throw new Error("物料存在计量单位换算，无法删除");
 

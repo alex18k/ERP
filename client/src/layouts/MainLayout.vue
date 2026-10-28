@@ -51,6 +51,7 @@ const menuItems: MenuNode[] = [
     icon: 'Cpu',
     children: [
       { path: '/mrp/calculate', title: 'MRP运算', icon: 'Aim' },
+      { path: '/mrp/inspection', title: 'MRP信息检查', icon: 'DocumentChecked' },
       { path: '/mrp/shortage', title: '缺料预警', icon: 'Warning' },
       { path: '/mrp/purchase-suggestion', title: '采购建议', icon: 'ShoppingCart' },
       { path: '/mrp/production-suggestion', title: '生产建议', icon: 'Box' },
@@ -61,15 +62,17 @@ const menuItems: MenuNode[] = [
     icon: 'Operation',
     children: [
       { path: '/production/order', title: '生产订单', icon: 'Files' },
-      { path: '/production/batch-materials', title: '加工单物料清单', icon: 'List' },
-      { path: '/production/process-route', title: '加工单工艺路线', icon: 'List' },
+      { path: '/production/order-config', title: '生产订单配置', icon: 'SetUp' },
+      { path: '/production/order-materials', title: '生产订单物料清单', icon: 'List' },
+      { path: '/production/work-order-materials', title: '生产领料单维护', icon: 'List' },
+      { path: '/production/process-route', title: '生产订单工艺路线', icon: 'List' },
     ],
   },
   {
     title: '车间管理',
     icon: 'OfficeBuilding',
     children: [
-      { path: '/production/work-report', title: '批次报工', icon: 'EditPen' },
+      { path: '/production/work-report', title: '生产报工', icon: 'EditPen' },
       { path: '/production/employee-report', title: '员工报工', icon: 'User' },
       { path: '/dashboard/report/employee-reports', title: '员工报工报表', icon: 'UserFilled' },
     ],

@@ -11,7 +11,7 @@ const orderOptionsLoading = ref(false)
 const orderOptionMap = new Map<number, any>()
 const selectedOrder = ref<any>(null)
 
-const batchOptions = ref<any[]>([])
+const workOrderOptions = ref<any[]>([])
 const routeSteps = ref<any[]>([])
 
 const employeeOptions = ref<any[]>([])
@@ -27,7 +27,7 @@ function nowDateTime() {
 
 const form = reactive<any>({
   orderNo: '',
-  batchId: null,
+  workOrderId: null,
   processStepId: null,
   reportBy: null,
   quantity: 0,
@@ -38,7 +38,7 @@ const form = reactive<any>({
 })
 
 const orderInfo = computed(() => selectedOrder.value)
-const currentBatch = computed(() => batchOptions.value.find((b: any) => b.id === form.batchId) || null)
+const currentWorkOrder = computed(() => workOrderOptions.value.find((w: any) => w.id === form.workOrderId) || null)
 
 function registerOrderOptions(items: any[]) {
   for (const o of items) if (o?.id) orderOptionMap.set(o.id, o)
@@ -55,7 +55,7 @@ function registerOrderOptions(items: any[]) {
 async function loadOrderOptions(keyword: string = '') {
   orderOptionsLoading.value = true
   try {
-    const res: any = await productionApi.orders({ pageSize: 100, orderNo: keyword })
+    const res: any = await productionApi.orders({ pageSize: 100, orderNo: keyword, status: 'planned,in_progress' })
     registerOrderOptions(res.data.items || [])
   } catch {
     /* ignore */
@@ -78,8 +78,8 @@ async function loadEmployees(keyword: string = '') {
 
 async function onOrderChange() {
   routeSteps.value = []
-  batchOptions.value = []
-  form.batchId = null
+  workOrderOptions.value = []
+  form.workOrderId = null
   form.processStepId = null
   if (!form.orderNo) {
     selectedOrder.value = null
@@ -87,9 +87,9 @@ async function onOrderChange() {
   }
   selectedOrder.value = [...orderOptionMap.values()].find((o) => o.orderNo === form.orderNo) || null
   if (!selectedOrder.value) return
-  batchOptions.value = (selectedOrder.value.batches || []).filter(
-    (b: any) => b.status !== 'cancelled' && b.status !== 'completed' && b.status !== 'closed',
-  )
+  const wo = selectedOrder.value
+  workOrderOptions.value = selectedOrder.value.status !== 'closed' && wo && wo.execStatus !== 'none' && !['completed', 'closed'].includes(wo.execStatus) ? [wo] : []
+  form.workOrderId = workOrderOptions.value[0]?.id ?? null
   try {
     const res: any = await productionApi.orderRoute(selectedOrder.value.id)
     routeSteps.value = res.data.route?.processes || []
@@ -100,14 +100,14 @@ async function onOrderChange() {
 }
 
 async function handleSave() {
-  if (!form.batchId) { ElMessage.warning('请选择批次'); return }
+  if (!form.workOrderId) { ElMessage.warning('请选择生产订单'); return }
   if (!form.processStepId) { ElMessage.warning('请选择工序'); return }
   if (!form.reportBy) { ElMessage.warning('请选择员工'); return }
   if (!form.quantity || form.quantity <= 0) { ElMessage.warning('请输入完成数量'); return }
   if (!form.reportTime) { ElMessage.warning('请选择日期'); return }
   submitting.value = true
   try {
-    await productionApi.reportBatch(form.batchId, {
+    await productionApi.reportWork(form.workOrderId, {
       processStepId: form.processStepId,
       quantity: form.quantity,
       scrapQty: form.scrapQty || 0,
@@ -136,10 +136,9 @@ async function refreshAfterSave() {
   const res: any = await productionApi.orders({ pageSize: 100, orderNo: form.orderNo })
   registerOrderOptions(res.data.items || [])
   selectedOrder.value = [...orderOptionMap.values()].find((o) => o.orderNo === form.orderNo) || selectedOrder.value
-  batchOptions.value = (selectedOrder.value?.batches || []).filter(
-    (b: any) => b.status !== 'cancelled' && b.status !== 'completed' && b.status !== 'closed',
-  )
-  if (form.batchId && !batchOptions.value.some((b: any) => b.id === form.batchId)) form.batchId = null
+  const wo = selectedOrder.value
+  workOrderOptions.value = selectedOrder.value?.status !== 'closed' && wo && wo.execStatus !== 'none' && !['completed', 'closed'].includes(wo.execStatus) ? [wo] : []
+  if (form.workOrderId && !workOrderOptions.value.some((w: any) => w.id === form.workOrderId)) form.workOrderId = null
 }
 
 // ===== 最近报工 =====
@@ -147,13 +146,13 @@ const reports = ref<any[]>([])
 const reportLoading = ref(false)
 
 async function loadReports() {
-  if (!form.batchId) {
+  if (!form.workOrderId) {
     reports.value = []
     return
   }
   reportLoading.value = true
   try {
-    const res: any = await productionApi.reports({ page: 1, pageSize: 10, batchId: form.batchId })
+    const res: any = await productionApi.reports({ page: 1, pageSize: 10, productionOrderId: form.workOrderId })
     reports.value = res.data.items || []
   } catch {
     reports.value = []
@@ -209,9 +208,9 @@ onMounted(async () => {
 
       <section class="m-card">
         <div class="m-field">
-          <label>批次</label>
-          <el-select v-model="form.batchId" size="large" clearable placeholder="选择批次" style="width: 100%" @change="loadReports">
-            <el-option v-for="b in batchOptions" :key="b.id" :label="`第${b.batchNo}批（计划 ${b.quantity}）`" :value="b.id" />
+          <label>生产订单</label>
+          <el-select v-model="form.workOrderId" size="large" clearable placeholder="选择生产订单" style="width: 100%" @change="loadReports">
+            <el-option v-for="w in workOrderOptions" :key="w.id" :label="`${w.orderNo}（计划 ${w.plannedQty}）`" :value="w.id" />
           </el-select>
         </div>
         <div class="m-field">
@@ -264,10 +263,10 @@ onMounted(async () => {
         </div>
       </section>
 
-      <section v-if="form.batchId" class="m-card">
+      <section v-if="form.workOrderId" class="m-card">
         <div class="m-section-title">
           最近报工
-          <span v-if="currentBatch">（第{{ currentBatch.batchNo }}批）</span>
+          <span v-if="currentWorkOrder">（{{ currentWorkOrder.orderNo }}）</span>
         </div>
         <div v-loading="reportLoading" class="m-report-list">
           <div v-for="r in reports" :key="r.id" class="m-report-item">

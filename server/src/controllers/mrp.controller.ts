@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
-import { startMrp, listMrpHistory, getMrpRun, listShortages, generatePurchaseOrders, createSafetyStockSuggestions } from "../services/mrp.service";
+import { startMrp, listMrpHistory, getMrpRun, listShortages, generatePurchaseOrders, createSafetyStockSuggestions, exportMrpHistory, deleteMrpHistory, getMrpCheck } from "../services/mrp.service";
 import { success, fail } from "../utils/response";
+import { sendCsv } from "../utils/export";
 import { AuthRequest } from "../middleware/auth";
 
 export async function calculateHandler(req: AuthRequest, res: Response) {
@@ -27,6 +28,34 @@ export async function getRunHandler(req: Request, res: Response) {
     return success(res, data);
   } catch (error: any) {
     return fail(res, 400, error.message);
+  }
+}
+
+// MRP历史：存档导出CSV / 按日期范围删除
+export async function exportMrpHistoryHandler(req: Request, res: Response) {
+  try {
+    const csv = await exportMrpHistory(req.query.from as string, req.query.to as string);
+    return sendCsv(res, `MRP运算历史_${req.query.from || ""}_${req.query.to || ""}.csv`, csv);
+  } catch (error: any) {
+    return fail(res, 400, error.message);
+  }
+}
+
+export async function deleteMrpHistoryHandler(req: Request, res: Response) {
+  try {
+    const data = await deleteMrpHistory(req.query.from as string, req.query.to as string);
+    return success(res, data, `已删除 ${data.deletedRuns} 条MRP运算历史`);
+  } catch (error: any) {
+    return fail(res, 400, error.message);
+  }
+}
+
+export async function checkHandler(req: Request, res: Response) {
+  try {
+    const data = await getMrpCheck(req.query as any);
+    return success(res, data);
+  } catch (error: any) {
+    return fail(res, 500, error.message, 500);
   }
 }
 

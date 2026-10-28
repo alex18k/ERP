@@ -28,7 +28,7 @@ export async function listProcessRoutes(where: any) {
     prisma.processRoute.findMany({
       where: filters,
       include: {
-        materials: { select: { id: true, code: true, name: true, category: true } },
+        // 列表不返回关联物料（单路线可达数千行，前端列表页未使用；详情接口 getProcessRoute 保留）
         processes: {
           include: { workstation: { select: { id: true, code: true, name: true } } },
           orderBy: { sequence: "asc" },

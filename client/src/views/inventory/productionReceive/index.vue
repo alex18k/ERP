@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { productionApi, warehouseApi, warehouseBinApi } from '../../../api'
 import { warehouseIdByLocation } from '../../../utils/location'
 
@@ -14,7 +14,7 @@ const query = reactive({ page: 1, pageSize: 20, orderNo: '', onlyReceivable: 'tr
 const dialogVisible = ref(false)
 const submitting = ref(false)
 const current = ref<any>(null)
-const form = reactive<any>({ quantity: 0, unit: '', warehouseId: null, binId: null, batchNo: '' })
+const form = reactive<any>({ quantity: 0, unit: '', warehouseId: null, binId: null, batchNo: '', closeWorkOrder: false })
 
 const activeWarehouses = computed(() => warehouses.value.filter((w: any) => w.status === 1))
 const selectedWarehouse = computed(() => warehouses.value.find((w: any) => w.id === form.warehouseId) || null)
@@ -30,7 +30,7 @@ async function loadBins() {
 }
 
 // 入库计量单位（产品基本单位 + 转换单位）与换算提示
-const productMaterial = computed(() => current.value?.productionOrder?.material || null)
+const productMaterial = computed(() => current.value?.material || null)
 const unitOptions = computed<string[]>(() => {
   const m = productMaterial.value
   const set = new Set<string>()
@@ -51,15 +51,14 @@ const baseHint = computed(() => {
 })
 
 function remaining(row: any) {
-  return (row.quantity ?? 0) - (row.receivedQty ?? 0)
+  return (row.plannedQty ?? 0) - (row.receivedQty ?? 0)
 }
 
 // 状态：与生产领料页一致，显示所属生产订单的状态
 const statusOptions = [
   { label: '已计划', value: 'planned', type: 'info' },
   { label: '生产中', value: 'in_progress', type: 'warning' },
-  { label: '已完成', value: 'completed', type: 'success' },
-  { label: '已取消', value: 'cancelled', type: 'danger' },
+  { label: '已关闭', value: 'closed', type: 'info' },
 ]
 
 function statusLabel(s: any) {
@@ -70,10 +69,41 @@ function statusType(s: any) {
   return statusOptions.find((o) => o.value === s)?.type || 'info'
 }
 
+const execStatusOptions = [
+  { label: '未排产', value: 'none', type: 'info' },
+  { label: '待开工', value: 'pending', type: 'info' },
+  { label: '生产中', value: 'in_progress', type: 'warning' },
+  { label: '已完成', value: 'completed', type: 'success' },
+  { label: '已关闭', value: 'closed', type: 'info' },
+]
+
+function execStatusLabel(s: any) {
+  return execStatusOptions.find((o) => o.value === s)?.label || s || '-'
+}
+
+function execStatusType(s: any) {
+  return execStatusOptions.find((o) => o.value === s)?.type || 'info'
+}
+
+// 发料状态：与生产领料页同口径（按领料明细 已发/需求量 汇总）
+const issueProgressOptions: Record<string, { label: string; type: string }> = {
+  none: { label: '未领料', type: 'info' },
+  partial: { label: '部分领料', type: 'warning' },
+  issued: { label: '已发料', type: 'success' },
+}
+function issueProgress(row: any): string | null {
+  const ms = row.materials || []
+  if (ms.length === 0) return null
+  const eps = 1e-6
+  if (ms.every((m: any) => (m.issuedQty ?? 0) >= (m.requiredQty ?? 0) - eps)) return 'issued'
+  if (ms.some((m: any) => (m.issuedQty ?? 0) > eps)) return 'partial'
+  return 'none'
+}
+
 async function loadData() {
   loading.value = true
   try {
-    const res: any = await productionApi.receivableBatches(query)
+    const res: any = await productionApi.receivableOrders(query)
     list.value = res.data.items
     total.value = res.data.total
   } finally {
@@ -89,9 +119,10 @@ async function loadWarehouses() {
 function openDialog(row: any) {
   current.value = row
   form.quantity = remaining(row)
-  form.unit = row.productionOrder?.material?.unit || ''
-  form.batchNo = row.batchNo != null ? String(row.batchNo) : ''
-  form.warehouseId = warehouseIdByLocation(activeWarehouses.value, row.productionOrder?.material?.location) || activeWarehouses.value[0]?.id || null
+  form.unit = row.material?.unit || ''
+  form.batchNo = ''
+  form.closeWorkOrder = false
+  form.warehouseId = warehouseIdByLocation(activeWarehouses.value, row.material?.location) || activeWarehouses.value[0]?.id || null
   dialogVisible.value = true
   loadBins()
 }
@@ -114,10 +145,28 @@ async function submit() {
     ElMessage.warning(`入库数量超过剩余可入库数量 ${remaining(current.value)}`)
     return
   }
+  if (form.closeWorkOrder) {
+    try {
+      await ElMessageBox.confirm(
+        `已勾选“入库后关闭生产订单”，提交后生产订单 ${current.value.orderNo} 将被关闭，不能再继续入库、报工或发料。是否继续？`,
+        '关闭生产订单确认',
+        { type: 'warning', confirmButtonText: '继续提交', cancelButtonText: '返回修改' }
+      )
+    } catch {
+      return
+    }
+  }
   submitting.value = true
   try {
-    await productionApi.receiveBatch(current.value.id, { quantity: form.quantity, unit: form.unit || undefined, warehouseId: form.warehouseId, binId: binRequired.value ? form.binId : undefined, batchNo: form.batchNo || undefined })
-    ElMessage.success('入库已提交')
+    const res: any = await productionApi.receiveOrderProduct(current.value.id, {
+      quantity: form.quantity,
+      unit: form.unit || undefined,
+      warehouseId: form.warehouseId,
+      binId: binRequired.value ? form.binId : undefined,
+      batchNo: form.batchNo || undefined,
+      closeWorkOrder: form.closeWorkOrder || undefined,
+    })
+    ElMessage.success(res.data?.closed ? '入库已提交，生产订单已关闭' : '入库已提交')
     dialogVisible.value = false
     loadData()
   } catch {
@@ -143,7 +192,7 @@ onMounted(async () => {
       </div>
 
       <div class="search-bar">
-        <el-input v-model="query.orderNo" placeholder="生产订单号" clearable style="width: 180px" @keyup.enter="query.page = 1, loadData()" />
+        <el-input v-model="query.orderNo" placeholder="生产订单号" clearable style="width: 170px" @keyup.enter="query.page = 1, loadData()" />
         <el-select v-model="query.onlyReceivable" placeholder="范围" style="width: 140px">
           <el-option label="仅未入库完" value="true" />
           <el-option label="全部" value="false" />
@@ -153,31 +202,41 @@ onMounted(async () => {
       </div>
 
       <div class="list-summary">
-        <span>可入库批次 <b>{{ total }}</b> 个</span>
+        <span>可入库生产订单 <b>{{ total }}</b> 张</span>
         <span v-if="list.length">· 本页剩余待入库 <b>{{ list.reduce((s: number, r: any) => s + Math.max(0, remaining(r)), 0) }}</b></span>
-        <span class="list-summary-tip">范围=「仅未入库完」时只显示还有剩余量的批次；成品/半成品按批次入库</span>
+        <span class="list-summary-tip">范围=「仅未入库完」时只显示还有剩余量的生产订单；成品/半成品按生产订单入库</span>
       </div>
 
       <el-table :data="list" v-loading="loading" stripe max-height="calc(100vh - 300px)">
         <el-table-column label="生产订单" width="150">
-          <template #default="{ row }">{{ row.productionOrder?.orderNo }}</template>
+          <template #default="{ row }">{{ row.orderNo }}</template>
         </el-table-column>
         <el-table-column label="产品" min-width="180">
           <template #default="{ row }">
-            <div>{{ row.productionOrder?.material?.code }} - {{ row.productionOrder?.material?.name }}</div>
+            <div>{{ row.material?.code }} - {{ row.material?.name }}</div>
           </template>
         </el-table-column>
-        <el-table-column label="批次" width="80">
-          <template #default="{ row }">第{{ row.batchNo }}批</template>
-        </el-table-column>
-        <el-table-column prop="quantity" label="批次数量" width="100" align="right" />
+        <el-table-column prop="plannedQty" label="计划数量" width="100" align="right" />
         <el-table-column prop="receivedQty" label="已入库" width="90" align="right" />
         <el-table-column label="剩余" width="90" align="right">
           <template #default="{ row }">{{ remaining(row) }}</template>
         </el-table-column>
-        <el-table-column label="状态" width="100">
+        <el-table-column label="状态" width="110">
           <template #default="{ row }">
-            <el-tag size="small" :type="statusType(row.productionOrder?.status)">{{ statusLabel(row.productionOrder?.status) }}</el-tag>
+            <el-tag size="small" :type="statusType(row.status)">{{ statusLabel(row.status) }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="执行状态" width="100">
+          <template #default="{ row }">
+            <el-tag size="small" round :type="execStatusType(row.execStatus)">{{ execStatusLabel(row.execStatus) }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="发料状态" width="100">
+          <template #default="{ row }">
+            <el-tag v-if="issueProgress(row)" size="small" :type="issueProgressOptions[issueProgress(row)!].type">
+              {{ issueProgressOptions[issueProgress(row)!].label }}
+            </el-tag>
+            <span v-else style="color: var(--el-text-color-secondary)">-</span>
           </template>
         </el-table-column>
         <el-table-column label="操作" width="90" fixed="right">
@@ -187,8 +246,8 @@ onMounted(async () => {
           </template>
         </el-table-column>
         <template #empty>
-          <el-empty description="没有可入库的批次" :image-size="56">
-            <div class="empty-tip">仅已排产且尚未入满的批次可入库；可切换范围为「全部」或清空订单号重试</div>
+          <el-empty description="没有可入库的生产订单" :image-size="56">
+            <div class="empty-tip">仅已排产且尚未入满的生产订单可入库；可切换范围为「全部」或清空订单号重试</div>
           </el-empty>
         </template>
       </el-table>
@@ -201,13 +260,13 @@ onMounted(async () => {
     <el-dialog v-model="dialogVisible" title="生产入库" width="480px" destroy-on-close>
       <el-form :model="form" label-width="100px">
         <el-form-item label="生产订单">
-          <span>{{ current?.productionOrder?.orderNo }}</span>
+          <span>{{ current?.orderNo }}</span>
         </el-form-item>
         <el-form-item label="产品">
-          <span>{{ current?.productionOrder?.material?.code }} - {{ current?.productionOrder?.material?.name }}</span>
+          <span>{{ current?.material?.code }} - {{ current?.material?.name }}</span>
         </el-form-item>
-        <el-form-item label="批次 / 剩余">
-          <span>第{{ current?.batchNo }}批 / {{ current ? remaining(current) : 0 }}</span>
+        <el-form-item label="剩余可入库">
+          <span>{{ current ? remaining(current) : 0 }}</span>
         </el-form-item>
         <el-form-item label="入库仓库" required>
           <el-select v-model="form.warehouseId" placeholder="选择仓库" style="width: 100%" @change="loadBins">
@@ -229,7 +288,11 @@ onMounted(async () => {
           </el-select>
         </el-form-item>
         <el-form-item label="批号">
-          <el-input v-model="form.batchNo" placeholder="空则自动生成；批号管理物料建议填生产批次号" />
+          <el-input v-model="form.batchNo" placeholder="空则自动生成；批号管理物料建议填生产批号" />
+        </el-form-item>
+        <el-form-item label="关闭订单">
+          <el-checkbox v-model="form.closeWorkOrder">入库后关闭生产订单</el-checkbox>
+          <div class="unit-hint">勾选后提交时会再次确认；关闭后不能再入库、报工或发料</div>
         </el-form-item>
       </el-form>
       <template #footer>

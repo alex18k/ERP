@@ -10,16 +10,19 @@ const generating = ref(false)
 const safetyChecking = ref(false)
 const selectedRows = ref<any[]>([])
 const typeFilter = ref('')
+const codeFilter = ref('')
 
 const materialTypes = computed(() =>
   [...new Set(suggestions.value.map((s: any) => s.materialType).filter(Boolean))].sort() as string[]
 )
 
-const filteredSuggestions = computed(() =>
-  typeFilter.value
-    ? suggestions.value.filter((s: any) => (s.materialType || '') === typeFilter.value)
-    : suggestions.value
-)
+const filteredSuggestions = computed(() => {
+  let list = suggestions.value
+  if (typeFilter.value) list = list.filter((s: any) => (s.materialType || '') === typeFilter.value)
+  const kw = codeFilter.value.trim().toLowerCase()
+  if (kw) list = list.filter((s: any) => (s.materialCode || '').toLowerCase().includes(kw))
+  return list
+})
 
 function onSelectionChange(rows: any[]) {
   selectedRows.value = rows
@@ -129,6 +132,7 @@ onMounted(loadData)
         <el-select v-model="typeFilter" placeholder="物料类型" clearable style="width: 170px; margin-left: 16px">
           <el-option v-for="t in materialTypes" :key="t" :label="t" :value="t" />
         </el-select>
+        <el-input v-model="codeFilter" placeholder="物料编码" clearable style="width: 150px; margin-left: 8px" />
         <div style="flex: 1" />
         <el-button :loading="safetyChecking" @click="handleSafetyCheck">
           <el-icon><Search /></el-icon>安全库存检查

@@ -13,11 +13,11 @@ const orderOptions = ref<any[]>([])
 const orderOptionsLoading = ref(false)
 const orderOptionMap = new Map<number, any>()
 const selectedOrder = ref<any>(null)
-const batchOptions = ref<any[]>([])
+const workOrderOptions = ref<any[]>([])
 const routeSteps = ref<any[]>([])
 const form = reactive<any>({
   orderNo: '',
-  batchId: null,
+  workOrderId: null,
   processStepId: null,
   reportBy: null,
   quantity: 0,
@@ -59,8 +59,8 @@ async function loadOrderOptions(keyword: string = '') {
 
 async function onOrderChange() {
   routeSteps.value = []
-  batchOptions.value = []
-  form.batchId = null
+  workOrderOptions.value = []
+  form.workOrderId = null
   form.processStepId = null
   if (!form.orderNo) {
     selectedOrder.value = null
@@ -68,7 +68,9 @@ async function onOrderChange() {
   }
   selectedOrder.value = [...orderOptionMap.values()].find((o) => o.orderNo === form.orderNo) || null
   if (!selectedOrder.value) return
-  batchOptions.value = (selectedOrder.value.batches || []).filter((b: any) => b.status !== 'cancelled' && b.status !== 'completed')
+  const wo = selectedOrder.value
+  workOrderOptions.value = wo && wo.execStatus !== 'none' && !['completed', 'closed'].includes(wo.execStatus) ? [wo] : []
+  form.workOrderId = workOrderOptions.value[0]?.id ?? null
   try {
     const res: any = await productionApi.orderRoute(selectedOrder.value.id)
     routeSteps.value = res.data.route?.processes || []
@@ -94,14 +96,14 @@ async function loadEmployees(keyword: string = '') {
 }
 
 async function handleSave() {
-  if (!form.batchId) { ElMessage.warning('请选择批次'); return }
+  if (!form.workOrderId) { ElMessage.warning('请选择生产订单'); return }
   if (!form.processStepId) { ElMessage.warning('请选择工序'); return }
   if (!form.reportBy) { ElMessage.warning('请选择员工'); return }
   if (!form.quantity || form.quantity <= 0) { ElMessage.warning('请输入完成数量'); return }
   if (!form.reportTime) { ElMessage.warning('请选择日期'); return }
   submitting.value = true
   try {
-    await productionApi.reportBatch(form.batchId, {
+    await productionApi.reportWork(form.workOrderId, {
       processStepId: form.processStepId,
       quantity: form.quantity,
       scrapQty: form.scrapQty || 0,
@@ -117,12 +119,13 @@ async function handleSave() {
     form.remark = ''
     form.reportTime = nowDateTime()
     await loadReports()
-    // 刷新批次状态
+    // 刷新该订单的执行状态
     const res: any = await productionApi.orders({ pageSize: 100, orderNo: form.orderNo })
     registerOrderOptions(res.data.items || [])
     selectedOrder.value = [...orderOptionMap.values()].find((o) => o.orderNo === form.orderNo) || selectedOrder.value
-    batchOptions.value = (selectedOrder.value?.batches || []).filter((b: any) => b.status !== 'cancelled' && b.status !== 'completed')
-    if (form.batchId && !batchOptions.value.some((b: any) => b.id === form.batchId)) form.batchId = null
+    const wo = selectedOrder.value
+    workOrderOptions.value = wo && wo.execStatus !== 'none' && !['completed', 'closed'].includes(wo.execStatus) ? [wo] : []
+    if (form.workOrderId && !workOrderOptions.value.some((w: any) => w.id === form.workOrderId)) form.workOrderId = null
   } catch {
     /* error shown */
   } finally {
@@ -137,7 +140,7 @@ const reports = ref<any[]>([])
 const reportTotal = ref(0)
 
 async function loadReports() {
-  if (!form.batchId) {
+  if (!form.workOrderId) {
     reports.value = []
     reportTotal.value = 0
     reportLoading.value = false
@@ -145,7 +148,7 @@ async function loadReports() {
   }
   reportLoading.value = true
   try {
-    const params: any = { page: reportQuery.page, pageSize: reportQuery.pageSize, batchId: form.batchId }
+    const params: any = { page: reportQuery.page, pageSize: reportQuery.pageSize, productionOrderId: form.workOrderId }
     const res: any = await productionApi.reports(params)
     reports.value = res.data.items
     reportTotal.value = res.data.total
@@ -183,9 +186,9 @@ onMounted(async () => {
               <el-option v-for="o in orderOptions" :key="o.id" :label="`${o.orderNo}${o.material ? '（' + o.material.name + '）' : ''}`" :value="o.orderNo" />
             </el-select>
           </el-form-item>
-          <el-form-item label="批次">
-            <el-select v-model="form.batchId" clearable placeholder="选择批次" style="width: 100%" @change="onReportQuery">
-              <el-option v-for="b in batchOptions" :key="b.id" :label="`第${b.batchNo}批（计划 ${b.quantity}）`" :value="b.id" />
+          <el-form-item label="生产订单">
+            <el-select v-model="form.workOrderId" clearable placeholder="选择生产订单" style="width: 100%" @change="onReportQuery">
+              <el-option v-for="w in workOrderOptions" :key="w.id" :label="`${w.orderNo}（计划 ${w.plannedQty}）`" :value="w.id" />
             </el-select>
           </el-form-item>
           <el-form-item label="工序">
@@ -223,7 +226,7 @@ onMounted(async () => {
 
     <div class="page-card">
       <div class="sub-toolbar">
-        <span class="sub-title">明细流水 <span v-if="form.batchId" class="wo-hint">（当前批次：第{{ batchOptions.find((b: any) => b.id === form.batchId)?.batchNo }}批）</span></span>
+        <span class="sub-title">明细流水 <span v-if="form.workOrderId" class="wo-hint">（当前生产订单：{{ workOrderOptions.find((w: any) => w.id === form.workOrderId)?.orderNo }}）</span></span>
       </div>
       <el-table :data="reports" v-loading="reportLoading" size="small" stripe max-height="420">
         <el-table-column label="报工时间" width="150">
@@ -231,8 +234,8 @@ onMounted(async () => {
             <span style="font-variant-numeric: tabular-nums">{{ String(row.reportTime).slice(0, 16) }}</span>
           </template>
         </el-table-column>
-        <el-table-column label="批次" width="90">
-          <template #default="{ row }">第{{ row.batch?.batchNo }}批</template>
+        <el-table-column label="生产订单号" width="150">
+          <template #default="{ row }">{{ row.productionOrder?.orderNo ?? '-' }}</template>
         </el-table-column>
         <el-table-column label="工序" min-width="120">
           <template #default="{ row }">{{ row.processStep ? `${row.processStep.code} ${row.processStep.name}` : '-' }}</template>
@@ -250,8 +253,8 @@ onMounted(async () => {
         <el-table-column prop="workHours" label="工时(h)" width="90" align="right" />
         <el-table-column prop="remark" label="备注" min-width="130" show-overflow-tooltip />
               <template #empty>
-          <el-empty description="当前批次还没有报工流水" :image-size="56">
-            <div class="empty-tip">先在左侧选择批次并提交报工，记录会出现在这里</div>
+          <el-empty description="该生产订单还没有报工流水" :image-size="56">
+            <div class="empty-tip">先在左侧选择生产订单并提交报工，记录会出现在这里</div>
           </el-empty>
         </template>
 </el-table>

@@ -356,7 +356,7 @@ onMounted(async () => {
               </el-select>
             </div>
             <div class="ship-field ship-field-btn">
-              <el-button size="small" @click="fillAll">填充未发数量</el-button>
+              <el-button size="small" type="success" plain @click="fillAll">填充未发数量</el-button>
             </div>
           </div>
         </div>
@@ -373,11 +373,13 @@ onMounted(async () => {
         <el-table-column prop="quantity" label="订单数量" width="88" align="right" />
         <el-table-column prop="deliveredQty" label="已发" width="72" align="right" />
         <el-table-column label="未发" width="72" align="right">
-          <template #default="{ row }">{{ row.remaining }}</template>
+          <template #default="{ row }">
+            <span class="qty-remain" :class="{ 'qty-none': (row.remaining ?? 0) <= 0 }">{{ row.remaining }}</span>
+          </template>
         </el-table-column>
         <el-table-column label="本次发运" width="120">
           <template #default="{ row }">
-            <el-input-number v-model="row.shipQty" :min="0" :max="row.remaining" :precision="2" size="small" :controls="false" style="width: 100%" />
+            <el-input-number v-model="row.shipQty" :min="0" :max="row.remaining" :precision="2" size="small" :controls="false" :class="{ 'qty-ship-active': (row.shipQty ?? 0) > 0 }" style="width: 100%" />
           </template>
         </el-table-column>
         <el-table-column label="出库仓库" width="160">
@@ -460,6 +462,18 @@ onMounted(async () => {
 .empty-tip {
   font-size: 12px;
   color: var(--erp-steel);
+}
+.qty-remain {
+  color: var(--erp-amber);
+  font-weight: 600;
+}
+.qty-remain.qty-none {
+  color: var(--erp-steel);
+  font-weight: 400;
+}
+.qty-ship-active :deep(.el-input__inner) {
+  color: var(--erp-green);
+  font-weight: 600;
 }
 
 .ship-head {

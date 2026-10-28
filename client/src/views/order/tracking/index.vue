@@ -73,7 +73,7 @@ function statusLabel(s: string) {
 }
 
 function statusType(s: string) {
-  const map: any = { draft: 'info', confirmed: 'primary', in_production: 'warning', completed: 'success', shipped: '', cancelled: 'danger', planned: 'info', in_progress: 'warning', reported: 'success' }
+  const map: any = { draft: 'info', confirmed: 'primary', in_production: 'warning', completed: 'success', shipped: '', cancelled: 'danger', planned: 'info', in_progress: 'warning', reported: 'success', closed: 'info' }
   return map[s] || 'info'
 }
 
@@ -206,11 +206,8 @@ watch(() => route.query.id, (id) => {
         <el-table :data="tracking?.productionProgress || []" size="small" stripe default-expand-all>
           <el-table-column type="expand">
             <template #default="{ row }">
-              <el-table v-if="row.batches && row.batches.length" :data="row.batches" size="small" border style="margin: 4px 24px; width: auto">
-                <el-table-column label="批次" width="90">
-                  <template #default="{ row: b }">第{{ b.batchNo }}批</template>
-                </el-table-column>
-                <el-table-column prop="quantity" label="计划量" width="90" />
+              <el-table v-if="row.workOrder" :data="[row.workOrder]" size="small" border style="margin: 4px 24px; width: auto">
+                <el-table-column prop="plannedQty" label="计划量" width="90" />
                 <el-table-column prop="completedQty" label="完成量" width="90" />
                 <el-table-column prop="receivedQty" label="已入库" width="90" />
                 <el-table-column label="工序进度" min-width="260">
@@ -225,7 +222,7 @@ watch(() => route.query.id, (id) => {
                   </template>
                 </el-table-column>
               </el-table>
-              <div v-else style="padding: 8px 24px; color: var(--el-text-color-secondary)">未排产，暂无批次</div>
+              <div v-else style="padding: 8px 24px; color: var(--el-text-color-secondary)">未排产</div>
             </template>
           </el-table-column>
           <el-table-column prop="productionOrderNo" label="生产订单号" width="140" />
@@ -244,7 +241,7 @@ watch(() => route.query.id, (id) => {
               <el-tag :type="statusType(row.status)" size="small">{{ statusLabel(row.status) }}</el-tag>
             </template>
           </el-table-column>
-          <el-table-column prop="batchCount" label="批次" width="80" />
+          <el-table-column prop="workOrderCount" label="已排产" width="80" />
         </el-table>
       </div>
 

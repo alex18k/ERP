@@ -173,7 +173,7 @@ export async function getSalesReport(q: ReportQuery) {
   // 准时交付率（与管理驾驶舱相同算法，限定范围内）
   const doneOrderIds = orders.filter((o) => doneStatuses.includes(o.status)).map((o) => o.id);
   const doneProd = await prisma.productionOrder.findMany({
-    where: { status: "completed", actualEndDate: { not: null }, salesOrderId: { in: doneOrderIds } },
+    where: { execStatus: "completed", actualEndDate: { not: null }, salesOrderId: { in: doneOrderIds } },
     select: { salesOrderId: true, actualEndDate: true },
   });
   const dueMap = new Map(orders.filter((o) => o.deliveryDate).map((o) => [o.id, o.deliveryDate]));

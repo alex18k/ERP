@@ -54,9 +54,14 @@ async function salespersonByOrderNo(orderNo?: string | null) {
 }
 
 function buildStockFilters(where: any) {
-  const { materialId, materialCode, materialName, warehouseId, binId } = where;
+  const { materialId, materialIds, materialCode, materialName, warehouseId, binId } = where;
   const filters: any = { quantity: { gt: 0 } };
-  if (materialId) filters.materialId = Number(materialId);
+  if (materialIds) {
+    const ids = String(materialIds).split(",").map((v) => Number(v)).filter((n) => Number.isFinite(n) && n > 0);
+    if (ids.length > 0) filters.materialId = { in: ids };
+  } else if (materialId) {
+    filters.materialId = Number(materialId);
+  }
   if (materialCode || materialName) {
     filters.material = {
       ...(materialCode && { code: { contains: materialCode } }),

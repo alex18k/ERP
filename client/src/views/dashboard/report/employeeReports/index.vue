@@ -99,10 +99,7 @@ onMounted(async () => {
           </template>
         </el-table-column>
         <el-table-column label="生产订单号" min-width="145" show-overflow-tooltip>
-          <template #default="{ row }">{{ row.batch?.productionOrder?.orderNo ?? '-' }}</template>
-        </el-table-column>
-        <el-table-column label="批次" width="90">
-          <template #default="{ row }">{{ row.batch ? `第${row.batch.batchNo}批` : '-' }}</template>
+          <template #default="{ row }">{{ row.productionOrder?.orderNo ?? '-' }}</template>
         </el-table-column>
         <el-table-column label="工序" width="120">
           <template #default="{ row }">{{ row.processStep ? `${row.processStep.code} ${row.processStep.name}` : '-' }}</template>

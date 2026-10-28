@@ -16,20 +16,6 @@ function fmt(d: string | null | undefined) {
   return d ? String(d).slice(0, 10) : '-'
 }
 
-const batches = computed(() => {
-  const map = new Map<number, any>()
-  for (const row of list.value) {
-    const b = row.batch
-    if (b?.id) map.set(b.id, b)
-  }
-  return [...map.values()]
-})
-
-const batchLabel = (batchId: number) => {
-  const b = batches.value.find((x: any) => x.id === batchId)
-  return b ? `第${b.batchNo}批` : '-'
-}
-
 const totalRequired = computed(() => list.value.reduce((s: number, r: any) => s + Number(r.requiredQty || 0), 0))
 const totalIssued = computed(() => list.value.reduce((s: number, r: any) => s + Number(r.issuedQty || 0), 0))
 const totalPending = computed(() => totalRequired.value - totalIssued.value)
@@ -48,7 +34,7 @@ onMounted(async () => {
   loadCompanyInfo()
   const orderNo = String(route.query.orderNo || '')
   if (!orderNo) return
-  const res: any = await productionApi.batchMaterials({ orderNo, pageSize: 500 })
+  const res: any = await productionApi.orderMaterials({ orderNo, pageSize: 500 })
   list.value = res.data.items || []
   const detail: any = await productionApi.orders({ pageSize: 5, orderNo })
   order.value = detail.data.items?.[0] || null
@@ -68,7 +54,7 @@ onMounted(async () => {
         <div>
           <div class="sh-brand">{{ companyName }}</div>
         </div>
-        <div class="sh-title">加工单领料单</div>
+        <div class="sh-title">生产领料单</div>
         <div class="sh-meta">
           <div><span>打印日期</span><b>{{ todayStr }}</b></div>
         </div>
@@ -78,10 +64,10 @@ onMounted(async () => {
         <div><span class="lb">生产订单</span>{{ order.orderNo }}</div>
         <div><span class="lb">产品</span>{{ order.material?.code }} - {{ order.material?.name }}</div>
         <div><span class="lb">订单数量</span>{{ order.quantity }}</div>
-        <div><span class="lb">批次数量</span>{{ batches.map((b: any) => `第${b.batchNo}批 ${b.quantity}`).join('　') || '-' }}</div>
+        <div><span class="lb">计划数量</span>{{ order.plannedQty ?? '-' }}</div>
         <div><span class="lb">计划周期</span>{{ fmt(order.planStartDate) }} ~ {{ fmt(order.planEndDate) }}</div>
         <div><span class="lb">计划员</span>{{ order.planner || '-' }}</div>
-        <div><span class="lb">工单状态</span>{{ order.status === 'in_progress' ? '生产中' : order.status === 'completed' ? '已完成' : order.status }}</div>
+        <div><span class="lb">工单状态</span>{{ order.execStatus === 'completed' ? '已完工' : order.status === 'closed' ? '已关闭' : order.status === 'planned' ? '已计划' : '生产中' }}</div>
         <div><span class="lb">销售订单</span>{{ order.salesOrder?.orderNo || '-' }}</div>
       </div>
 
@@ -89,7 +75,7 @@ onMounted(async () => {
         <thead>
           <tr>
             <th class="c" style="width: 34px">序</th>
-            <th class="c" style="width: 70px">批次</th>
+            <th class="c" style="width: 130px">生产订单号</th>
             <th style="width: 96px">物料编码</th>
             <th>物料名称 / 规格型号</th>
             <th class="c" style="width: 46px">单位</th>
@@ -103,7 +89,7 @@ onMounted(async () => {
         <tbody>
           <tr v-for="(row, idx) in list" :key="row.id">
             <td class="c">{{ Number(idx) + 1 }}</td>
-            <td class="c">{{ batchLabel(row.batchId) }}</td>
+            <td class="c">{{ row.productionOrder?.orderNo || '-' }}</td>
             <td>{{ row.material?.code }}</td>
             <td class="l">
               {{ row.material?.name }}

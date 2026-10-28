@@ -13,50 +13,137 @@ const query = reactive({ page: 1, pageSize: 20, orderNo: '', status: '' })
 const statusOptions = [
   { label: '已计划', value: 'planned', type: 'info' },
   { label: '生产中', value: 'in_progress', type: 'warning' },
-  { label: '已完成', value: 'completed', type: 'success' },
-  { label: '已取消', value: 'cancelled', type: 'danger' },
+  { label: '已关闭', value: 'closed', type: 'info' },
 ]
 
 const dialogVisible = ref(false)
 const submitting = ref(false)
 const currentOrder = ref<any>(null)
-const currentBatch = ref<any>(null)
+const currentWorkOrder = ref<any>(null)
 const detail = ref<any[]>([])
 const locationOptions = ref<{ code: string; name: string }[]>([])
-const form = reactive<any>({ batchId: null, warehouseId: null, issueQty: 0, effectiveDate: '' })
-let batchReqSeq = 0
+const form = reactive<any>({ warehouseId: null, issueQty: 0, effectiveDate: '' })
+let workOrderReqSeq = 0
 
-const bins = ref<any[]>([])
+// 可用库存按「领料明细行库位」计算：行库位代码 → 仓库；货位管理仓库选了货位则取该货位结存
+const stockTotals = ref<Map<string, number>>(new Map()) // `${warehouseId}|${materialId}` → 仓库结存合计
+const stockByBin = ref<Map<string, number>>(new Map()) // `${warehouseId}|${materialId}|${binId}`
+const binsByWarehouse = ref<Map<number, any[]>>(new Map())
 const activeWarehouses = computed(() => warehouses.value.filter((w: any) => w.status === 1))
 const selectedWarehouse = computed(() => warehouses.value.find((w: any) => w.id === form.warehouseId) || null)
-const binRequired = computed(() => selectedWarehouse.value?.binManaged === true)
+const warehouseByCode = computed(() => new Map(activeWarehouses.value.map((w: any) => [w.code, w])))
 
-async function loadBins() {
-  bins.value = []
-  const wh = selectedWarehouse.value
-  if (!wh?.binManaged) return
-  const res: any = await warehouseBinApi.list({ warehouseId: wh.id, status: 1, pageSize: 200 })
-  bins.value = res.data.items
+function rowWarehouse(row: any) {
+  if (row.location) return warehouseByCode.value.get(row.location) || null
+  return selectedWarehouse.value
+}
+function rowWarehouseId(row: any) {
+  return (rowWarehouse(row) as any)?.id ?? 0
+}
+function rowBinRequired(row: any) {
+  return (rowWarehouse(row) as any)?.binManaged === true
+}
+const hasBinRows = computed(() => detail.value.some((l: any) => rowBinRequired(l)))
+function rowBins(row: any) {
+  return binsByWarehouse.value.get(rowWarehouseId(row)) || []
 }
 
-async function onWarehouseChange() {
+async function loadWarehouseBins(whId: number) {
+  if (!whId || binsByWarehouse.value.has(whId)) return
+  const wh = activeWarehouses.value.find((w: any) => w.id === whId)
+  let list: any[] = []
+  if (wh?.binManaged) {
+    try {
+      const res: any = await warehouseBinApi.list({ warehouseId: whId, status: 1, pageSize: 200 })
+      list = res.data.items || []
+    } catch {
+      list = []
+    }
+  }
+  const next = new Map(binsByWarehouse.value)
+  next.set(whId, list)
+  binsByWarehouse.value = next
+}
+
+// 顶部「库位」= 批量设置：把所有行的库位改成所选仓库，之后再按行微调
+async function onWarehouseChange(warehouseId?: number | string) {
+  const wh = warehouses.value.find((w: any) => w.id === Number(warehouseId ?? form.warehouseId)) || selectedWarehouse.value
+  const code = wh?.code || ''
   for (const line of detail.value) {
+    if (code) line.location = code
     line.binId = null
     line.batchNo = ''
     line.batches = []
     line.batchesKey = ''
   }
-  await loadBins()
+  await loadStocks()
 }
 
-// 批号候选：该物料×仓库×货位尚有结存的批次，打开下拉时按需加载
+async function onRowLocationChange(row: any) {
+  row.binId = null
+  row.batchNo = ''
+  row.batches = []
+  row.batchesKey = ''
+  await loadWarehouseBins(rowWarehouseId(row))
+}
+
+// 按行库位批量取结存（一个仓库一次请求）
+async function loadStocks() {
+  stockTotals.value = new Map()
+  stockByBin.value = new Map()
+  const ids = [...new Set(detail.value.map((l: any) => Number(l.material?.id)).filter((n) => n > 0))]
+  const whIds = [...new Set(detail.value.map((l: any) => rowWarehouseId(l)).filter((n) => n > 0))]
+  if (ids.length === 0 || whIds.length === 0) return
+  const totals = new Map<string, number>()
+  const byBin = new Map<string, number>()
+  await Promise.all(
+    whIds.map(async (whId) => {
+      try {
+        const res: any = await stockApi.list({ warehouseId: whId, materialIds: ids.join(','), pageSize: 1000 })
+        for (const st of res.data.items || []) {
+          const mid = Number(st.materialId)
+          const qty = Number(st.quantity) || 0
+          const key = `${whId}|${mid}`
+          totals.set(key, (totals.get(key) ?? 0) + qty)
+          if (st.binId != null) {
+            const bkey = `${whId}|${mid}|${st.binId}`
+            byBin.set(bkey, (byBin.get(bkey) ?? 0) + qty)
+          }
+        }
+      } catch {
+        /* 库存读取失败不影响发料，按 0 展示 */
+      }
+    })
+  )
+  stockTotals.value = totals
+  stockByBin.value = byBin
+  await Promise.all(whIds.map((whId) => loadWarehouseBins(whId)))
+}
+
+function rowStock(row: any) {
+  const mid = Number(row.material?.id)
+  const whId = rowWarehouseId(row)
+  if (!mid || !whId) return 0
+  if (rowBinRequired(row) && row.binId != null) return stockByBin.value.get(`${whId}|${mid}|${row.binId}`) ?? 0
+  return stockTotals.value.get(`${whId}|${mid}`) ?? 0
+}
+
+// 本次发放（折算基本单位）是否超过当前库存
+function rowStockShort(row: any) {
+  const rate = Number(row.material?.unitRates?.[row.issueUnit]) || 1
+  const need = (Number(row.issueQty) || 0) * rate
+  return need > 0 && rowStock(row) + 1e-6 < need
+}
+
+// 批号候选：该物料×行库位仓库×货位尚有结存的批次，打开下拉时按需加载
 async function loadRowBatches(row: any) {
-  if (!form.warehouseId || !row.material?.id) return
-  const key = `${form.warehouseId}|${row.binId ?? ''}`
+  const whId = rowWarehouseId(row)
+  if (!whId || !row.material?.id) return
+  const key = `${whId}|${row.binId ?? ''}`
   if (row.batchesKey === key) return
   row.batchesLoading = true
   try {
-    const res: any = await stockApi.batches({ materialId: row.material.id, warehouseId: form.warehouseId, binId: binRequired.value && !row.binId ? "none" : row.binId || undefined, pageSize: 200 })
+    const res: any = await stockApi.batches({ materialId: row.material.id, warehouseId: whId, binId: rowBinRequired(row) && !row.binId ? "none" : row.binId || undefined, pageSize: 200 })
     row.batches = res.data.items || []
     row.batchesKey = key
   } catch {
@@ -94,9 +181,27 @@ function statusType(s: string) {
   return statusOptions.find((o) => o.value === s)?.type || 'info'
 }
 
-function batchList(order: any) {
-  // 已关闭批次不能领料
-  return (order?.batches || []).filter((b: any) => b.status !== 'cancelled' && b.status !== 'closed')
+// 发料进度标记：按领料明细 已发/需求量 汇总（不影响领料按钮，超发由后端跳过拦截）
+const issueProgressOptions: Record<string, { label: string; type: string }> = {
+  none: { label: '未领料', type: 'info' },
+  partial: { label: '部分领料', type: 'warning' },
+  issued: { label: '已发料', type: 'success' },
+}
+
+function issueProgress(order: any): string | null {
+  if (!order || order.execStatus === 'none') return null
+  const ms = order.materials || []
+  if (ms.length === 0) return null
+  const eps = 1e-6
+  if (ms.every((m: any) => (m.issuedQty ?? 0) >= (m.requiredQty ?? 0) - eps)) return 'issued'
+  if (ms.some((m: any) => (m.issuedQty ?? 0) > eps)) return 'partial'
+  return 'none'
+}
+
+function workOrderOf(order: any) {
+  // 未排产、已关闭的生产订单不能领料
+  if (!order || order.status === 'closed') return null
+  return order.execStatus !== 'none' && order.execStatus !== 'closed' ? order : null
 }
 
 async function loadData() {
@@ -117,34 +222,35 @@ async function loadWarehouses() {
 
 async function openDialog(order: any) {
   currentOrder.value = order
-  const batches = batchList(order)
-  if (batches.length === 0) {
-    ElMessage.warning('该生产订单尚未排产，无物料需求')
+  const wo = workOrderOf(order)
+  if (!wo) {
+    ElMessage.warning('该生产订单已关闭、尚未排产或执行已关闭，不能领料')
     return
   }
-  form.batchId = batches[0].id
   form.warehouseId = warehouseIdByLocation(activeWarehouses.value, order.material?.location) || activeWarehouses.value[0]?.id || null
   form.effectiveDate = todayStr()
   dialogVisible.value = true
-  await onBatchChange()
-  await loadBins()
+  workOrderReqSeq++
+  await onWorkOrderChange(wo.id)
+  // 顶部库位默认跟随明细行的共同库位（本单物料多在原料仓），没有共同库位时保留产品库位
+  const locCodes = [...new Set(detail.value.map((l: any) => l.location).filter(Boolean))]
+  const common = locCodes.length === 1 ? warehouseByCode.value.get(locCodes[0] as string) : null
+  if (common) form.warehouseId = (common as any).id
+  await loadStocks()
 }
 
-async function onBatchChange() {
-  const batchId = form.batchId
-  const reqSeq = ++batchReqSeq
-  const batch = batchList(currentOrder.value).find((b: any) => b.id === batchId)
-  currentBatch.value = batch || null
+async function onWorkOrderChange(workOrderId?: number) {
+  const id = workOrderId ?? workOrderOf(currentOrder.value)?.id
+  const reqSeq = ++workOrderReqSeq
+  currentWorkOrder.value = null
   detail.value = []
-  if (!batch) {
-    return
-  }
-  const res: any = await productionApi.batchMaterialsOfBatch(batch.id)
-  if (reqSeq !== batchReqSeq || form.batchId !== batchId) return
+  if (!id) return
+  const res: any = await productionApi.orderMaterialsOfOrder(id)
+  if (reqSeq !== workOrderReqSeq) return
   const data = res.data || {}
-  currentBatch.value = data
+  currentWorkOrder.value = data
   detail.value = (data.materials || []).map((m: any) => ({
-    batchMaterialId: m.id,
+    workOrderMaterialId: m.id,
     materialCode: m.material?.code,
     materialName: m.material?.name,
     material: m.material,
@@ -161,7 +267,7 @@ async function onBatchChange() {
     batchesLoading: false,
   }))
   buildLocationOptions()
-  form.issueQty = data.quantity ?? 0
+  form.issueQty = data.plannedQty ?? 0
   recalc()
 }
 
@@ -175,10 +281,10 @@ function rowUnitOptions(row: any): string[] {
 
 function recalc() {
   const qty = Number(form.issueQty) || 0
-  const batchQty = Number(currentBatch.value?.quantity) || 0
+  const planQty = Number(currentWorkOrder.value?.plannedQty) || 0
   for (const line of detail.value) {
     const remain = line.requiredQty - line.issuedQty
-    const perUnit = batchQty > 0 ? line.requiredQty / batchQty : 0
+    const perUnit = planQty > 0 ? line.requiredQty / planQty : 0
     const baseSuggest = Math.min(remain, Math.round(perUnit * qty * 100) / 100)
     const rate = line.material?.unitRates?.[line.issueUnit] || 1
     line.issueQty = rate > 0 ? Math.round((baseSuggest / rate) * 100) / 100 : baseSuggest
@@ -194,16 +300,29 @@ async function submit() {
     ElMessage.warning('批号管理物料必须选择批号')
     return
   }
+  const badLine = detail.value.find((l) => Number(l.issueQty) > 0 && !rowWarehouseId(l))
+  if (badLine) {
+    ElMessage.warning(`${badLine.materialCode} 的库位「${badLine.location || '空'}」未对应启用仓库，请重新选择`)
+    return
+  }
   const items = detail.value
     .filter((l) => Number(l.issueQty) > 0)
-    .map((l) => ({ batchMaterialId: l.batchMaterialId, quantity: l.issueQty, unit: l.issueUnit || undefined, location: l.location || undefined, binId: l.binId || undefined, batchNo: l.batchNo || undefined }))
+    .map((l) => ({
+      workOrderMaterialId: l.workOrderMaterialId,
+      quantity: l.issueQty,
+      unit: l.issueUnit || undefined,
+      location: l.location || undefined,
+      warehouseId: rowWarehouseId(l) || undefined,
+      binId: l.binId || undefined,
+      batchNo: l.batchNo || undefined,
+    }))
   if (items.length === 0) {
     ElMessage.warning('请填写发放数量')
     return
   }
   submitting.value = true
   try {
-    const res: any = await productionApi.issueBatch(currentBatch.value.id, { warehouseId: form.warehouseId, effectiveDate: form.effectiveDate || undefined, items })
+    const res: any = await productionApi.issueOrderMaterials(currentWorkOrder.value.id, { warehouseId: form.warehouseId, effectiveDate: form.effectiveDate || undefined, items })
     const issued = res.data?.issued || []
     const skipped = res.data?.skipped || []
     if (skipped.length === 0) {
@@ -235,7 +354,7 @@ onMounted(async () => {
   <div class="page-container">
     <div class="page-card">
       <div class="table-toolbar">
-        <span class="toolbar-title">生产发料（按生产订单）</span>
+        <span class="toolbar-title">生产领料</span>
         <div style="flex: 1" />
         <el-button @click="loadData"><el-icon><Refresh /></el-icon>刷新</el-button>
       </div>
@@ -260,17 +379,22 @@ onMounted(async () => {
           </template>
         </el-table-column>
         <el-table-column prop="quantity" label="数量" width="100" />
-        <el-table-column label="批次" width="90">
-          <template #default="{ row }">{{ batchList(row).length }}</template>
-        </el-table-column>
         <el-table-column label="状态" width="100">
           <template #default="{ row }">
             <el-tag size="small" :type="statusType(row.status)">{{ statusLabel(row.status) }}</el-tag>
           </template>
         </el-table-column>
+        <el-table-column label="发料状态" width="100">
+          <template #default="{ row }">
+            <el-tag v-if="issueProgress(row)" size="small" :type="issueProgressOptions[issueProgress(row)!].type as any">
+              {{ issueProgressOptions[issueProgress(row)!].label }}
+            </el-tag>
+            <span v-else>-</span>
+          </template>
+        </el-table-column>
         <el-table-column label="操作" width="90" fixed="right">
           <template #default="{ row }">
-            <el-button size="small" type="primary" link :disabled="batchList(row).length === 0" @click="openDialog(row)">发料</el-button>
+            <el-button size="small" type="primary" link :disabled="!workOrderOf(row)" @click="openDialog(row)">领料</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -280,24 +404,19 @@ onMounted(async () => {
       </div>
     </div>
 
-    <el-dialog v-model="dialogVisible" title="生产发料" width="960px" top="6vh" destroy-on-close>
+    <el-dialog v-model="dialogVisible" title="生产领料" width="960px" top="6vh" destroy-on-close>
       <el-descriptions :column="4" border size="small" style="margin-bottom: 12px">
         <el-descriptions-item label="生产订单">{{ currentOrder?.orderNo }}</el-descriptions-item>
         <el-descriptions-item label="产品">{{ currentOrder?.material?.code }} - {{ currentOrder?.material?.name }}</el-descriptions-item>
         <el-descriptions-item label="订单数量">{{ currentOrder?.quantity }}</el-descriptions-item>
-        <el-descriptions-item label="批次数量">{{ currentBatch?.quantity ?? '-' }}</el-descriptions-item>
       </el-descriptions>
 
       <el-form :model="form" label-width="110px" inline>
-        <el-form-item label="发放批次">
-          <el-select v-model="form.batchId" style="width: 200px" @change="onBatchChange">
-            <el-option v-for="b in batchList(currentOrder)" :key="b.id" :label="`第${b.batchNo}批（${b.quantity}）`" :value="b.id" />
-          </el-select>
-        </el-form-item>
         <el-form-item label="库位">
-          <el-select v-model="form.warehouseId" style="width: 220px" placeholder="选择库位" @change="onWarehouseChange">
+          <el-select v-model="form.warehouseId" style="width: 220px" placeholder="选择库位" @change="(v: number) => onWarehouseChange(v)">
             <el-option v-for="w in activeWarehouses" :key="w.id" :label="`${w.code} - ${w.name}`" :value="w.id" />
           </el-select>
+          <span class="batch-loc-tip">一键设置所有行；库存按每行库位计算，可在行内单独改</span>
         </el-form-item>
         <el-form-item label="生效日期">
           <el-date-picker v-model="form.effectiveDate" type="date" value-format="YYYY-MM-DD" placeholder="选择生效日期" style="width: 160px" />
@@ -323,15 +442,15 @@ onMounted(async () => {
         </el-table-column>
         <el-table-column label="库位" width="130">
           <template #default="{ row }">
-            <el-select v-model="row.location" size="small" filterable allow-create default-first-option clearable placeholder="库位" style="width: 100%">
+            <el-select v-model="row.location" size="small" filterable allow-create default-first-option clearable placeholder="库位" style="width: 100%" @change="onRowLocationChange(row)">
               <el-option v-for="l in locationOptions" :key="l.code" :label="l.name ? `${l.code} - ${l.name}` : l.code" :value="l.code" />
             </el-select>
           </template>
         </el-table-column>
-        <el-table-column v-if="binRequired" label="货位" width="150">
+        <el-table-column v-if="hasBinRows" label="货位" width="150">
           <template #default="{ row }">
             <el-select v-model="row.binId" size="small" filterable clearable placeholder="选择货位" style="width: 100%" @change="onRowBinChange(row)">
-              <el-option v-for="b in bins" :key="b.id" :label="`${b.code} - ${b.name}`" :value="b.id" />
+              <el-option v-for="b in rowBins(row)" :key="b.id" :label="`${b.code} - ${b.name}`" :value="b.id" />
             </el-select>
           </template>
         </el-table-column>
@@ -339,6 +458,11 @@ onMounted(async () => {
         <el-table-column prop="issuedQty" label="已发" width="90" />
         <el-table-column label="未发" width="90">
           <template #default="{ row }">{{ row.requiredQty - row.issuedQty }}</template>
+        </el-table-column>
+        <el-table-column label="当前库存" width="100" align="right">
+          <template #default="{ row }">
+            <span class="stock-num" :class="{ short: rowStockShort(row) }" :title="rowStockShort(row) ? '当前库存小于本次发放数量' : ''">{{ rowStock(row) }}</span>
+          </template>
         </el-table-column>
         <el-table-column label="本次发放" width="140">
           <template #default="{ row }">
@@ -370,3 +494,18 @@ onMounted(async () => {
     </el-dialog>
   </div>
 </template>
+
+<style scoped>
+.batch-loc-tip {
+  margin-left: 10px;
+  font-size: 12px;
+  color: var(--erp-steel);
+}
+.stock-num {
+  font-weight: 600;
+  color: var(--erp-ink);
+}
+.stock-num.short {
+  color: var(--erp-red);
+}
+</style>

@@ -3,6 +3,7 @@ import { ref, reactive, onMounted, onUnmounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { mrpApi, orderApi } from '../../../api'
 import { materialCategoryLabel } from '../../../utils/category'
+import { downloadCsv } from '../../../utils/download'
 
 const loading = ref(false)
 const history = ref<any[]>([])
@@ -96,6 +97,52 @@ async function viewResult(row: any) {
   resultDialogVisible.value = true
 }
 
+// ===== 历史清理：按日期范围删除，可先存档导出Excel(CSV) =====
+const cleanDialogVisible = ref(false)
+const cleanRange = ref<[string, string] | null>(null)
+const archiveExport = ref(true)
+const cleaning = ref(false)
+
+function openCleanDialog() {
+  cleanRange.value = null
+  archiveExport.value = true
+  cleaning.value = false
+  cleanDialogVisible.value = true
+}
+
+async function handleClean() {
+  if (!cleanRange.value || !cleanRange.value[0] || !cleanRange.value[1]) {
+    ElMessage.warning('请选择日期范围')
+    return
+  }
+  const [from, to] = cleanRange.value
+  try {
+    await ElMessageBox.confirm(
+      archiveExport.value
+        ? `将先导出 ${from} ~ ${to} 的MRP运算历史存档，然后删除该范围内的所有历史记录，删除后不可恢复。是否继续？`
+        : `将直接删除 ${from} ~ ${to} 的所有MRP运算历史记录（不导出存档），删除后不可恢复。是否继续？`,
+      '删除MRP历史确认',
+      { type: 'warning', confirmButtonText: '继续删除', cancelButtonText: '取消' }
+    )
+  } catch {
+    return
+  }
+  cleaning.value = true
+  try {
+    if (archiveExport.value) {
+      await downloadCsv('/mrp/history/export', `MRP运算历史_${from}_${to}`, { from, to })
+    }
+    const res: any = await mrpApi.deleteHistory({ from, to })
+    ElMessage.success(`已删除 ${res.data?.deletedRuns ?? 0} 条MRP运算历史${archiveExport.value ? '，存档已导出' : ''}`)
+    cleanDialogVisible.value = false
+    loadData()
+  } catch (e: any) {
+    ElMessage.error(e?.message || '删除失败')
+  } finally {
+    cleaning.value = false
+  }
+}
+
 onMounted(loadData)
 </script>
 
@@ -137,6 +184,9 @@ onMounted(loadData)
 </el-table>
 
       <div class="pagination-wrap">
+        <el-button @click="openCleanDialog">
+          <el-icon><Delete /></el-icon>清理历史记录
+        </el-button>
         <el-pagination v-model:current-page="query.page" v-model:page-size="query.pageSize" :total="total" layout="total, prev, pager, next" @change="loadData" />
       </div>
     </div>
@@ -163,6 +213,23 @@ onMounted(loadData)
       <template #footer>
         <el-button @click="runDialogVisible = false">取消</el-button>
         <el-button type="primary" :loading="running" @click="handleRun">开始运算</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 清理历史记录 -->
+    <el-dialog v-model="cleanDialogVisible" title="清理MRP历史记录" width="460px">
+      <el-form label-width="120px">
+        <el-form-item label="日期范围" required>
+          <el-date-picker v-model="cleanRange" type="daterange" value-format="YYYY-MM-DD" range-separator="至" start-placeholder="开始日期" end-placeholder="结束日期" style="width: 100%" />
+        </el-form-item>
+        <el-form-item label="存档导出">
+          <el-checkbox v-model="archiveExport">删除前导出到Excel（CSV存档）</el-checkbox>
+        </el-form-item>
+      </el-form>
+      <el-alert type="warning" :closable="false" show-icon title="将删除所选日期内（按运算开始时间）的全部历史记录及其缺料/未转单建议，运算中的记录不会被删除。" style="margin-top: 4px" />
+      <template #footer>
+        <el-button @click="cleanDialogVisible = false">取消</el-button>
+        <el-button type="danger" :loading="cleaning" @click="handleClean">{{ archiveExport ? '存档并删除' : '直接删除' }}</el-button>
       </template>
     </el-dialog>
 
@@ -252,3 +319,10 @@ onMounted(loadData)
     </el-dialog>
   </div>
 </template>
+
+<style scoped>
+.pagination-wrap {
+  justify-content: space-between;
+  align-items: center;
+}
+</style>

@@ -7,7 +7,7 @@ import { sendCsv } from "../utils/export";
 
 export async function exportHandler(_req: Request, res: Response) {
   try {
-    const { filename, csv } = await exportService.batchExport();
+    const { filename, csv } = await exportService.productionOrderExport();
     return sendCsv(res, filename, csv);
   } catch (error: any) {
     return fail(res, 500, error.message, 500);
@@ -80,10 +80,10 @@ export async function updateOrderHandler(req: Request, res: Response) {
   }
 }
 
-export async function cancelOrderHandler(req: Request, res: Response) {
+export async function closeOrderHandler(req: Request, res: Response) {
   try {
-    const data = await productionService.cancelProductionOrder(Number(req.params.id));
-    return success(res, data, "生产订单已取消");
+    const data = await productionService.closeProductionOrder(Number(req.params.id));
+    return success(res, data, "生产订单已关闭");
   } catch (error: any) {
     return fail(res, 400, error.message);
   }
@@ -110,8 +110,7 @@ export async function updateStatusHandler(req: AuthRequest, res: Response) {
 
 export async function scheduleHandler(req: AuthRequest, res: Response) {
   try {
-    const batches = Array.isArray(req.body?.batches) ? req.body.batches : undefined;
-    const data = await productionService.scheduleProduction(Number(req.params.id), req.user!.id, batches, req.body?.planner);
+    const data = await productionService.scheduleProduction(Number(req.params.id), req.user!.id, req.body?.planner);
     return success(res, data, "排产完成");
   } catch (error: any) {
     return fail(res, 400, error.message);
@@ -128,30 +127,33 @@ export async function schedulableOrdersHandler(_req: Request, res: Response) {
   }
 }
 
-// 直接指定批次状态
-export async function updateBatchStatusHandler(req: AuthRequest, res: Response) {
+// 直接指定执行状态
+export async function updateProductionOrderExecStatusHandler(req: AuthRequest, res: Response) {
   try {
-    const data = await productionService.updateProductionBatchStatus(Number(req.params.id), String(req.body?.status || ""));
-    return success(res, data, "批次状态已更新");
+    const data = await productionService.updateProductionOrderExecStatus(
+      Number(req.params.id),
+      String(req.body?.execStatus || req.body?.status || "")
+    );
+    return success(res, data, "执行状态已更新");
   } catch (error: any) {
     return fail(res, 400, error.message);
   }
 }
 
-// 批次关闭 / 重新打开
-export async function closeBatchHandler(req: AuthRequest, res: Response) {
+// 执行状态关闭 / 重新打开
+export async function closeProductionOrderExecHandler(req: AuthRequest, res: Response) {
   try {
-    const data = await productionService.closeProductionBatch(Number(req.params.id));
-    return success(res, data, "批次已关闭");
+    const data = await productionService.closeProductionOrderExec(Number(req.params.id));
+    return success(res, data, "执行已关闭");
   } catch (error: any) {
     return fail(res, 400, error.message);
   }
 }
 
-export async function reopenBatchHandler(req: AuthRequest, res: Response) {
+export async function reopenProductionOrderExecHandler(req: AuthRequest, res: Response) {
   try {
-    const data = await productionService.reopenProductionBatch(Number(req.params.id));
-    return success(res, data, "批次已重新打开");
+    const data = await productionService.reopenProductionOrderExec(Number(req.params.id));
+    return success(res, data, "执行已重新打开");
   } catch (error: any) {
     return fail(res, 400, error.message);
   }
@@ -167,9 +169,9 @@ export async function batchScheduleHandler(req: AuthRequest, res: Response) {
   }
 }
 
-export async function reportBatchHandler(req: AuthRequest, res: Response) {
+export async function reportWorkHandler(req: AuthRequest, res: Response) {
   try {
-    const data = await productionService.reportBatch(Number(req.params.id), req.body, req.user!.id);
+    const data = await productionService.reportWork(Number(req.params.id), req.body, req.user!.id);
     return success(res, data, "报工成功");
   } catch (error: any) {
     return fail(res, 400, error.message);
@@ -212,7 +214,7 @@ export async function workReportStatsHandler(req: Request, res: Response) {
     return fail(res, 500, error.message, 500);
   }
 }
-// ===== 批次物料清单 / 领料 / 入库 =====
+// ===== 生产订单领料单 / 领料 / 入库 =====
 export async function orderRouteHandler(req: Request, res: Response) {
   try {
     const data = await productionService.getProductionOrderRoute(Number(req.params.id));
@@ -241,87 +243,88 @@ export async function replaceOrderRouteStepsHandler(req: Request, res: Response)
   }
 }
 
-export async function batchMaterialsHandler(req: Request, res: Response) {
+export async function productionOrderMaterialsHandler(req: Request, res: Response) {
   try {
-    const data = await productionService.listBatchMaterials(req.query as any);
+    const data = await productionService.listProductionOrderMaterials(req.query as any);
     return success(res, data);
   } catch (error: any) {
     return fail(res, 500, error.message, 500);
   }
 }
 
-export async function issueBatchMaterialsHandler(req: AuthRequest, res: Response) {
+export async function issueProductionOrderMaterialsHandler(req: AuthRequest, res: Response) {
   try {
     const items = Array.isArray(req.body?.items) ? req.body.items : [];
-    const data = await productionService.issueBatchMaterials(
+    const data = await productionService.issueProductionOrderMaterials(
       Number(req.params.id),
       Number(req.body?.warehouseId),
       items,
       req.user!.id,
       req.body?.effectiveDate
     );
-    return success(res, data, "发料完成");
+    return success(res, data, "领料完成");
   } catch (error: any) {
     return fail(res, 400, error.message);
   }
 }
 
-export async function batchMaterialsDetailHandler(req: Request, res: Response) {
+export async function productionOrderMaterialsDetailHandler(req: Request, res: Response) {
   try {
-    const data = await productionService.getBatchMaterials(Number(req.params.id));
+    const data = await productionService.getProductionOrderMaterials(Number(req.params.id));
     return success(res, data);
   } catch (error: any) {
     return fail(res, 400, error.message);
   }
 }
 
-export async function createBatchMaterialHandler(req: AuthRequest, res: Response) {
+export async function createProductionOrderMaterialHandler(req: AuthRequest, res: Response) {
   try {
-    const data = await productionService.createBatchMaterial(Number(req.params.id), req.body);
+    const data = await productionService.createProductionOrderMaterial(Number(req.params.id), req.body);
     return success(res, data, "物料行已添加");
   } catch (error: any) {
     return fail(res, 400, error.message);
   }
 }
 
-export async function updateBatchMaterialHandler(req: Request, res: Response) {
+export async function updateProductionOrderMaterialHandler(req: Request, res: Response) {
   try {
-    const data = await productionService.updateBatchMaterial(Number(req.params.id), req.body);
+    const data = await productionService.updateProductionOrderMaterial(Number(req.params.id), req.body);
     return success(res, data, "物料行已更新");
   } catch (error: any) {
     return fail(res, 400, error.message);
   }
 }
 
-export async function deleteBatchMaterialHandler(req: Request, res: Response) {
+export async function deleteProductionOrderMaterialHandler(req: Request, res: Response) {
   try {
-    const data = await productionService.deleteBatchMaterial(Number(req.params.id));
+    const data = await productionService.deleteProductionOrderMaterial(Number(req.params.id));
     return success(res, data, "物料行已删除");
   } catch (error: any) {
     return fail(res, 400, error.message);
   }
 }
 
-export async function receivableBatchesHandler(req: Request, res: Response) {
+export async function receivableProductionOrdersHandler(req: Request, res: Response) {
   try {
-    const data = await productionService.listReceivableBatches(req.query as any);
+    const data = await productionService.listReceivableProductionOrders(req.query as any);
     return success(res, data);
   } catch (error: any) {
     return fail(res, 500, error.message, 500);
   }
 }
 
-export async function receiveBatchHandler(req: AuthRequest, res: Response) {
+export async function receiveProductionOrderHandler(req: AuthRequest, res: Response) {
   try {
-    const { quantity, warehouseId, batchNo, unit, binId } = req.body || {};
-    const data = await productionService.receiveBatchProduct(
+    const { quantity, warehouseId, batchNo, unit, binId, closeWorkOrder } = req.body || {};
+    const data = await productionService.receiveProductionOrderProduct(
       Number(req.params.id),
       Number(quantity),
       Number(warehouseId),
       req.user!.id,
       batchNo,
       unit,
-      binId
+      binId,
+      closeWorkOrder === true
     );
     return success(res, data, "生产入库成功");
   } catch (error: any) {

@@ -88,6 +88,7 @@ const rows = computed(() => {
       out.push({
         orderId: o.id,
         orderNo: o.orderNo,
+        line: it.line,
         supplierName: o.supplier?.name || '未指定',
         status: o.status,
         expectedDate: o.expectedDate ? String(o.expectedDate).slice(0, 10) : '',
@@ -116,6 +117,16 @@ function dueClass(row: any) {
 
 const pendingRows = computed(() => rows.value.filter((r) => r.receivable).length)
 const overdueRows = computed(() => rows.value.filter((r) => dueClass(r) === 'due-overdue').length)
+
+// 未收量配色：一行未收红色、部分未收橙色、已收满绿色、明细已关闭/取消灰色（与采购单列表的已收配色同口径）
+function remainingClass(row: any) {
+  const remain = Number(row.remaining) || 0
+  if (remain <= 0) return 'qty-full'
+  // 收货录入弹窗的行天然都是可收行（行上没有 receivable 字段），只有显式 false 才算不可收
+  if (row.receivable === false) return 'qty-blocked'
+  if (Number(row.receivedQty) > 0) return 'qty-partial'
+  return 'qty-none'
+}
 
 const receiveLines = computed(() => receiveItems.value.filter((it) => Number(it.receiveQty) > 0))
 const receiveTotalQty = computed(() => receiveLines.value.reduce((s, it) => s + Number(it.receiveQty || 0), 0))
@@ -156,6 +167,7 @@ async function openReceive(row: any) {
       const location = it.location || it.material?.location || ''
       return {
         itemId: it.id,
+        line: it.line,
         status: it.status,
         materialId: it.materialId ?? it.material?.id,
         materialCode: it.material?.code,
@@ -319,6 +331,7 @@ onMounted(async () => {
 
       <el-table :data="rows" v-loading="loading" stripe max-height="calc(100vh - 300px)">
         <el-table-column prop="orderNo" label="采购单号" width="150" />
+        <el-table-column prop="line" label="行号" width="70" align="center" />
         <el-table-column prop="supplierName" label="供应商" min-width="180" show-overflow-tooltip />
         <el-table-column prop="materialCode" label="物料编码" width="120" show-overflow-tooltip />
         <el-table-column prop="materialName" label="物料名称" min-width="150" show-overflow-tooltip />
@@ -333,7 +346,7 @@ onMounted(async () => {
         <el-table-column prop="receivedQty" label="已收" width="80" align="right" />
         <el-table-column label="未收" width="80" align="right">
           <template #default="{ row }">
-            <b :class="{ 'due-today': row.receivable }">{{ row.remaining }}</b>
+            <span :class="remainingClass(row)">{{ row.remaining }}</span>
           </template>
         </el-table-column>
         <el-table-column prop="unitPrice" label="单价" width="90" align="right" />
@@ -407,6 +420,7 @@ onMounted(async () => {
       </div>
 
       <el-table class="ship-items" :data="receiveItems" size="small" stripe max-height="356px" :row-class-name="receiveRowClass">
+        <el-table-column prop="line" label="行号" width="60" align="center" />
         <el-table-column label="物料" min-width="180">
           <template #default="{ row }">
             <div>{{ row.materialCode }} - {{ row.materialName }}</div>
@@ -417,7 +431,7 @@ onMounted(async () => {
         <el-table-column prop="quantity" label="采购数量" width="90" align="right" />
         <el-table-column prop="receivedQty" label="已收" width="70" align="right" />
         <el-table-column label="未收" width="70" align="right">
-          <template #default="{ row }">{{ row.remaining }}</template>
+          <template #default="{ row }"><span :class="remainingClass(row)">{{ row.remaining }}</span></template>
         </el-table-column>
         <el-table-column label="本次收货" width="110">
           <template #default="{ row }">
@@ -497,6 +511,21 @@ onMounted(async () => {
 .due-today {
   color: var(--erp-amber);
   font-weight: 600;
+}
+.qty-none {
+  color: var(--erp-red);
+  font-weight: 600;
+}
+.qty-partial {
+  color: var(--erp-amber);
+  font-weight: 600;
+}
+.qty-full {
+  color: var(--erp-green);
+  font-weight: 600;
+}
+.qty-blocked {
+  color: var(--erp-steel);
 }
 .empty-tip {
   font-size: 12px;

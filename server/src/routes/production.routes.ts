@@ -16,32 +16,30 @@ router.get("/orders/schedulable", requirePermission("production:view"), producti
 router.post("/orders", requirePermission("production:manage"), productionController.createOrderHandler);
 router.put("/orders/:id", requirePermission("production:manage"), productionController.updateOrderHandler);
 router.put("/orders/:id/status", requirePermission("production:manage"), productionController.updateStatusHandler);
-router.put("/orders/:id/cancel", requirePermission("production:manage"), productionController.cancelOrderHandler);
+router.put("/orders/:id/close-order", requirePermission("production:manage"), productionController.closeOrderHandler);
 router.delete("/orders/:id", requirePermission("production:manage"), operationLog("production", "delete"), productionController.deleteOrderHandler);
 router.post("/orders/batch-schedule", requirePermission("production:manage"), productionController.batchScheduleHandler);
-router.put("/batches/:id/status", requirePermission("production:manage"), productionController.updateBatchStatusHandler);
-router.put("/batches/:id/close", requirePermission("production:manage"), productionController.closeBatchHandler);
-router.put("/batches/:id/reopen", requirePermission("production:manage"), productionController.reopenBatchHandler);
 router.post("/orders/:id/schedule", requirePermission("production:manage"), productionController.scheduleHandler);
 
-// 报工（直接挂批次 + 订单级工序）
-router.post("/batches/:id/report", requirePermission("production:report"), productionController.reportBatchHandler);
+// 生产订单领料单 / 领料 / 入库
+router.get("/order-materials", requirePermission("production:view"), productionController.productionOrderMaterialsHandler);
+router.get("/orders/receivable", requirePermission("production:view"), productionController.receivableProductionOrdersHandler);
+router.get("/orders/:id/materials", requirePermission("production:view"), productionController.productionOrderMaterialsDetailHandler);
+router.post("/orders/:id/materials", requirePermission("production:manage"), productionController.createProductionOrderMaterialHandler);
+router.put("/order-materials/:id", requirePermission("production:manage"), productionController.updateProductionOrderMaterialHandler);
+router.delete("/order-materials/:id", requirePermission("production:manage"), productionController.deleteProductionOrderMaterialHandler);
+router.put("/orders/:id/exec-status", requirePermission("production:manage"), productionController.updateProductionOrderExecStatusHandler);
+router.put("/orders/:id/close", requirePermission("production:manage"), productionController.closeProductionOrderExecHandler);
+router.put("/orders/:id/reopen", requirePermission("production:manage"), productionController.reopenProductionOrderExecHandler);
+router.post("/orders/:id/report", requirePermission("production:report"), productionController.reportWorkHandler);
 router.post("/batch-report", requirePermission("production:report"), productionController.batchReportHandler);
-
-// 批次物料清单 / 发料 / 入库
 router.get("/orders/:id/route", requirePermission("production:view"), productionController.orderRouteHandler);
 router.put("/orders/:id/route", requirePermission("production:manage"), productionController.updateOrderRouteHandler);
 router.put("/orders/:id/route/steps", requirePermission("production:manage"), productionController.replaceOrderRouteStepsHandler);
-router.get("/batch-materials", requirePermission("production:view"), productionController.batchMaterialsHandler);
-router.post("/batches/:id/materials", requirePermission("production:manage"), productionController.createBatchMaterialHandler);
-router.put("/batch-materials/:id", requirePermission("production:manage"), productionController.updateBatchMaterialHandler);
-router.delete("/batch-materials/:id", requirePermission("production:manage"), productionController.deleteBatchMaterialHandler);
-router.get("/batches/receivable", requirePermission("production:view"), productionController.receivableBatchesHandler);
-router.get("/batches/:id/materials", requirePermission("production:view"), productionController.batchMaterialsDetailHandler);
-router.post("/batches/:id/issue", requirePermission("stock:edit"), operationLog("stock", "issue"), productionController.issueBatchMaterialsHandler);
-router.post("/batches/:id/receive", requirePermission("stock:edit"), operationLog("stock", "receive"), productionController.receiveBatchHandler);
+router.post("/orders/:id/issue", requirePermission("stock:edit"), operationLog("stock", "issue"), productionController.issueProductionOrderMaterialsHandler);
+router.post("/orders/:id/receive", requirePermission("stock:edit"), operationLog("stock", "receive"), productionController.receiveProductionOrderHandler);
 
-// 导出（按批次）
+// 导出（生产订单执行信息）
 router.get("/export", requirePermission("production:view"), productionController.exportHandler);
 // 员工报工报表导出
 router.get("/employee-report-export", requirePermission("production:view"), productionController.employeeReportExportHandler);

@@ -11,8 +11,7 @@ const query = reactive({ page: 1, pageSize: 20, orderNo: '', status: '', materia
 const statusOptions = [
   { label: '已计划', value: 'planned', type: 'info' },
   { label: '生产中', value: 'in_progress', type: 'warning' },
-  { label: '已完成', value: 'completed', type: 'success' },
-  { label: '已取消', value: 'cancelled', type: 'danger' },
+  { label: '已关闭', value: 'closed', type: 'info' },
 ]
 
 const createDialogVisible = ref(false)
@@ -21,10 +20,18 @@ const suggestions = ref<any[]>([])
 const selectedProd = ref<number[]>([])
 const creating = ref(false)
 
-function orderScheduledQty(row: any) {
-  return (row.batches || [])
-    .filter((b: any) => b.status !== 'cancelled')
-    .reduce((s: number, b: any) => s + b.quantity, 0)
+const execStatusOptions = [
+  { label: '未排产', value: 'none', type: 'info' },
+  { label: '待开工', value: 'pending', type: 'info' },
+  { label: '生产中', value: 'in_progress', type: 'warning' },
+  { label: '已完成', value: 'completed', type: 'success' },
+  { label: '已关闭', value: 'closed', type: 'info' },
+]
+function execStatusLabel(s: any) {
+  return execStatusOptions.find((o) => o.value === s)?.label || s || '-'
+}
+function execStatusType(s: any) {
+  return execStatusOptions.find((o) => o.value === s)?.type || 'info'
 }
 
 async function loadData() {
@@ -138,13 +145,9 @@ onMounted(() => {
         <el-table-column label="下达日期" width="110">
           <template #default="{ row }">{{ row.releaseDate?.slice(0, 10) || '-' }}</template>
         </el-table-column>
-        <el-table-column label="批次" width="80">
-          <template #default="{ row }">{{ row.batches?.length || 0 }}</template>
-        </el-table-column>
-        <el-table-column label="批次/已排" width="120">
+        <el-table-column label="执行状态" width="100">
           <template #default="{ row }">
-            <span v-if="(row.batches || []).length">{{ row.batches.length }} 批 / {{ orderScheduledQty(row) }}</span>
-            <span v-else>-</span>
+            <el-tag size="small" round :type="execStatusType(row.execStatus)">{{ execStatusLabel(row.execStatus) }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column label="状态" width="90">

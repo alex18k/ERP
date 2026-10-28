@@ -2,6 +2,7 @@ import prisma from "../config/prisma";
 import { Prisma } from "@prisma/client";
 import { localDateCompact } from "../utils/date";
 import { retryOnDuplicate, lockOrderNo, ORDER_NO_LOCK } from "../utils/retry";
+import { toCsv } from "../utils/export";
 import { toBaseQty } from "../utils/unit";
 
 // MRP 单实例锁键（PostgreSQL advisory lock，任意私有常量）
@@ -46,6 +47,8 @@ interface ShortageItem {
 interface OrderDemand {
   orderId: number;
   orderNo: string;
+  productCode?: string;
+  productName?: string;
   quantity: number;
   needDate: Date | null;
 }
@@ -54,7 +57,7 @@ interface DemandBucket {
   needDate: Date | null;
   anchor: number | null;
   grossDemand: number;
-  orders: { orderId: number; orderNo: string; quantity: number; deliveryDate: Date | null }[];
+  orders: { orderId: number; orderNo: string; productCode?: string; productName?: string; quantity: number; deliveryDate: Date | null }[];
 }
 
 // 按订货周期对需求分桶：与桶内最早需求日期间隔在周期内的合并，超出则新开一桶
@@ -75,7 +78,7 @@ function bucketByOrderCycle(demands: OrderDemand[], cycleDays: number): DemandBu
         ? t === null
         : t !== null && t - last.anchor <= cycleDays * dayMs
       : false;
-    const entry = { orderId: d.orderId, orderNo: d.orderNo, quantity: d.quantity, deliveryDate: d.needDate };
+    const entry = { orderId: d.orderId, orderNo: d.orderNo, productCode: d.productCode, productName: d.productName, quantity: d.quantity, deliveryDate: d.needDate };
     if (within) {
       last.grossDemand += d.quantity;
       last.orders.push(entry);
@@ -144,6 +147,8 @@ interface ExpandedDemand {
   quantity: number;
   orderId: number;
   orderNo: string;
+  productCode?: string; // 需求来源产品（销售订单产品 / 手工生产订单产出品）
+  productName?: string;
   needDate: Date | null;
   isSemiProduct: boolean;
 }
@@ -177,6 +182,7 @@ async function expandDemand(
   quantity: number,
   orderId: number,
   orderNo: string,
+  product: { code: string; name: string } | undefined,
   needDate: Date | null,
   cache: MrpCache,
   visited: Set<number> = new Set(),
@@ -200,7 +206,7 @@ async function expandDemand(
   visited.add(materialId);
 
   // 子件需求日期 = 父件需求日期 − 父件生产提前期（父件为制造件时）。
-  // 源单为上层生产/加工单：采购件需求日期 = 上层加工单需求日期 − 上层生产提前期；逐层向下累加。
+  // 源单为上层生产订单：采购件需求日期 = 上层订单需求日期 − 上层生产提前期；逐层向下累加。
   const parentMaterial = materialMap.get(materialId);
   const parentOffsetDays =
     parentMaterial?.category === "manufacture"
@@ -225,11 +231,11 @@ async function expandDemand(
     const hasSubBom = bomMap.has(item.materialId);
 
     if (hasSubBom) {
-      results.push({ materialId: item.materialId, quantity: totalQty, orderId, orderNo, needDate: childNeedDate, isSemiProduct: true });
-      const sub = await expandDemand(item.materialId, totalQty, orderId, orderNo, childNeedDate, cache, visited, depth + 1);
+      results.push({ materialId: item.materialId, quantity: totalQty, orderId, orderNo, productCode: product?.code, productName: product?.name, needDate: childNeedDate, isSemiProduct: true });
+      const sub = await expandDemand(item.materialId, totalQty, orderId, orderNo, product, childNeedDate, cache, visited, depth + 1);
       results.push(...sub);
     } else {
-      results.push({ materialId: item.materialId, quantity: totalQty, orderId, orderNo, needDate: childNeedDate, isSemiProduct: false });
+      results.push({ materialId: item.materialId, quantity: totalQty, orderId, orderNo, productCode: product?.code, productName: product?.name, needDate: childNeedDate, isSemiProduct: false });
     }
   }
 
@@ -255,28 +261,31 @@ export async function runMrp(params: MrpParams = {}, userId?: number, existingRu
       // 计量单位换算：销售明细按录入单位录入，MRP 需求按基本单位展开
       const baseQty = item.baseQty && item.baseQty > 0 ? item.baseQty : item.quantity;
       // 成品自身需求也要统计（用于跟踪）
+      const product = item.material ? { code: item.material.code, name: item.material.name } : undefined;
       allDemands.push({
         materialId: item.materialId,
         quantity: baseQty,
         orderId: order.id,
         orderNo: order.orderNo,
+        productCode: product?.code,
+        productName: product?.name,
         needDate: item.deliveryDate ?? order.deliveryDate ?? null,
         isSemiProduct: true,
       });
 
-      const expanded = await expandDemand(item.materialId, baseQty, order.id, order.orderNo, item.deliveryDate ?? order.deliveryDate ?? null, cache);
+      const expanded = await expandDemand(item.materialId, baseQty, order.id, order.orderNo, product, item.deliveryDate ?? order.deliveryDate ?? null, cache);
       allDemands.push(...expanded);
     }
   }
 
   // 已排产的制造件已由自己的生产订单承担下层用料：父单不再递归展开它的 BOM，
-  // 否则“父单 BOM 展开”和“子件订单批次用料”会重复计算下层需求。
+  // 否则“父单 BOM 展开”和“子件订单领料单”会重复计算下层需求。
   const scheduledProducedMaterialIds = new Set<number>(
     (
       await prisma.productionOrder.findMany({
         where: {
           status: { in: ["planned", "in_progress"] },
-          batches: { some: { status: { in: ["planned", "in_progress"] } } },
+          execStatus: { in: ["pending", "in_progress"] },
         },
         select: { materialId: true },
         distinct: ["materialId"],
@@ -284,14 +293,15 @@ export async function runMrp(params: MrpParams = {}, userId?: number, existingRu
     ).map((o) => o.materialId)
   );
 
-  // 只有已排产（存在 planned/in_progress 批次）的手工加工单参与 MRP；
-  // 未排产的手工单不产生需求。已排产批次按用料清单的 requiredQty（BOM 快照，含损耗/单位换算）计入子件需求。
+  // 只有已排产（执行状态为待开工/生产中）的手工生产订单参与 MRP；
+  // 未排产的手工单不产生需求。已排产订单按领料单的 requiredQty（BOM 快照，含损耗/单位换算）计入子件需求。
   // 用负的生产订单 id 作为需求来源标识，避免与销售订单 id 冲突。
   const manualProductionOrders = await prisma.productionOrder.findMany({
     where: {
       salesOrderId: null,
       status: { in: ["planned", "in_progress"] },
-      batches: { some: { status: { in: ["planned", "in_progress"] } } },
+      // 未排产（execStatus = none）的手工单不参与需求，靠 execStatus 白名单剔除
+      execStatus: { in: ["pending", "in_progress"] },
     },
     select: {
       id: true,
@@ -299,53 +309,50 @@ export async function runMrp(params: MrpParams = {}, userId?: number, existingRu
       materialId: true,
       planStartDate: true,
       releaseDate: true,
-      batches: {
-        where: { status: { in: ["planned", "in_progress"] } },
-        select: {
-          quantity: true,
-          planStartDate: true,
-          materials: { select: { materialId: true, requiredQty: true } },
-        },
-      },
+      plannedQty: true,
+      startTime: true,
+      material: { select: { code: true, name: true } },
+      materials: { select: { materialId: true, requiredQty: true } },
     },
   });
   for (const po of manualProductionOrders) {
     const sourceOrderId = -po.id;
 
-    // 已完成/已取消批次的用料已消耗，不再重复要料
-    for (const batch of po.batches) {
-      const needDate = batch.planStartDate ?? po.planStartDate ?? po.releaseDate ?? null;
-      if (batch.materials.length === 0) {
-        // 兼容历史/异常数据：已排产但缺用料清单的批次，按当前 BOM 展开
-        const expanded = await expandDemand(po.materialId, Number(batch.quantity || 0), sourceOrderId, po.orderNo, needDate, cache);
-        allDemands.push(...expanded);
-        continue;
-      }
-      for (const m of batch.materials) {
-        const requiredQty = Number(m.requiredQty || 0);
-        if (requiredQty <= 1e-6) continue;
-        const hasSubBom = cache.bomMap.has(m.materialId);
-        allDemands.push({
-          materialId: m.materialId,
-          quantity: requiredQty,
-          orderId: sourceOrderId,
-          orderNo: po.orderNo,
-          needDate,
-          isSemiProduct: hasSubBom,
-        });
-        // 制造类子件继续展开其 BOM：expandDemand 会按“子件需求日 − 子件制造提前期”
-        // 计算下下层需求日，采购件再按自身采购提前期倒推建议下单日。
-        // 若该子件已有已排产的生产订单，则由该订单的批次用料承担，父单不再展开，避免重复。
-        if (hasSubBom && !scheduledProducedMaterialIds.has(m.materialId)) {
-          const subDemands = await expandDemand(m.materialId, requiredQty, sourceOrderId, po.orderNo, needDate, cache);
-          allDemands.push(...subDemands);
-        }
+    // 已完成/已关闭订单的用料已消耗，不再重复要料（查询已限定 pending/in_progress）
+    const needDate = po.startTime ?? po.planStartDate ?? po.releaseDate ?? null;
+    const poProduct = po.material ? { code: po.material.code, name: po.material.name } : undefined;
+    if (po.materials.length === 0) {
+      // 兼容历史/异常数据：已排产但缺领料单的订单，按当前 BOM 展开
+      const expanded = await expandDemand(po.materialId, Number(po.plannedQty || 0), sourceOrderId, po.orderNo, poProduct, needDate, cache);
+      allDemands.push(...expanded);
+      continue;
+    }
+    for (const m of po.materials) {
+      const requiredQty = Number(m.requiredQty || 0);
+      if (requiredQty <= 1e-6) continue;
+      const hasSubBom = cache.bomMap.has(m.materialId);
+      allDemands.push({
+        materialId: m.materialId,
+        quantity: requiredQty,
+        orderId: sourceOrderId,
+        orderNo: po.orderNo,
+        productCode: poProduct?.code,
+        productName: poProduct?.name,
+        needDate,
+        isSemiProduct: hasSubBom,
+      });
+      // 制造类子件继续展开其 BOM：expandDemand 会按“子件需求日 − 子件制造提前期”
+      // 计算下下层需求日，采购件再按自身采购提前期倒推建议下单日。
+      // 若该子件已有已排产的生产订单，则由该订单的领料单承担，父单不再展开，避免重复。
+      if (hasSubBom && !scheduledProducedMaterialIds.has(m.materialId)) {
+        const subDemands = await expandDemand(m.materialId, requiredQty, sourceOrderId, po.orderNo, poProduct, needDate, cache);
+        allDemands.push(...subDemands);
       }
     }
   }
 
   // 汇总毛需求（按物料 × 订单明细行分组：同一订单不同明细行交货期各算一行）
-  interface LineDemand { orderId: number; orderNo: string; quantity: number; needDate: Date | null; }
+  interface LineDemand { orderId: number; orderNo: string; productCode?: string; productName?: string; quantity: number; needDate: Date | null; }
   const demandMap = new Map<number, Map<string, LineDemand>>(); // materialId -> lineKey -> demand
   const materialIds = new Set<number>();
 
@@ -353,10 +360,11 @@ export async function runMrp(params: MrpParams = {}, userId?: number, existingRu
     materialIds.add(d.materialId);
     if (!demandMap.has(d.materialId)) demandMap.set(d.materialId, new Map());
     const lineMap = demandMap.get(d.materialId)!;
-    const lineKey = `${d.orderId}|${d.needDate ? d.needDate.getTime() : "null"}`;
+    // 同一订单同交期但产品不同时不合并，保证需求来源能显示对应产品
+    const lineKey = `${d.orderId}|${d.needDate ? d.needDate.getTime() : "null"}|${d.productCode || ""}`;
     const prev = lineMap.get(lineKey);
     if (prev) prev.quantity += d.quantity;
-    else lineMap.set(lineKey, { orderId: d.orderId, orderNo: d.orderNo, quantity: d.quantity, needDate: d.needDate });
+    else lineMap.set(lineKey, { orderId: d.orderId, orderNo: d.orderNo, productCode: d.productCode, productName: d.productName, quantity: d.quantity, needDate: d.needDate });
   }
 
   // 物料信息全部来自缓存（一次查询），无需再次查询
@@ -385,23 +393,26 @@ export async function runMrp(params: MrpParams = {}, userId?: number, existingRu
   }
 
   // 在制量（在途供给）：未完工生产订单（planned/in_progress）中尚未完工入库的数量。
-  // 已发料量（承诺量）：已按未完工生产订单发料（ProductionBatchMaterial.issuedQty）的物料，库存已扣、不会退回。
+  // 已发料量（承诺量）：已按未完工生产订单发料（ProductionOrderMaterial.issuedQty）的物料，库存已扣、不会退回。
   const openProductionRows = await prisma.productionOrder.findMany({
-    where: { materialId: { in: [...materialIds] }, status: { in: ["planned", "in_progress"] } },
+    // 已完工（execStatus=completed）不再计入在制供给
+    where: { materialId: { in: [...materialIds] }, status: { in: ["planned", "in_progress"] }, execStatus: { not: "completed" } },
     select: {
       materialId: true,
       salesOrderId: true,
       quantity: true,
-      batches: { where: { status: { not: "cancelled" } }, select: { status: true, quantity: true, receivedQty: true } },
+      plannedQty: true,
+      receivedQty: true,
+      execStatus: true,
     },
   });
     const wipMap = new Map<number, number>(); // materialId -> 在制供给量
     const openByOrderKey = new Map<string, number>(); // `${materialId}:${salesOrderId}` -> 在制量（生产建议扣减用）
     const manualWipMap = new Map<number, number>(); // materialId -> 手工生产订单（无销售订单）在制剩余量
   for (const o of openProductionRows) {
-    // 已关闭批次不参与 MRP：其计划数量从在制量中剔除
-    const closedQty = o.batches.filter((b) => b.status === "closed").reduce((s, b) => s + b.quantity, 0);
-    const received = o.batches.filter((b) => b.status !== "closed").reduce((s, b) => s + b.receivedQty, 0);
+    // 已关闭/已取消订单不参与 MRP：关闭的计划数量从在制量中剔除，取消视为未排产
+    const closedQty = o.execStatus === "closed" ? o.plannedQty : 0;
+    const received = o.execStatus !== "closed" ? o.receivedQty : 0;
     const remaining = Math.max(0, o.quantity - closedQty - received);
     if (remaining <= 0) continue;
     wipMap.set(o.materialId, (wipMap.get(o.materialId) ?? 0) + remaining);
@@ -413,12 +424,16 @@ export async function runMrp(params: MrpParams = {}, userId?: number, existingRu
     }
   }
 
-  const issuedWipRows = await prisma.productionBatchMaterial.findMany({
+  const issuedWipRows = await prisma.productionOrderMaterial.findMany({
     where: {
       materialId: { in: [...materialIds] },
       issuedQty: { gt: 0 },
-      // 已完成批次的用料已经转化为成品/入库，不能再次冲抵需求
-      batch: { status: { in: ["planned", "in_progress"] }, productionOrder: { status: { in: ["planned", "in_progress"] } } },
+      // 已完成订单的用料已经转化为成品/入库，不能再次冲抵需求
+      productionOrder: {
+        status: { in: ["planned", "in_progress"] },
+        // 已排产判据：execStatus 白名单已隐含非 none
+        execStatus: { in: ["pending", "in_progress"] },
+      },
     },
     select: { materialId: true, issuedQty: true },
   });
@@ -429,6 +444,14 @@ export async function runMrp(params: MrpParams = {}, userId?: number, existingRu
 
   // 计算净需求（按物料的订货周期对需求分桶：周期内合并，周期外拆分）
   const shortages: ShortageItem[] = [];
+  // MRP信息检查表：全部参与运算的物料（含无短缺行），按物料×需求日期分桶
+  const checkLines: {
+    materialId: number; category: string | null; unit: string | null;
+    needDate: Date | null; currentStock: number; grossDemand: number; safetyStock: number;
+    stockQuantity: number; inTransit: number; wipQuantity: number; issuedQuantity: number;
+    netDemand: number; leadTime: number | null; orderDate: Date | null;
+    suggestedPurchaseQty: number; suggestedProductionQty: number; sourceOrders: string;
+  }[] = [];
   for (const materialId of demandMap.keys()) {
     const material = materialMap.get(materialId);
     if (!material) continue;
@@ -443,6 +466,8 @@ export async function runMrp(params: MrpParams = {}, userId?: number, existingRu
     const orderDemands: OrderDemand[] = [...demandMap.get(materialId)!.values()].map((d) => ({
       orderId: d.orderId,
       orderNo: d.orderNo,
+      productCode: d.productCode,
+      productName: d.productName,
       quantity: d.quantity,
       needDate: d.needDate,
     }));
@@ -475,6 +500,29 @@ export async function runMrp(params: MrpParams = {}, userId?: number, existingRu
       need -= useIssued;
 
       const netDemand = Math.max(0, need);
+      // 检查表：无短缺的桶也记录（需求/供应冲抵明细），便于完整检查
+      const leadTime = material.category === "manufacture"
+        ? (material.manufactureLeadTime ?? material.leadTime ?? 0)
+        : (material.leadTime ?? 0);
+      checkLines.push({
+        materialId,
+        category: material.category,
+        unit: material.unit,
+        needDate: bucket.needDate,
+        currentStock: stockMap.get(materialId) ?? 0,
+        grossDemand: bucket.grossDemand,
+        safetyStock: bucketSafety,
+        stockQuantity: useStock,
+        inTransit: useInTransit,
+        wipQuantity: useWip,
+        issuedQuantity: useIssued,
+        netDemand,
+        leadTime,
+        orderDate: bucket.needDate ? new Date(bucket.needDate.getTime() - leadTime * 24 * 60 * 60 * 1000) : null,
+        suggestedPurchaseQty: 0,
+        suggestedProductionQty: 0,
+        sourceOrders: JSON.stringify(bucket.orders),
+      });
       if (netDemand <= 0) continue;
 
       shortages.push({
@@ -586,7 +634,7 @@ export async function runMrp(params: MrpParams = {}, userId?: number, existingRu
         materialName: material.name,
         quantity: suggestQty,
         relatedOrderId: orderId,
-        // 手工加工单（负 id）没有销售订单，需求来源单号取生产订单号
+        // 手工来源（负 id）没有销售订单，需求来源单号取生产订单号
         orderNo: line.orderNo || order?.orderNo || "",
         customerName: order?.customerName ?? "",
         needDate,
@@ -640,6 +688,35 @@ export async function runMrp(params: MrpParams = {}, userId?: number, existingRu
         affectedOrders: JSON.stringify(s.affectedOrders),
       },
     });
+  }
+
+  // 保存MRP信息检查表（全部参与运算的物料）：采购建议按 物料+需求日期 挂行，生产建议按物料汇总挂到最早一行
+  if (checkLines.length > 0) {
+    const dayKey = (v: any) => (v ? new Date(v).toISOString().slice(0, 10) : "");
+    const purchaseByKey = new Map<string, number>();
+    for (const s of purchaseSuggestions) {
+      const k = `${s.materialId}|${dayKey(s.needDate)}`;
+      purchaseByKey.set(k, (purchaseByKey.get(k) ?? 0) + s.suggestedQty);
+    }
+    const productionByMaterial = new Map<number, number>();
+    for (const p of productionOrders) {
+      productionByMaterial.set(p.materialId, (productionByMaterial.get(p.materialId) ?? 0) + p.quantity);
+    }
+    const productionAttached = new Set<number>();
+    const lineRows = checkLines.map((l) => {
+      let suggestedProductionQty = 0;
+      if (!productionAttached.has(l.materialId)) {
+        suggestedProductionQty = productionByMaterial.get(l.materialId) ?? 0;
+        if (suggestedProductionQty > 0) productionAttached.add(l.materialId);
+      }
+      return {
+        runId: run.id,
+        ...l,
+        suggestedPurchaseQty: purchaseByKey.get(`${l.materialId}|${dayKey(l.needDate)}`) ?? 0,
+        suggestedProductionQty,
+      };
+    });
+    await prisma.mrpCheckLine.createMany({ data: lineRows });
   }
 
   // 保存采购建议：新运行替代旧建议，先作废上一次仍待处理的采购建议（与创建同事务，避免中途失败丢状态）
@@ -926,7 +1003,7 @@ export async function listShortages() {
 
   // 已下达且未完工的生产订单：生产建议页据此隐藏已下达的物料，避免重复下达
   const issuedProductionKeys = await prisma.productionOrder.findMany({
-    where: { status: { in: ["planned", "in_progress"] } },
+    where: { status: { in: ["planned", "in_progress"] }, execStatus: { not: "completed" } },
     select: { materialId: true, salesOrderId: true },
   });
 
@@ -1145,4 +1222,154 @@ export async function createSafetyStockSuggestions() {
   }
 
   return { created, skipped };
+}
+
+// ===== MRP 历史清理：按日期范围导出存档 / 删除 =====
+function parseMrpHistoryRange(from?: string, to?: string) {
+  if (!from || !to) throw new Error("请选择日期范围");
+  const start = new Date(`${from}T00:00:00`);
+  const end = new Date(`${to}T23:59:59.999`);
+  if (isNaN(start.getTime()) || isNaN(end.getTime()) || start > end) throw new Error("日期范围不合法");
+  return { start, end };
+}
+
+async function findHistoryRuns(from?: string, to?: string) {
+  const { start, end } = parseMrpHistoryRange(from, to);
+  const runs = await prisma.mrpRun.findMany({
+    where: { startedAt: { gte: start, lte: end } },
+    orderBy: { startedAt: "desc" },
+  });
+  if (runs.length === 0) throw new Error("所选日期范围内没有MRP历史记录");
+  return runs;
+}
+
+function runResult(r: any): { shortages?: any[]; purchaseSuggestions?: any[]; productionOrders?: any[] } {
+  try { return r.result ? JSON.parse(r.result) : {}; } catch { return {}; }
+}
+const fmtDT = (v: any) => {
+  if (!v) return "";
+  const d = v instanceof Date ? v : new Date(v);
+  if (isNaN(d.getTime())) return String(v);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+};
+const fmtD = (v: any) => fmtDT(v).slice(0, 10);
+
+// 存档导出：单 CSV 四段（运算记录/缺料明细/采购建议/生产建议），Excel 可直接打开
+export async function exportMrpHistory(from?: string, to?: string): Promise<string> {
+  const runs = await findHistoryRuns(from, to);
+  const sections: { headers: string[]; rows: any[][] }[] = [
+    {
+      headers: ["运算编号", "订单数", "物料数", "缺料数", "状态", "开始时间", "完成时间"],
+      rows: runs.map((r) => [r.runNo, r.orderCount, r.materialCount, r.shortageCount, r.status, fmtDT(r.startedAt), fmtDT(r.completedAt)]),
+    },
+    {
+      headers: ["运算编号", "物料编码", "物料名称", "单位", "毛需求", "可用库存", "在途", "在制量", "已发料", "安全库存", "净需求", "需求日期"],
+      rows: runs.flatMap((r) => runResult(r).shortages?.map((s: any) => [r.runNo, s.materialCode, s.materialName, s.unit, s.grossDemand, s.stockQuantity, s.inTransit, s.wipQuantity ?? "", s.issuedQuantity ?? "", s.safetyStock, s.netDemand, fmtD(s.needDate)]) || []),
+    },
+    {
+      headers: ["运算编号", "物料编码", "物料名称", "规格", "建议采购量", "单价", "提前期(天)", "需求日期", "建议下单日期"],
+      rows: runs.flatMap((r) => runResult(r).purchaseSuggestions?.map((s: any) => [r.runNo, s.materialCode, s.materialName, s.specification ?? "", s.suggestedQty, s.unitPrice ?? "", s.leadTime ?? "", fmtD(s.needDate), fmtD(s.orderDate)]) || []),
+    },
+    {
+      headers: ["运算编号", "物料编码", "物料名称", "建议生产量", "关联订单", "客户", "需求日期", "建议开工日期"],
+      rows: runs.flatMap((r) => runResult(r).productionOrders?.map((p: any) => [r.runNo, p.materialCode, p.materialName, p.quantity, p.orderNo ?? "", p.customerName ?? "", fmtD(p.needDate), fmtD(p.orderDate)]) || []),
+    },
+  ];
+  const titles = ["运算记录", "缺料明细", "采购建议", "生产建议"];
+  const blocks = sections.map((sec, i) => {
+    const body = toCsv(sec.headers, sec.rows);
+    return `${titles[i]}\n${body}`;
+  });
+  return `MRP运算历史存档（${from} ~ ${to}）\r\n\r\n${blocks.join("\r\n\r\n")}\r\n`;
+}
+
+export async function deleteMrpHistory(from?: string, to?: string) {
+  const runs = await findHistoryRuns(from, to);
+  if (runs.some((r) => r.status === "running")) throw new Error("所选范围内存在运算中的记录，请等待其完成后再删除");
+  const ids = runs.map((r) => r.id);
+  return prisma.$transaction(async (tx) => {
+    // 已转采购单的建议被 PurchaseOrderItem.suggestionId 引用，保留行；其余未转的先删掉
+    const sug = await tx.purchaseSuggestion.deleteMany({ where: { runId: { in: ids }, status: { not: "converted" } } });
+    // MrpShortage 走外键级联（onDelete: Cascade）
+    const del = await tx.mrpRun.deleteMany({ where: { id: { in: ids } } });
+    return { deletedRuns: del.count, deletedSuggestions: sug.count, runNos: runs.map((r) => r.runNo) };
+  });
+}
+
+// ===== MRP信息检查表：最后一次（或指定）运算的全部参与物料明细 =====
+export async function getMrpCheck(params: any) {
+  const { materialKeyword, category, materialType, from, to, runId, page = 1, pageSize = 20 } = params;
+  const run = runId
+    ? await prisma.mrpRun.findUnique({ where: { id: Number(runId) } })
+    : await prisma.mrpRun.findFirst({ orderBy: { startedAt: "desc" } });
+  if (!run) return { run: null, total: 0, page: Number(page), pageSize: Number(pageSize), items: [], summary: null };
+
+  const where: Prisma.MrpCheckLineWhereInput = { runId: run.id };
+  if (materialKeyword || materialType) {
+    where.material = {
+      ...(materialKeyword ? { OR: [{ code: { contains: materialKeyword } }, { name: { contains: materialKeyword } }] } : {}),
+      ...(materialType ? { materialType } : {}),
+    };
+  }
+  if (category) where.category = category;
+  if (from || to) {
+    where.needDate = {};
+    if (from) where.needDate.gte = new Date(`${from}T00:00:00`);
+    if (to) where.needDate.lte = new Date(`${to}T23:59:59.999`);
+  }
+  const [total, items, lines, materials, shortageLines, netSum] = await Promise.all([
+    prisma.mrpCheckLine.count({ where }),
+    prisma.mrpCheckLine.findMany({
+      where,
+      include: { material: { select: { id: true, code: true, name: true, specification: true, unit: true, materialType: true } } },
+      orderBy: [{ materialId: "asc" }, { needDate: "asc" }],
+      skip: (Number(page) - 1) * Number(pageSize),
+      take: Number(pageSize),
+    }),
+    prisma.mrpCheckLine.count({ where: { runId: run.id } }),
+    prisma.mrpCheckLine.findMany({ where: { runId: run.id }, distinct: ["materialId"], select: { materialId: true } }),
+    prisma.mrpCheckLine.count({ where: { runId: run.id, netDemand: { gt: 0 } } }),
+    prisma.mrpCheckLine.aggregate({ where: { runId: run.id }, _sum: { netDemand: true } }),
+  ]);
+  // 需求来源补充客户名称（按订单 id 现查，兼容历史运算数据）
+  const parseSources = (v: any): any[] => {
+    try { const arr = v ? JSON.parse(v) : []; return Array.isArray(arr) ? arr : []; } catch { return []; }
+  };
+  const sourceOrderIds = [...new Set(items.flatMap((i) => parseSources(i.sourceOrders).map((o: any) => Number(o.orderId)).filter((n: number) => Number.isFinite(n) && n > 0)))];
+  const customerMap = new Map<number, string>();
+  if (sourceOrderIds.length > 0) {
+    const sos = await prisma.salesOrder.findMany({ where: { id: { in: sourceOrderIds } }, select: { id: true, customerName: true } });
+    for (const o of sos) customerMap.set(o.id, o.customerName || "");
+  }
+  const itemsWithSources = items.map((i) => ({
+    ...i,
+    sourceOrderList: parseSources(i.sourceOrders).map((o: any) => ({
+      ...o,
+      customerName: o.customerName || customerMap.get(Number(o.orderId)) || "",
+    })),
+  }));
+
+  const byCat = await prisma.mrpCheckLine.groupBy({
+    by: ["category"],
+    where: { runId: run.id },
+    _count: { _all: true },
+  });
+  const byCategory: Record<string, number> = {};
+  for (const c of byCat) byCategory[c.category || ""] = c._count._all;
+
+  return {
+    run,
+    total,
+    page: Number(page),
+    pageSize: Number(pageSize),
+    items: itemsWithSources,
+    summary: {
+      lines,
+      materials: materials.length,
+      shortageLines,
+      totalNetDemand: netSum._sum.netDemand ?? 0,
+      byCategory,
+    },
+  };
 }

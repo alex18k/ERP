@@ -59,7 +59,7 @@ function dueClass(row: any): string {
 const cancelTitle = computed(() => {
   const parts: string[] = []
   if (cancelInfo.value?.plannedCount) parts.push(`${cancelInfo.value.plannedCount} 张未开工生产订单将整单取消`)
-  if (cancelInfo.value?.inProgressCount) parts.push(`${cancelInfo.value.inProgressCount} 张加工中订单仅取消其 ${cancelInfo.value.pendingBatchCount} 个未开工批次`)
+  if (cancelInfo.value?.inProgressCount) parts.push(`${cancelInfo.value.inProgressCount} 张执行中的订单仅取消其 ${cancelInfo.value.pendingWorkOrderCount} 张待开工项`)
   return parts.join('；')
 })
 
@@ -204,7 +204,7 @@ const flatRows = computed(() =>
         <div>订单将被标记为「已取消」，从 MRP 运算与统计中剔除。</div>
         <template v-if="cancelInfo?.canCancelProduction">
           <el-alert :title="cancelTitle" type="warning" :closable="false" style="margin: 12px 0" />
-          <el-checkbox v-model="cancelWithProduction">取消未开工生产订单及未开工批次（加工中的订单保留）</el-checkbox>
+          <el-checkbox v-model="cancelWithProduction">取消未开工生产订单（执行中的订单仅取消其待开工项）</el-checkbox>
         </template>
       </div>
       <template #footer>

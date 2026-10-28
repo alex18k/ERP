@@ -29,7 +29,7 @@ function registerOrderOptions(items: any[]) {
 async function loadOrderOptions(keyword: string = '') {
   orderOptionsLoading.value = true
   try {
-    const res: any = await productionApi.orders({ pageSize: 100, orderNo: keyword })
+    const res: any = await productionApi.orders({ pageSize: 100, orderNo: keyword, status: 'planned,in_progress' })
     registerOrderOptions(res.data.items || [])
   } catch {
     /* ignore */
@@ -39,16 +39,20 @@ async function loadOrderOptions(keyword: string = '') {
 }
 
 function orderStatusLabel(s: string) {
-  const map: Record<string, string> = { planned: '已计划', in_progress: '生产中', completed: '已完成', cancelled: '已取消' }
+  const map: Record<string, string> = { planned: '已计划', in_progress: '生产中', closed: '已关闭' }
   return map[s] || s
 }
 function orderStatusType(s: string) {
-  const map: Record<string, string> = { planned: 'info', in_progress: 'primary', completed: 'success', cancelled: 'danger' }
+  const map: Record<string, string> = { planned: 'info', in_progress: 'primary', closed: 'info' }
   return map[s] || 'info'
 }
-function batchStatusLabel(s: string) {
-  const map: Record<string, string> = { planned: '待开工', in_progress: '加工中', completed: '已完成', closed: '已关闭', cancelled: '已取消' }
+function execStatusLabel(s: string) {
+  const map: Record<string, string> = { none: '未排产', pending: '待开工', in_progress: '生产中', completed: '已完成', closed: '已关闭' }
   return map[s] || s
+}
+function execStatusType(s: string) {
+  const map: Record<string, string> = { none: 'info', pending: 'info', in_progress: 'primary', completed: 'success', closed: 'info' }
+  return map[s] || 'info'
 }
 
 async function loadOrder() {
@@ -70,18 +74,17 @@ async function loadOrder() {
     steps.value = routeRes.data.route?.processes || []
     const reportMap = new Map<string, number>()
     for (const r of reportRes.data.items || []) {
-      const key = `${r.batchId}:${r.processStepId}`
+      const key = `${r.productionOrderId}:${r.processStepId}`
       reportMap.set(key, (reportMap.get(key) || 0) + r.quantity)
     }
-    const batches = (currentOrder.value.batches || []).filter((b: any) => b.status !== 'cancelled' && b.status !== 'closed')
+    const workOrder = currentOrder.value
     const out: any[] = []
-    for (const b of batches) {
+    if (currentOrder.value.status !== 'closed' && workOrder.execStatus !== 'none' && !['closed', 'completed'].includes(workOrder.execStatus)) {
       for (const s of steps.value) {
-        if (b.status === 'completed') continue
         out.push({
-          batch: b,
+          workOrder,
           step: s,
-          reported: reportMap.get(`${b.id}:${s.id}`) || 0,
+          reported: reportMap.get(`${workOrder.id}:${s.id}`) || 0,
           quantity: 0,
           scrapQty: 0,
           workHours: Math.round(((s.standardTime ?? 0) * 60) * 100) / 100, // 界面按分钟录入
@@ -102,7 +105,6 @@ async function handleSubmit() {
   const items = rows.value
     .filter((r) => r.quantity > 0)
     .map((r) => ({
-      batchId: r.batch.id,
       processStepId: r.step.id,
       quantity: r.quantity,
       scrapQty: r.scrapQty || 0,
@@ -129,7 +131,7 @@ async function handleSubmit() {
 function fillRemaining() {
   let filled = 0
   for (const r of rows.value) {
-    const remain = Math.max(0, (Number(r.batch?.quantity) || 0) - (Number(r.reported) || 0))
+    const remain = Math.max(0, (Number(r.workOrder?.plannedQty) || 0) - (Number(r.reported) || 0))
     r.quantity = Math.round(remain * 100) / 100
     if (r.quantity > 0) filled++
   }
@@ -148,7 +150,7 @@ onMounted(loadOrderOptions)
   <div class="page-container">
     <div class="page-card">
       <div class="table-toolbar">
-        <span class="toolbar-title">批次报工</span>
+        <span class="toolbar-title">生产报工</span>
         <div style="flex: 1" />
         <el-button :disabled="!currentOrder || rows.length === 0" @click="fillRemaining"><el-icon><MagicStick /></el-icon>批量报工</el-button>
         <el-button :disabled="!currentOrder || rows.length === 0" @click="clearQuantities"><el-icon><Delete /></el-icon>清除</el-button>
@@ -171,28 +173,30 @@ onMounted(loadOrderOptions)
         <div class="order-info-grid">
           <div class="order-info-item"><span class="order-info-label">产品</span><span>{{ currentOrder.material?.code }} - {{ currentOrder.material?.name }}</span></div>
           <div class="order-info-item"><span class="order-info-label">订单数量</span><span>{{ currentOrder.quantity }}</span></div>
-          <div class="order-info-item"><span class="order-info-label">批次</span><span>{{ (currentOrder.batches || []).filter((b: any) => b.status !== 'cancelled').length }} 批</span></div>
+          <div class="order-info-item"><span class="order-info-label">生产订单</span><span>{{ currentOrder.orderNo }}</span></div>
           <div class="order-info-item"><span class="order-info-label">工序</span><span>{{ steps.length }} 道</span></div>
         </div>
       </el-card>
 
-      <el-alert v-if="currentOrder && steps.length === 0" title="该订单尚未排产，无工序可报工。请先在“生产订单”中排产。" type="warning" show-icon :closable="false" style="margin-bottom: 12px" />
+      <el-alert v-if="currentOrder && currentOrder.status === 'closed'" title="该生产订单已关闭，不能报工。" type="warning" show-icon :closable="false" style="margin-bottom: 12px" />
+      <el-alert v-else-if="currentOrder && currentOrder.execStatus === 'none'" title="该订单尚未排产，不能报工。请先在“生产订单”中排产。" type="warning" show-icon :closable="false" style="margin-bottom: 12px" />
+      <el-alert v-else-if="currentOrder && ['completed', 'closed'].includes(currentOrder.execStatus)" :title="`该生产订单已${execStatusLabel(currentOrder.execStatus)}，不能报工。`" type="warning" show-icon :closable="false" style="margin-bottom: 12px" />
 
       <div v-loading="loading">
         <el-table :data="rows" stripe border max-height="calc(100vh - 330px)">
-          <el-table-column label="批次" width="80" fixed="left">
-            <template #default="{ row }">第{{ row.batch.batchNo }}批</template>
+          <el-table-column label="生产订单号" width="150" fixed="left">
+            <template #default="{ row }">{{ row.workOrder.orderNo }}</template>
           </el-table-column>
-          <el-table-column label="批次状态" width="90" fixed="left">
+          <el-table-column label="执行状态" width="100" fixed="left">
             <template #default="{ row }">
-              <el-tag size="small" :type="row.batch.status === 'in_progress' ? 'primary' : 'info'" effect="plain">{{ batchStatusLabel(row.batch.status) }}</el-tag>
+              <el-tag size="small" :type="execStatusType(row.workOrder.execStatus)" effect="plain">{{ execStatusLabel(row.workOrder.execStatus) }}</el-tag>
             </template>
           </el-table-column>
           <el-table-column label="工序" min-width="130" fixed="left">
             <template #default="{ row }">{{ row.step.code }} {{ row.step.name }}</template>
           </el-table-column>
           <el-table-column label="计划量" width="80">
-            <template #default="{ row }">{{ row.batch.quantity }}</template>
+            <template #default="{ row }">{{ row.workOrder.plannedQty }}</template>
           </el-table-column>
           <el-table-column label="已报工" width="80">
             <template #default="{ row }">{{ row.reported }}</template>
@@ -218,8 +222,8 @@ onMounted(loadOrderOptions)
             </template>
           </el-table-column>
                 <template #empty>
-          <el-empty description="还没有批次报工数据" :image-size="56">
-            <div class="empty-tip">选择生产订单后按批次/工序录入报工；最后一道工序累计达标后批次自动完工</div>
+          <el-empty description="还没有生产报工数据" :image-size="56">
+            <div class="empty-tip">选择生产订单后按订单工序录入报工；最后一道工序累计达标后订单自动完工</div>
           </el-empty>
         </template>
 </el-table>

@@ -84,33 +84,32 @@ export async function stockExport(where: any = {}) {
   return { filename: `库存现况_${today()}.csv`, csv: toCsv(headers, rows) };
 }
 
-// ===== 生产批次 =====
-const batchStatusLabel: Record<string, string> = {
-  planned: "已计划", in_progress: "生产中", completed: "已完成", cancelled: "已取消",
+// ===== 生产订单执行信息 =====
+const workOrderStatusLabel: Record<string, string> = {
+  pending: "待开工", in_progress: "生产中", completed: "已完成", closed: "已关闭",
 };
 
-export async function batchExport() {
-  const list = await prisma.productionBatch.findMany({
-    where: { status: { not: "cancelled" } },
+export async function productionOrderExport() {
+  const list = await prisma.productionOrder.findMany({
+    where: { execStatus: { not: "none" } },
     include: {
-      productionOrder: { include: { material: { select: { code: true, name: true } } } },
+      material: { select: { code: true, name: true } },
     },
     orderBy: { createdAt: "desc" },
   });
-  const headers = ["所属生产订单", "产品编码", "产品名称", "批次号", "计划数量", "已入库数量", "计划开始", "计划结束", "状态", "备注"];
-  const rows = list.map((b) => [
-    b.productionOrder.orderNo,
-    b.productionOrder.material.code,
-    b.productionOrder.material.name,
-    `第${b.batchNo}批`,
-    b.quantity,
-    b.receivedQty,
-    date(b.planStartDate),
-    date(b.planEndDate),
-    batchStatusLabel[b.status] ?? b.status,
-    b.remark ?? "",
+  const headers = ["所属生产订单", "产品编码", "产品名称", "计划数量", "已入库数量", "计划开始", "计划结束", "状态", "备注"];
+  const rows = list.map((o) => [
+    o.orderNo,
+    o.material.code,
+    o.material.name,
+    o.plannedQty,
+    o.receivedQty,
+    date(o.startTime ?? o.planStartDate),
+    date(o.endTime ?? o.planEndDate),
+    workOrderStatusLabel[o.execStatus] ?? o.execStatus,
+    o.remark ?? "",
   ]);
-  return { filename: `生产批次_${today()}.csv`, csv: toCsv(headers, rows) };
+  return { filename: `生产订单执行_${today()}.csv`, csv: toCsv(headers, rows) };
 }
 
 // ===== 员工报工报表 =====
@@ -118,7 +117,7 @@ export async function employeeReportExport(where: any = {}) {
   const { from, to, reporterId, orderNo } = where;
   const filters: any = {};
   if (reporterId) filters.reporterId = Number(reporterId);
-  if (orderNo) filters.batch = { productionOrder: { orderNo: { contains: orderNo } } };
+  if (orderNo) filters.productionOrder = { orderNo: { contains: orderNo } };
   if (from || to) {
     const gte = from ? new Date(from) : undefined;
     const lte = to ? new Date(to) : undefined;
@@ -130,7 +129,7 @@ export async function employeeReportExport(where: any = {}) {
     where: filters,
     include: {
       reporter: { select: { realName: true } },
-      batch: { include: { productionOrder: { include: { material: { select: { code: true, name: true } } } } } },
+      productionOrder: { include: { material: { select: { code: true, name: true } } } },
     },
     orderBy: { reportTime: "desc" },
   });
@@ -142,13 +141,12 @@ export async function employeeReportExport(where: any = {}) {
     : [];
   const stepMap = new Map(steps.map((s) => [s.id, `${s.code} ${s.name}`]));
 
-  const headers = ["报工时间", "生产订单号", "产品编码", "产品名称", "批次", "工序", "员工", "完成数量", "不良数量", "工时(h)", "耗用物料", "备注"];
+  const headers = ["报工时间", "生产订单号", "产品编码", "产品名称", "工序", "员工", "完成数量", "不良数量", "工时(h)", "耗用物料", "备注"];
   const rows = list.map((r) => [
     date(r.reportTime),
-    r.batch?.productionOrder?.orderNo ?? "",
-    r.batch?.productionOrder?.material?.code ?? "",
-    r.batch?.productionOrder?.material?.name ?? "",
-    r.batch ? `第${r.batch.batchNo}批` : "",
+    r.productionOrder?.orderNo ?? "",
+    r.productionOrder?.material?.code ?? "",
+    r.productionOrder?.material?.name ?? "",
     stepMap.get(r.processStepId) ?? "",
     r.reporter?.realName ?? "",
     r.quantity,

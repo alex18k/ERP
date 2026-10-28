@@ -27,6 +27,7 @@ model User {
   createdOrders SalesOrder[]   @relation("OrderCreator")
   stockRecords  StockRecord[]  @relation("StockOperator")
   workReports   WorkReport[]   @relation("WorkReportReporter")
+  productionOrders ProductionOrder[] @relation("ProductionOrderOperator")
   operationLogs OperationLog[]
 }
 
@@ -97,8 +98,8 @@ model Department {
 // ========== 基础数据 ==========
 
 model Material {
-  id                  Int                  @id @default(autoincrement())
-  code                String               @unique
+  id                  Int                      @id @default(autoincrement())
+  code                String                   @unique
   bomcode             String? // BOM编码（用于管理BOM）
   name                String
   specification       String?
@@ -107,32 +108,32 @@ model Material {
   brand               String? // 品牌（自由填写）
   category            String // purchase=采购, manufacture=制造
   unit                String
-  safetyStock         Float                @default(0)
-  minStock            Float                @default(0)
-  maxStock            Float                @default(0)
-  leadTime            Int                  @default(0) // 采购提前期（天数）
-  manufactureLeadTime Int                  @default(0) // 制造提前期（天数）
-  orderCycleDays      Int                  @default(30) // 订货周期（天数）：MRP 按此周期合并需求，超出则分开下单
+  safetyStock         Float                    @default(0)
+  minStock            Float                    @default(0)
+  maxStock            Float                    @default(0)
+  leadTime            Int                      @default(0) // 采购提前期（天数）
+  manufactureLeadTime Int                      @default(0) // 制造提前期（天数）
+  orderCycleDays      Int                      @default(30) // 订货周期（天数）：MRP 按此周期合并需求，超出则分开下单
   materialType        String? // 物料类别（自由填写，如五金件/电子件/包装材料）
-  minOrderQty         Float                @default(0) // 最小订量
-  cost                Float                @default(0) // 成本（移动加权平均价，用于 BOM 成本）
-  price               Float                @default(0) // 最近采购价（基本单位，采购收货回写；MRP/采购单建议单价）
+  minOrderQty         Float                    @default(0) // 最小订量
+  cost                Float                    @default(0) // 成本（移动加权平均价，用于 BOM 成本）
+  price               Float                    @default(0) // 最近采购价（基本单位，采购收货回写；MRP/采购单建议单价）
   location            String? // 库位（与仓库编码对应）
   supplierId          Int?
-  supplier            Supplier?            @relation(fields: [supplierId], references: [id])
-  batchManaged        Boolean              @default(false) // 是否启用批号管理
-  status              Int                  @default(1)
+  supplier            Supplier?                @relation(fields: [supplierId], references: [id])
+  batchManaged        Boolean                  @default(false) // 是否启用批号管理
+  status              Int                      @default(1)
   remark              String?
   desc1               String? // 自定义字段1
   desc2               String? // 自定义字段2
   desc3               String? // 自定义字段3
   desc4               String? // 自定义字段4
-  createdAt           DateTime             @default(now())
-  updatedAt           DateTime             @updatedAt
+  createdAt           DateTime                 @default(now())
+  updatedAt           DateTime                 @updatedAt
   bomItems            BomItem[]
-  bomProducts         Bom[]                @relation("BomProduct")
+  bomProducts         Bom[]                    @relation("BomProduct")
   processRouteId      Int?
-  processRoute        ProcessRoute?        @relation(fields: [processRouteId], references: [id])
+  processRoute        ProcessRoute?            @relation(fields: [processRouteId], references: [id])
   stocks              Stock[]
   stockRecords        StockRecord[]
   batches             MaterialBatch[]
@@ -140,8 +141,9 @@ model Material {
   purchaseItems       PurchaseOrderItem[]
   productionOrders    ProductionOrder[]
   mrpShortages        MrpShortage[]
+  mrpCheckLines       MrpCheckLine[]
   purchaseSuggestions PurchaseSuggestion[]
-  batchMaterials      ProductionBatchMaterial[]
+  productionOrderMaterials ProductionOrderMaterial[]
   unitConversions     MaterialUnitConversion[]
 
   @@index([category, status])
@@ -210,41 +212,41 @@ model ProcessRoute {
   name        String
   description String? // 说明/描述
   totalTime   Float         @default(0)
-  status    String        @default("active")
-  createdAt DateTime      @default(now())
-  updatedAt DateTime      @updatedAt
-  processes ProcessStep[]
-  materials Material[]
+  status      String        @default("active")
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  processes   ProcessStep[]
+  materials   Material[]
 }
 
 model ProcessStep {
-  id               Int                      @id @default(autoincrement())
-  routeId          Int
-  route            ProcessRoute             @relation(fields: [routeId], references: [id])
-  code             String
-  name             String
-  sequence         Int
-  workstationId    Int?
-  workstation      Workstation?             @relation(fields: [workstationId], references: [id])
-  standardTime     Float                    @default(0)
-  setupTime        Float                    @default(0)
-  createdAt        DateTime                 @default(now())
+  id            Int          @id @default(autoincrement())
+  routeId       Int
+  route         ProcessRoute @relation(fields: [routeId], references: [id])
+  code          String
+  name          String
+  sequence      Int
+  workstationId Int?
+  workstation   Workstation? @relation(fields: [workstationId], references: [id])
+  standardTime  Float        @default(0)
+  setupTime     Float        @default(0)
+  createdAt     DateTime     @default(now())
 
   @@index([routeId])
 }
 
 model Workstation {
-  id           Int           @id @default(autoincrement())
-  code         String        @unique
+  id           Int                   @id @default(autoincrement())
+  code         String                @unique
   name         String
   workshopId   Int?
-  workshop     Workshop?     @relation(fields: [workshopId], references: [id])
+  workshop     Workshop?             @relation(fields: [workshopId], references: [id])
   type         String?
-  capacity     Float         @default(1)
-  status       Int           @default(1)
-  createdAt    DateTime      @default(now())
-  processSteps       ProcessStep[]
-  orderSteps         ProductionOrderStep[]
+  capacity     Float                 @default(1)
+  status       Int                   @default(1)
+  createdAt    DateTime              @default(now())
+  processSteps ProcessStep[]
+  orderSteps   ProductionOrderStep[]
 }
 
 model Workshop {
@@ -281,30 +283,30 @@ model Supplier {
 }
 
 model Warehouse {
-  id           Int           @id @default(autoincrement())
-  code         String        @unique
+  id           Int             @id @default(autoincrement())
+  code         String          @unique
   name         String
   address      String?
-  status       Int           @default(1) // 1=启用（库存参与MRP）, 0=停用（不参与MRP）
-  binManaged   Boolean       @default(false) // 是否启用货位管理（启用后库存按 仓库+货位 维度，且出入库必须指定货位）
-  createdAt    DateTime      @default(now())
+  status       Int             @default(1) // 1=启用（库存参与MRP）, 0=停用（不参与MRP）
+  binManaged   Boolean         @default(false) // 是否启用货位管理（启用后库存按 仓库+货位 维度，且出入库必须指定货位）
+  createdAt    DateTime        @default(now())
   stocks       Stock[]
-  stockRecords StockRecord[] @relation("StockRecordWarehouse")
+  stockRecords StockRecord[]   @relation("StockRecordWarehouse")
   batches      MaterialBatch[]
   bins         WarehouseBin[]
 }
 
 // 货位：仓库下的具体存放位置
 model WarehouseBin {
-  id           Int           @id @default(autoincrement())
+  id           Int             @id @default(autoincrement())
   warehouseId  Int
-  warehouse    Warehouse     @relation(fields: [warehouseId], references: [id])
+  warehouse    Warehouse       @relation(fields: [warehouseId], references: [id])
   code         String // 货位编码（仓库内唯一）
   name         String // 货位名称
-  status       Int           @default(1) // 1=启用, 0=停用
+  status       Int             @default(1) // 1=启用, 0=停用
   remark       String?
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
   stocks       Stock[]
   stockRecords StockRecord[]
   batches      MaterialBatch[]
@@ -364,24 +366,24 @@ model SalesOrder {
 }
 
 model SalesOrderItem {
-  id           Int        @id @default(autoincrement())
-  orderId      Int
-  order        SalesOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  materialId   Int
-  material     Material   @relation(fields: [materialId], references: [id])
-  quantity     Float
-  unit         String? // 计量单位（带出物料单位，可修改）
-  conversionRate Float?    @default(1) // 单位换算率快照：1 计量单位 = conversionRate 基本单位
-  baseQty        Float?    @default(0) // 换算后的基本单位数量
-  unitPrice    Float?     @default(0)
-  taxIncluded  Boolean    @default(false) // 是否含税（勾选时单价视为含税单价）
-  taxRate      Float      @default(0) // 税率(%)
-  amount       Float?     @default(0)
-  deliveredQty Float      @default(0)
-  deliveryDate DateTime?
-  status       String     @default("pending") // pending, in_production, completed, shipped, cancelled
-  remark       String?
-  line         Int        @default(0) // 行号（单内明细序号，从 1 开始）
+  id             Int        @id @default(autoincrement())
+  orderId        Int
+  order          SalesOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  materialId     Int
+  material       Material   @relation(fields: [materialId], references: [id])
+  quantity       Float
+  unit           String? // 计量单位（带出物料单位，可修改）
+  conversionRate Float?     @default(1) // 单位换算率快照：1 计量单位 = conversionRate 基本单位
+  baseQty        Float?     @default(0) // 换算后的基本单位数量
+  unitPrice      Float?     @default(0)
+  taxIncluded    Boolean    @default(false) // 是否含税（勾选时单价视为含税单价）
+  taxRate        Float      @default(0) // 税率(%)
+  amount         Float?     @default(0)
+  deliveredQty   Float      @default(0)
+  deliveryDate   DateTime?
+  status         String     @default("pending") // pending, in_production, completed, shipped, cancelled
+  remark         String?
+  line           Int        @default(0) // 行号（单内明细序号，从 1 开始）
 
   @@index([orderId])
   @@index([materialId])
@@ -390,119 +392,113 @@ model SalesOrderItem {
 // ========== 生产管理 ==========
 
 model ProductionOrder {
-  id               Int                      @id @default(autoincrement())
-  orderNo          String                   @unique
-  salesOrderId     Int?
-  salesOrder       SalesOrder?              @relation(fields: [salesOrderId], references: [id])
-  salesOrderNo     String? // 手工输入的销售订单号（允许非系统订单）
-  materialId       Int
-  material         Material                 @relation(fields: [materialId], references: [id])
-  processRouteId   Int? // 工艺路线（默认取产品所属路线，可指定）
-  quantity         Float
-  planStartDate    DateTime?
-  planEndDate      DateTime?
-  planner          String? // 计划员
-  releaseDate      DateTime? // 下达日期
-  actualStartDate  DateTime?
-  actualEndDate    DateTime?
-  status           String                   @default("planned") // planned, in_progress, completed, cancelled
-  remark           String?
-  createdBy        Int?
-  createdAt        DateTime                 @default(now())
-  updatedAt        DateTime                 @updatedAt
-  batches          ProductionBatch[]
-  orderRoute       ProductionOrderRoute?
+  id              Int                   @id @default(autoincrement())
+  orderNo         String                @unique
+  salesOrderId    Int?
+  salesOrder      SalesOrder?           @relation(fields: [salesOrderId], references: [id])
+  salesOrderNo    String? // 手工输入的销售订单号（允许非系统订单）
+  materialId      Int
+  material        Material              @relation(fields: [materialId], references: [id])
+  processRouteId  Int? // 工艺路线（默认取产品所属路线，可指定）
+  quantity        Float
+  planStartDate   DateTime?
+  planEndDate     DateTime?
+  planner         String? // 计划员
+  releaseDate     DateTime? // 下达日期
+  actualStartDate DateTime?
+  actualEndDate   DateTime?
+  status          String                @default("planned") // planned, in_progress, closed（完工看 execStatus=completed）
+  // ===== 执行信息（排产后生效，未排产为 none） =====
+  plannedQty      Float                 @default(0)
+  receivedQty     Float                 @default(0) // 成品已入库量
+  actualQty       Float                 @default(0) // 累计报工量
+  scrapQty        Float                 @default(0) // 累计报废量
+  execStatus      String                @default("none") // none(未排产), pending(待开工), in_progress(生产中), completed(已完成), closed(已关闭)
+  operatorId      Int?
+  operator        User?                 @relation("ProductionOrderOperator", fields: [operatorId], references: [id])
+  startTime       DateTime?
+  endTime         DateTime?
+  remark          String?
+  createdBy       Int?
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+  materials       ProductionOrderMaterial[]
+  reports         WorkReport[]
+  orderRoute      ProductionOrderRoute?
 
   @@index([status])
+  @@index([execStatus])
   @@index([planEndDate])
 }
 
-model ProductionBatch {
+// 生产订单领料单明细：排产时按 BOM 生成，按生产订单领料
+model ProductionOrderMaterial {
   id                Int             @id @default(autoincrement())
   productionOrderId Int
-  productionOrder   ProductionOrder @relation(fields: [productionOrderId], references: [id])
-  batchNo           Int
-  quantity          Float
-  planStartDate     DateTime?
-  planEndDate       DateTime?
-  receivedQty       Float           @default(0) // 成品已入库量
-  status            String          @default("planned") // planned, in_progress, completed, closed, cancelled
+  productionOrder   ProductionOrder @relation(fields: [productionOrderId], references: [id], onDelete: Cascade)
+  materialId        Int
+  material          Material        @relation(fields: [materialId], references: [id])
+  requiredQty       Float
+  issuedQty         Float           @default(0) // 已领料量
+  unit              String?
+  status            String          @default("pending") // pending, partial, issued
   remark            String?
   createdAt         DateTime        @default(now())
-  materials         ProductionBatchMaterial[]
-  reports           WorkReport[]
 
-  @@unique([productionOrderId, batchNo])
+  @@unique([productionOrderId, materialId])
   @@index([productionOrderId])
-}
-
-model ProductionBatchMaterial {
-  id          Int             @id @default(autoincrement())
-  batchId     Int
-  batch       ProductionBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
-  materialId  Int
-  material    Material        @relation(fields: [materialId], references: [id])
-  requiredQty Float
-  issuedQty   Float           @default(0) // 已领料量
-  unit        String?
-  status      String          @default("pending") // pending, partial, issued
-  remark      String?
-  createdAt   DateTime        @default(now())
-
-  @@unique([batchId, materialId])
-  @@index([batchId])
   @@index([materialId])
 }
 
 // 排产时从标准工艺路线拷贝的订单级工艺路线
 model ProductionOrderRoute {
-  id                Int                      @id @default(autoincrement())
-  productionOrderId Int                      @unique
-  productionOrder   ProductionOrder          @relation(fields: [productionOrderId], references: [id])
-  sourceRouteId     Int?                     // 来源标准工艺路线 id
+  id                Int                   @id @default(autoincrement())
+  productionOrderId Int                   @unique
+  productionOrder   ProductionOrder       @relation(fields: [productionOrderId], references: [id])
+  sourceRouteId     Int? // 来源标准工艺路线 id
   code              String
   name              String
   description       String?
-  totalTime         Float                    @default(0)
-  status            String                   @default("active")
-  createdAt         DateTime                 @default(now())
-  updatedAt         DateTime                 @updatedAt
+  totalTime         Float                 @default(0)
+  status            String                @default("active")
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
   steps             ProductionOrderStep[]
 }
 
 // 排产时从标准工序拷贝的订单级工序
 model ProductionOrderStep {
-  id                Int                  @id @default(autoincrement())
-  orderRouteId      Int
-  orderRoute        ProductionOrderRoute @relation(fields: [orderRouteId], references: [id], onDelete: Cascade)
-  sourceStepId      Int?                 // 来源标准工序 id
-  code              String
-  name              String
-  sequence          Int
-  workstationId     Int?
-  workstation       Workstation?         @relation(fields: [workstationId], references: [id])
-  standardTime      Float                @default(0)
-  setupTime         Float                @default(0)
-  createdAt         DateTime             @default(now())
+  id            Int                  @id @default(autoincrement())
+  orderRouteId  Int
+  orderRoute    ProductionOrderRoute @relation(fields: [orderRouteId], references: [id], onDelete: Cascade)
+  sourceStepId  Int? // 来源标准工序 id
+  code          String
+  name          String
+  sequence      Int
+  workstationId Int?
+  workstation   Workstation?         @relation(fields: [workstationId], references: [id])
+  standardTime  Float                @default(0)
+  setupTime     Float                @default(0)
+  createdAt     DateTime             @default(now())
 
   @@index([orderRouteId])
 }
 
 model WorkReport {
-  id            Int             @id @default(autoincrement())
-  batchId       Int
-  batch         ProductionBatch @relation(fields: [batchId], references: [id])
-  reporterId    Int
-  reporter      User            @relation("WorkReportReporter", fields: [reporterId], references: [id])
-  processStepId Int // 订单级工序 ProductionOrderStep.id（裸外键，无 relation）
-  quantity      Float
-  scrapQty      Float           @default(0)
-  materialUsed  Float           @default(0)
-  workHours     Float           @default(0) // 本次实际工时(h)
-  reportTime    DateTime        @default(now())
-  remark        String?
+  id                Int             @id @default(autoincrement())
+  productionOrderId Int
+  productionOrder   ProductionOrder @relation(fields: [productionOrderId], references: [id])
+  reporterId        Int
+  reporter          User            @relation("WorkReportReporter", fields: [reporterId], references: [id])
+  processStepId     Int // 订单级工序 ProductionOrderStep.id（裸外键，无 relation）
+  quantity          Float
+  scrapQty          Float           @default(0)
+  materialUsed      Float           @default(0)
+  workHours         Float           @default(0) // 本次实际工时(h)
+  reportTime        DateTime        @default(now())
+  remark            String?
 
-  @@index([batchId])
+  @@index([productionOrderId])
   @@index([processStepId])
 }
 
@@ -531,27 +527,27 @@ model PurchaseOrder {
 }
 
 model PurchaseOrderItem {
-  id           Int           @id @default(autoincrement())
-  orderId      Int
-  order        PurchaseOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  materialId   Int
-  material     Material      @relation(fields: [materialId], references: [id])
-  quantity     Float
-  receivedQty  Float         @default(0)
-  unit         String? // 计量单位（带出物料单位，可修改）
-  conversionRate Float       @default(1) // 单位换算率快照：1 计量单位 = conversionRate 基本单位
-  baseQty        Float       @default(0) // 换算后的基本单位数量
-  unitPrice    Float?        @default(0)
-  amount       Float?        @default(0)
-  taxIncluded  Boolean       @default(false) // 是否含税
-  taxRate      Float         @default(0) // 税率(%)
-  location     String? // 库位
-  expectedDate DateTime?
-  status       String        @default("") // 空白(可收货/参与MRP), closed, cancelled
-  remark       String?
-  suggestionId Int?
-  sourceOrderNo String? // 需求来源订单号
-  line         Int           @default(0) // 行号（单内明细序号，从 1 开始）
+  id             Int           @id @default(autoincrement())
+  orderId        Int
+  order          PurchaseOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  materialId     Int
+  material       Material      @relation(fields: [materialId], references: [id])
+  quantity       Float
+  receivedQty    Float         @default(0)
+  unit           String? // 计量单位（带出物料单位，可修改）
+  conversionRate Float         @default(1) // 单位换算率快照：1 计量单位 = conversionRate 基本单位
+  baseQty        Float         @default(0) // 换算后的基本单位数量
+  unitPrice      Float?        @default(0)
+  amount         Float?        @default(0)
+  taxIncluded    Boolean       @default(false) // 是否含税
+  taxRate        Float         @default(0) // 税率(%)
+  location       String? // 库位
+  expectedDate   DateTime?
+  status         String        @default("") // 空白(可收货/参与MRP), closed, cancelled
+  remark         String?
+  suggestionId   Int?
+  sourceOrderNo  String? // 需求来源订单号
+  line           Int           @default(0) // 行号（单内明细序号，从 1 开始）
 
   @@index([orderId])
   @@index([materialId])
@@ -560,19 +556,19 @@ model PurchaseOrderItem {
 // ========== 库存管理 ==========
 
 model Stock {
-  id          Int       @id @default(autoincrement())
+  id          Int           @id @default(autoincrement())
   materialId  Int
-  material    Material  @relation(fields: [materialId], references: [id])
+  material    Material      @relation(fields: [materialId], references: [id])
   warehouseId Int
-  warehouse   Warehouse @relation(fields: [warehouseId], references: [id])
+  warehouse   Warehouse     @relation(fields: [warehouseId], references: [id])
   binId       Int?
   bin         WarehouseBin? @relation(fields: [binId], references: [id], onDelete: Restrict)
-  quantity    Float     @default(0)
-  reservedQty Float     @default(0)
+  quantity    Float         @default(0)
+  reservedQty Float         @default(0)
   lastInDate  DateTime?
   lastOutDate DateTime?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
 
   @@unique([materialId, warehouseId, binId])
   @@index([warehouseId])
@@ -635,17 +631,17 @@ model StockRecord {
 
 // 物料批号库存：按 (物料, 仓库, 货位, 批号) 记录各批数量
 model MaterialBatch {
-  id          Int       @id @default(autoincrement())
+  id          Int           @id @default(autoincrement())
   materialId  Int
-  material    Material  @relation(fields: [materialId], references: [id])
+  material    Material      @relation(fields: [materialId], references: [id])
   warehouseId Int
-  warehouse   Warehouse @relation(fields: [warehouseId], references: [id])
+  warehouse   Warehouse     @relation(fields: [warehouseId], references: [id])
   binId       Int?
   bin         WarehouseBin? @relation(fields: [binId], references: [id], onDelete: Restrict)
   batchNo     String
-  quantity    Float     @default(0)
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  quantity    Float         @default(0)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
 
   @@unique([materialId, warehouseId, binId, batchNo])
   @@index([materialId])
@@ -657,7 +653,7 @@ model StockTransactionType {
   id             Int           @id @default(autoincrement())
   code           String        @unique
   description    String
-  documentPrefix String?       // 单据前缀，如采购收货 RC
+  documentPrefix String? // 单据前缀，如采购收货 RC
   direction      String        @default("in") // in=增, out=减
   status         Int           @default(1)
   createdAt      DateTime      @default(now())
@@ -689,6 +685,35 @@ model MrpRun {
   createdBy     Int?
   result        String? // JSON数组：缺料清单
   shortages     MrpShortage[]
+  checkLines    MrpCheckLine[]
+}
+
+// MRP信息检查表：每次运算落库全部参与运算的物料（按物料×需求日期分桶），含需求/供应/短缺/日期/提前期
+model MrpCheckLine {
+  id                     Int      @id @default(autoincrement())
+  runId                  Int
+  run                    MrpRun   @relation(fields: [runId], references: [id], onDelete: Cascade)
+  materialId             Int
+  material               Material @relation(fields: [materialId], references: [id])
+  category               String? // purchase / manufacture
+  unit                   String?
+  needDate               DateTime?
+  currentStock           Float    @default(0) // 运算时当前库存（启用仓库合计）
+  grossDemand            Float    @default(0) // 毛需求（不含安全库存）
+  safetyStock            Float    @default(0) // 本桶计入的安全库存（仅最早桶有效）
+  stockQuantity          Float    @default(0) // 库存冲抵量
+  inTransit              Float    @default(0) // 在途冲抵量
+  wipQuantity            Float    @default(0) // 在制冲抵量
+  issuedQuantity         Float    @default(0) // 已发料冲抵量
+  netDemand              Float    @default(0) // 净需求（短缺）
+  leadTime               Int? // 提前期（天）
+  orderDate              DateTime? // 建议下单/开工日期 = 需求日期 - 提前期
+  suggestedPurchaseQty   Float    @default(0) // 采购建议量
+  suggestedProductionQty Float    @default(0) // 生产建议量
+  sourceOrders           String? // JSON: 需求来源订单 [{orderId, orderNo, quantity, needDate}]
+
+  @@index([runId])
+  @@index([materialId])
 }
 
 model MrpShortage {
@@ -727,22 +752,22 @@ model PurchaseSuggestion {
 }
 
 model CompanyInfo {
-  id          Int      @id @default(autoincrement())
-  nameZh      String   @default("")
-  nameEn      String?
-  region      String?
-  address     String?
-  phone       String?
-  fax         String?
-  email       String?
-  contact     String?
-  taxNo       String?
-  website     String?
-  logo        String? // 公司Logo：base64 data URL（≤1MB）或图片地址；打印页优先显示
-  remark      String?
-  isDefault   Boolean  @default(false) // 默认公司：其它页面引用其名称
-  defaultedAt DateTime? // 首次被设为默认的时间；非 null 即视为被引用过，禁止删除
+  id           Int           @id @default(autoincrement())
+  nameZh       String        @default("")
+  nameEn       String?
+  region       String?
+  address      String?
+  phone        String?
+  fax          String?
+  email        String?
+  contact      String?
+  taxNo        String?
+  website      String?
+  logo         String? // 公司Logo：base64 data URL（≤1MB）或图片地址；打印页优先显示
+  remark       String?
+  isDefault    Boolean       @default(false) // 默认公司：其它页面引用其名称
+  defaultedAt  DateTime? // 首次被设为默认的时间；非 null 即视为被引用过，禁止删除
   stockRecords StockRecord[] @relation("StockRecordCompany")
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
 }

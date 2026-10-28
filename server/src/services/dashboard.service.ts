@@ -43,9 +43,9 @@ export async function getExecutiveDashboard() {
     (m) => (alertQtyMap.get(m.id) ?? 0) <= m.safetyStock
   ).length;
 
-  // 生产中批次数
-  const activeBatches = await prisma.productionBatch.count({
-    where: { status: "in_progress" },
+  // 生产中数量（已排产且执行中的生产订单）
+  const activeWorkOrders = await prisma.productionOrder.count({
+    where: { execStatus: "in_progress" },
   });
 
   // ===== 经营/生产指标 =====
@@ -61,7 +61,7 @@ export async function getExecutiveDashboard() {
     select: { id: true, deliveryDate: true },
   });
   const doneProd = await prisma.productionOrder.findMany({
-    where: { status: "completed", actualEndDate: { not: null } },
+    where: { execStatus: "completed", actualEndDate: { not: null } },
     select: { salesOrderId: true, actualEndDate: true },
   });
   const doneOrderMap = new Map(doneOrders.map((o) => [o.id, o.deliveryDate!]));
@@ -117,7 +117,7 @@ export async function getExecutiveDashboard() {
     alerts: {
       shortageCount,
       lowStockCount,
-      activeBatches,
+      activeWorkOrders,
     },
     lastMrpRun: latestRun
       ? {
@@ -136,7 +136,6 @@ export async function getOrderTrackingDashboard() {
       items: { include: { material: { select: { id: true, code: true, name: true, unit: true } } } },
       productionOrders: {
         include: {
-          batches: { where: { status: { not: "cancelled" } } },
           orderRoute: { include: { steps: true } },
         },
       },
@@ -145,17 +144,17 @@ export async function getOrderTrackingDashboard() {
     take: 50,
   });
 
-  // 汇总各批次各工序报工量，按末道工序计算生产进度
-  const allBatchIds = orders.flatMap((o) => o.productionOrders.flatMap((po) => po.batches.map((b) => b.id)));
-  const grouped = allBatchIds.length
+  // 汇总各生产订单各工序报工量，按末道工序计算生产进度
+  const allProductionOrderIds = orders.flatMap((o) => o.productionOrders.filter((po) => po.execStatus !== "none").map((po) => po.id));
+  const grouped = allProductionOrderIds.length
     ? await prisma.workReport.groupBy({
-        by: ["batchId", "processStepId"],
-        where: { batchId: { in: allBatchIds } },
+        by: ["productionOrderId", "processStepId"],
+        where: { productionOrderId: { in: allProductionOrderIds } },
         _sum: { quantity: true },
       })
     : [];
   const qtyMap = new Map<string, number>();
-  for (const g of grouped) qtyMap.set(`${g.batchId}:${g.processStepId}`, g._sum.quantity ?? 0);
+  for (const g of grouped) qtyMap.set(`${g.productionOrderId}:${g.processStepId}`, g._sum.quantity ?? 0);
 
   const today = new Date();
 
@@ -168,11 +167,8 @@ export async function getOrderTrackingDashboard() {
             const steps = po.orderRoute?.steps ?? [];
             const lastStep = steps.length ? steps.reduce((a, b) => (b.sequence > a.sequence ? b : a)) : null;
             const plan = po.quantity || 1;
-            const done = po.batches.reduce((s, b) => {
-              const lastQty = lastStep ? qtyMap.get(`${b.id}:${lastStep.id}`) ?? 0 : 0;
-              return s + Math.min(lastQty, b.quantity);
-            }, 0);
-            return sum + Math.min(100, (done / plan) * 100);
+            const lastQty = lastStep && po.execStatus !== "none" ? qtyMap.get(`${po.id}:${lastStep.id}`) ?? 0 : 0;
+            return sum + Math.min(100, (Math.min(lastQty, po.plannedQty || po.quantity) / plan) * 100);
           }, 0) / o.productionOrders.length
         )
       : 0;

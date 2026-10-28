@@ -248,7 +248,6 @@ export async function getOrder(id: number) {
       productionOrders: {
         include: {
           material: true,
-          batches: { where: { status: { not: "cancelled" } }, orderBy: { batchNo: "asc" } },
         },
       },
     },
@@ -502,28 +501,30 @@ export async function getDownstreamInfo(id: number) {
 
   const productionOrders = await prisma.productionOrder.findMany({
     where: { salesOrderId: id },
-    select: { id: true, orderNo: true, status: true, quantity: true },
+    select: { id: true, orderNo: true, status: true, execStatus: true, quantity: true },
     orderBy: { createdAt: "asc" },
   });
 
-  const planned = productionOrders.filter((p) => p.status === "planned");
-  const inProgress = productionOrders.filter((p) => p.status === "in_progress");
+  // 已完工（execStatus=completed）的订单不参与取消联动
+  const notDone = (p: any) => p.execStatus !== "completed";
+  const planned = productionOrders.filter((p) => p.status === "planned" && notDone(p));
+  const inProgress = productionOrders.filter((p) => p.status === "in_progress" && notDone(p));
 
-  let pendingBatchCount = 0;
+  let pendingWorkOrderCount = 0;
   const cancelScope = new Map<number, "all" | "pendingOnly">();
   for (const p of planned) cancelScope.set(p.id, "all");
   for (const p of inProgress) cancelScope.set(p.id, "pendingOnly");
   if (cancelScope.size > 0) {
-    pendingBatchCount = await prisma.productionBatch.count({
-      where: { productionOrderId: { in: [...cancelScope.keys()] }, status: "planned" },
+    pendingWorkOrderCount = await prisma.productionOrder.count({
+      where: { id: { in: [...cancelScope.keys()] }, execStatus: "pending" },
     });
   }
 
   return {
     productionOrders,
     plannedCount: planned.length, // 未开工生产订单：可整单取消
-    inProgressCount: inProgress.length, // 加工中生产订单：仅可取消未开工批次
-    pendingBatchCount,
+    inProgressCount: inProgress.length, // 执行中的生产订单：仅可取消其待开工的执行状态
+    pendingWorkOrderCount,
     canCancelProduction: cancelScope.size > 0,
   };
 }
@@ -552,17 +553,17 @@ export async function cancelOrder(id: number, opts?: { cancelProduction?: boolea
     if (opts?.cancelProduction) {
       // 已领料/已入库的生产订单不能随销售订单直接取消
       const [issuedCount, receivedCount] = await Promise.all([
-        tx.productionBatchMaterial.count({
-          where: { batch: { productionOrder: { salesOrderId: id } }, issuedQty: { gt: 1e-6 } },
+        tx.productionOrderMaterial.count({
+          where: { productionOrder: { salesOrderId: id }, issuedQty: { gt: 1e-6 } },
         }),
-        tx.productionBatch.count({
-          where: { productionOrder: { salesOrderId: id }, receivedQty: { gt: 1e-6 } },
+        tx.productionOrder.count({
+          where: { salesOrderId: id, receivedQty: { gt: 1e-6 } },
         }),
       ]);
       if (issuedCount > 0 || receivedCount > 0) {
         throw new Error("关联生产订单已领料或已入库，请先退料/冲回后再取消");
       }
-      // 未开工的生产订单：整单取消（含其全部批次）
+      // 未开工的生产订单：整单关闭（含其执行信息）
       const planned = await tx.productionOrder.findMany({
         where: { salesOrderId: id, status: "planned" },
         select: { id: true },
@@ -571,23 +572,19 @@ export async function cancelOrder(id: number, opts?: { cancelProduction?: boolea
         const ids = planned.map((p) => p.id);
         await tx.productionOrder.updateMany({
           where: { id: { in: ids } },
-          data: { status: "cancelled" },
-        });
-        await tx.productionBatch.updateMany({
-          where: { productionOrderId: { in: ids }, status: { in: ["planned", "in_progress"] } },
-          data: { status: "cancelled" },
+          data: { status: "closed", execStatus: "closed" },
         });
       }
 
-      // 已开工的生产订单：保留订单，仅取消其未开工的批次
+      // 已开工的生产订单：保留订单，仅关闭其尚未开工（execStatus=pending）的执行状态
       const inProgress = await tx.productionOrder.findMany({
         where: { salesOrderId: id, status: "in_progress" },
         select: { id: true },
       });
       if (inProgress.length > 0) {
-        await tx.productionBatch.updateMany({
-          where: { productionOrderId: { in: inProgress.map((p) => p.id) }, status: "planned" },
-          data: { status: "cancelled" },
+        await tx.productionOrder.updateMany({
+          where: { id: { in: inProgress.map((p) => p.id) }, execStatus: "pending" },
+          data: { execStatus: "closed" },
         });
       }
     }
@@ -963,7 +960,6 @@ export async function getOrderTrack(id: number) {
       productionOrders: {
         include: {
           material: true,
-          batches: { where: { status: { not: "cancelled" } }, orderBy: { batchNo: "asc" } },
           orderRoute: { include: { steps: { orderBy: { sequence: "asc" } } } },
         },
       },
@@ -971,22 +967,24 @@ export async function getOrderTrack(id: number) {
   });
   if (!order) throw new Error("订单不存在");
 
-  // 汇总各批次各工序的报工量
-  const batchIds = order.productionOrders.flatMap((po) => po.batches.map((b) => b.id));
-  const grouped = batchIds.length
+  // 汇总各生产订单各工序的报工量
+  const workOrderIds = order.productionOrders
+    .filter((po) => po.execStatus !== "none")
+    .map((po) => po.id);
+  const grouped = workOrderIds.length
     ? await prisma.workReport.groupBy({
-        by: ["batchId", "processStepId"],
-        where: { batchId: { in: batchIds } },
+        by: ["productionOrderId", "processStepId"],
+        where: { productionOrderId: { in: workOrderIds } },
         _sum: { quantity: true },
       })
     : [];
   const qtyMap = new Map<string, number>();
-  for (const g of grouped) qtyMap.set(`${g.batchId}:${g.processStepId}`, g._sum.quantity ?? 0);
+  for (const g of grouped) qtyMap.set(`${g.productionOrderId}:${g.processStepId}`, g._sum.quantity ?? 0);
 
-  // 本订单各批次的成品/半成品入库记录（生产入库 RCT-WO）
-  const receiptRecords = batchIds.length
+  // 本订单的成品/半成品入库记录（生产入库 RCT-WO）
+  const receiptRecords = workOrderIds.length
     ? await prisma.stockRecord.findMany({
-        where: { relatedType: "ProductionBatch", relatedId: { in: batchIds }, type: "in" },
+        where: { relatedType: "ProductionOrder", relatedId: { in: workOrderIds }, type: "in" },
         include: {
           material: { select: { id: true, code: true, name: true, unit: true } },
           warehouse: { select: { id: true, code: true, name: true } },
@@ -1045,10 +1043,10 @@ export async function getOrderTrack(id: number) {
     productionProgress: order.productionOrders.map((po) => {
       const steps = po.orderRoute?.steps ?? [];
       const lastStep = steps.length ? steps.reduce((a, b) => (b.sequence > a.sequence ? b : a)) : null;
-      const completedQty = po.batches.reduce((sum, b) => {
-        const lastQty = lastStep ? qtyMap.get(`${b.id}:${lastStep.id}`) ?? 0 : 0;
-        return sum + Math.min(lastQty, b.quantity);
-      }, 0);
+      const wo = po.execStatus !== "none" ? po : null;
+      const completedQty = wo && lastStep
+        ? Math.min(qtyMap.get(`${wo.id}:${lastStep.id}`) ?? 0, wo.plannedQty)
+        : 0;
       return {
         productionOrderNo: po.orderNo,
         materialCode: po.material.code,
@@ -1056,26 +1054,27 @@ export async function getOrderTrack(id: number) {
         quantity: po.quantity,
         completedQty,
         status: po.status,
-        batchCount: po.batches.length,
+        workOrderCount: wo ? 1 : 0,
         planStartDate: po.planStartDate,
         planEndDate: po.planEndDate,
-        batches: po.batches.map((b) => ({
-          batchId: b.id,
-          batchNo: b.batchNo,
-          quantity: b.quantity,
-          completedQty: lastStep ? Math.min(qtyMap.get(`${b.id}:${lastStep.id}`) ?? 0, b.quantity) : 0,
-          receivedQty: b.receivedQty,
-          status: b.status,
-          planStartDate: b.planStartDate,
-          planEndDate: b.planEndDate,
-          steps: steps.map((s) => ({
-            id: s.id,
-            code: s.code,
-            name: s.name,
-            sequence: s.sequence,
-            reportedQty: qtyMap.get(`${b.id}:${s.id}`) ?? 0,
-          })),
-        })),
+        workOrder: wo
+          ? {
+              workOrderId: wo.id,
+              plannedQty: wo.plannedQty,
+              completedQty,
+              receivedQty: wo.receivedQty,
+              status: wo.execStatus,
+              startTime: wo.startTime,
+              endTime: wo.endTime,
+              steps: steps.map((s) => ({
+                id: s.id,
+                code: s.code,
+                name: s.name,
+                sequence: s.sequence,
+                reportedQty: qtyMap.get(`${wo.id}:${s.id}`) ?? 0,
+              })),
+            }
+          : null,
       };
     }),
   };

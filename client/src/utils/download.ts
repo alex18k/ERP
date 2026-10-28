@@ -37,7 +37,18 @@ export async function downloadCsv(url: string, filename: string, params?: any) {
       localStorage.removeItem('user')
       window.location.href = '/login'
     } else {
-      throw error
+      // blob 响应下把后端 JSON 错误体解析出来，避免错误被静默吞掉
+      let msg = ''
+      const data = error.response?.data
+      if (data instanceof Blob) {
+        try {
+          const text = await data.text()
+          msg = JSON.parse(text)?.message || ''
+        } catch {
+          /* ignore */
+        }
+      }
+      throw new Error(msg || error.message || '导出失败')
     }
   }
 }

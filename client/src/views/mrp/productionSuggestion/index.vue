@@ -88,8 +88,8 @@ async function handleGenerate() {
     const payload = selectedRows.value.map((s: any) => ({
       materialId: s.materialId,
       quantity: s.quantity,
-      // relatedOrderId <= 0 表示来源是手工加工单：不能作为销售订单 id，
-      // 但要把来源加工单号带到生产订单的“来源订单”字段
+      // relatedOrderId <= 0 表示来源是手工生产订单：不能作为销售订单 id，
+      // 但要把来源单号带到新建生产订单的“来源订单”字段
       salesOrderId: s.relatedOrderId > 0 ? s.relatedOrderId : undefined,
       salesOrderNo: s.relatedOrderId > 0 ? undefined : (s.orderNo || undefined),
       planStartDate: s.planStartDate || undefined,
@@ -150,7 +150,7 @@ onMounted(loadData)
             <span v-if="row.orderNo">
               {{ row.orderNo }}
               <br />
-              <small style="color: var(--el-text-color-secondary)">{{ row.customerName || (row.relatedOrderId > 0 ? '' : '手工加工单') }}</small>
+              <small style="color: var(--el-text-color-secondary)">{{ row.customerName || (row.relatedOrderId > 0 ? '' : '手工来源') }}</small>
             </span>
             <span v-else>-</span>
           </template>
