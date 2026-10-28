@@ -991,15 +991,21 @@ async function attachUnitInfo(materials: any[]) {
 }
 
 // 批量领料：异常行（数量非法/超未发/库存不足）跳过，其余正常出库
+// cancelRemainMaterialIds：按行取消未发量（不再需要发料的部分），可与发料同一事务提交
 export async function issueProductionOrderMaterials(
   productionOrderId: number,
-  warehouseId: number,
+  warehouseId: number | null,
   items: { workOrderMaterialId: number; quantity: number; unit?: string; location?: string; binId?: number | null; batchNo?: string; warehouseId?: number }[],
   userId: number,
-  effectiveDate?: string
+  effectiveDate?: string,
+  cancelRemainMaterialIds?: number[]
 ) {
-  if (!warehouseId) throw new Error("请选择出库仓库");
-  if (!items || items.length === 0) throw new Error("请填写发放数量");
+  const cancelIds = [...new Set((cancelRemainMaterialIds ?? []).map(Number).filter((n) => n > 0))];
+  const issueIdSet = new Set((items ?? []).map((i) => Number(i.workOrderMaterialId)));
+  if (cancelIds.some((id) => issueIdSet.has(id))) throw new Error("同一物料行不能同时发料和取消未发");
+  items = items ?? [];
+  if (items.length > 0 && !warehouseId) throw new Error("请选择出库仓库");
+  if (items.length === 0 && cancelIds.length === 0) throw new Error("请填写发放数量");
   const order = await prisma.productionOrder.findUnique({
     where: { id: productionOrderId },
   });
@@ -1007,13 +1013,16 @@ export async function issueProductionOrderMaterials(
   if (order.status === "closed") throw new Error("生产订单已关闭，不能发料");
   if (order.execStatus === "none") throw new Error("该生产订单尚未排产，不能发料");
   if (order.execStatus === "closed") throw new Error("生产订单执行已关闭，不能发料");
-  const warehouse = await prisma.warehouse.findUnique({ where: { id: warehouseId } });
-  if (!warehouse) throw new Error("仓库不存在");
+  let warehouse: any = null;
+  if (items.length > 0) {
+    warehouse = await prisma.warehouse.findUnique({ where: { id: warehouseId! } });
+    if (!warehouse) throw new Error("仓库不存在");
+  }
   // 行级仓库：按领料明细行的库位出库；行上未带 warehouseId 时用表头仓库兜底
-  const warehouseCache = new Map<number, any>([[warehouseId, warehouse]]);
+  const warehouseCache = new Map<number, any>(warehouse ? [[warehouse.id, warehouse]] : []);
 
   const rows = await prisma.productionOrderMaterial.findMany({
-    where: { productionOrderId, id: { in: items.map((i) => i.workOrderMaterialId) } },
+    where: { productionOrderId, id: { in: [...new Set([...issueIdSet, ...cancelIds])] } },
     include: { material: { select: { id: true, code: true, name: true, batchManaged: true } } },
   });
   const map = new Map(rows.map((r) => [r.id, r]));
@@ -1021,11 +1030,14 @@ export async function issueProductionOrderMaterials(
 
   const issued: { workOrderMaterialId: number; materialCode: string; materialName: string; quantity: number }[] = [];
   const skipped: { workOrderMaterialId: number; materialCode: string; materialName: string; quantity: number; reason: string }[] = [];
+  const cancelled: { workOrderMaterialId: number; materialCode: string; materialName: string; quantity: number }[] = [];
 
   let docNo = "";
   await prisma.$transaction(async (tx) => {
-    await lockOrderNo(tx, ORDER_NO_LOCK.ST);
-    docNo = await generateDocNo(tx, issueType?.documentPrefix || "ST");
+    if (items.length > 0) {
+      await lockOrderNo(tx, ORDER_NO_LOCK.ST);
+      docNo = await generateDocNo(tx, issueType?.documentPrefix || "ST");
+    }
     let lineNo = 1;
     for (const it of items) {
       const row = map.get(it.workOrderMaterialId);
@@ -1049,14 +1061,14 @@ export async function issueProductionOrderMaterials(
       }
       const baseQty = toBaseQty(qty, rate);
 
-      const remain = row.requiredQty - row.issuedQty;
+      const remain = row.requiredQty - row.issuedQty - row.cancelledQty;
       if (baseQty > remain + 1e-6) {
         skipped.push({ ...base, reason: `超过未发数量（${remain}）` });
         continue;
       }
 
       // 1) 行库位 → 行仓库；校验货位并预检库存（只读，未通过则跳过该行，无副作用）
-      const itemWarehouseId = Number(it.warehouseId) || warehouseId;
+      const itemWarehouseId = Number(it.warehouseId) || Number(warehouseId);
       let itemWarehouse = warehouseCache.get(itemWarehouseId);
       if (!itemWarehouse) {
         itemWarehouse = await tx.warehouse.findUnique({ where: { id: itemWarehouseId } });
@@ -1086,9 +1098,13 @@ export async function issueProductionOrderMaterials(
         continue;
       }
 
-      // 2) 原子累加已发量（写入时校验不超需求量），防止并发超发；并发冲突时中止整个事务（回滚保证一致性）
+      // 2) 原子累加已发量（写入时校验不超未发量），防止并发超发；并发冲突时中止整个事务（回滚保证一致性）
       const issuedUpd = await tx.productionOrderMaterial.updateMany({
-        where: { id: row.id, issuedQty: { lte: row.requiredQty - baseQty + 1e-6 } },
+        where: {
+          id: row.id,
+          cancelledQty: row.cancelledQty,
+          issuedQty: { lte: row.requiredQty - row.cancelledQty - baseQty + 1e-6 },
+        },
         data: { issuedQty: { increment: baseQty } },
       });
       if (issuedUpd.count === 0) {
@@ -1096,9 +1112,12 @@ export async function issueProductionOrderMaterials(
       }
       const freshRow = await tx.productionOrderMaterial.findUnique({ where: { id: row.id } });
       const newIssued = freshRow?.issuedQty ?? row.issuedQty + baseQty;
+      const left = (freshRow?.requiredQty ?? row.requiredQty) - newIssued - (freshRow?.cancelledQty ?? row.cancelledQty);
       await tx.productionOrderMaterial.update({
         where: { id: row.id },
-        data: { status: newIssued >= (freshRow?.requiredQty ?? row.requiredQty) - 1e-6 ? "issued" : "partial" },
+        data: {
+          status: left <= 1e-6 ? (newIssued > 1e-6 ? "issued" : "cancelled") : newIssued > 1e-6 ? "partial" : "pending",
+        },
       });
       row.issuedQty = newIssued;
 
@@ -1134,9 +1153,36 @@ export async function issueProductionOrderMaterials(
       });
       issued.push(base);
     }
+
+    // 4) 取消未发量：把该行未发部分标记为不再需要发料（不动库存、不写流水）
+    for (const id of cancelIds) {
+      const row = map.get(id);
+      if (!row) {
+        skipped.push({ workOrderMaterialId: id, materialCode: "", materialName: "", quantity: 0, reason: "物料行不存在" });
+        continue;
+      }
+      const remain = row.requiredQty - row.issuedQty - row.cancelledQty;
+      if (remain <= 1e-6) {
+        skipped.push({ workOrderMaterialId: id, materialCode: row.material.code, materialName: row.material.name, quantity: 0, reason: "没有未发数量" });
+        continue;
+      }
+      const upd = await tx.productionOrderMaterial.updateMany({
+        where: { id, issuedQty: row.issuedQty, cancelledQty: row.cancelledQty },
+        data: {
+          cancelledQty: row.requiredQty - row.issuedQty,
+          cancelledAt: new Date(),
+          status: row.issuedQty > 1e-6 ? "issued" : "cancelled",
+        },
+      });
+      if (upd.count === 0) {
+        throw new Error(`物料 ${row.material.code} 未发数量已变化，请刷新后重试`);
+      }
+      row.cancelledQty = row.requiredQty - row.issuedQty;
+      cancelled.push({ workOrderMaterialId: id, materialCode: row.material.code, materialName: row.material.name, quantity: remain });
+    }
   });
 
-  return { documentNo: docNo, issued, skipped };
+  return { documentNo: docNo, issued, skipped, cancelled };
 }
 
 // ===== 生产订单领料单维护：新增 / 更新 / 删除明细行 =====
@@ -1198,15 +1244,20 @@ export async function updateProductionOrderMaterial(
   if (requiredQty < row.issuedQty - 1e-6) {
     throw new Error(`需求量不能小于已发料数量（${row.issuedQty}）`);
   }
+  // 需求量改小时取消量随之收敛，保证 需求量 ≥ 已发 + 已取消
+  const cancelledQty = Math.min(row.cancelledQty, Math.max(0, requiredQty - row.issuedQty));
+  const left = requiredQty - row.issuedQty - cancelledQty;
   const material = await prisma.material.findUnique({ where: { id: materialId } });
   return prisma.productionOrderMaterial.update({
     where: { id },
     data: {
       materialId,
       requiredQty,
+      cancelledQty,
+      cancelledAt: cancelledQty > 1e-6 ? row.cancelledAt : null,
       unit: data.unit !== undefined ? data.unit || material?.unit || null : row.unit,
       remark: data.remark !== undefined ? data.remark || null : row.remark,
-      status: requiredQty <= row.issuedQty + 1e-6 ? "issued" : row.issuedQty > 0 ? "partial" : "pending",
+      status: left <= 1e-6 ? (row.issuedQty > 1e-6 ? "issued" : "cancelled") : row.issuedQty > 1e-6 ? "partial" : "pending",
     },
     include: { material: { select: { id: true, code: true, name: true, specification: true, unit: true, location: true } } },
   });

@@ -257,12 +257,13 @@ export async function issueProductionOrderMaterialsHandler(req: AuthRequest, res
     const items = Array.isArray(req.body?.items) ? req.body.items : [];
     const data = await productionService.issueProductionOrderMaterials(
       Number(req.params.id),
-      Number(req.body?.warehouseId),
+      req.body?.warehouseId ? Number(req.body.warehouseId) : null,
       items,
       req.user!.id,
-      req.body?.effectiveDate
+      req.body?.effectiveDate,
+      Array.isArray(req.body?.cancelRemainMaterialIds) ? req.body.cancelRemainMaterialIds : undefined
     );
-    return success(res, data, "领料完成");
+    return success(res, data, data.cancelled.length ? "已取消未发" : "领料完成");
   } catch (error: any) {
     return fail(res, 400, error.message);
   }
