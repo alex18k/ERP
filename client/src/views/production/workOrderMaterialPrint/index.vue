@@ -18,7 +18,8 @@ function fmt(d: string | null | undefined) {
 
 const totalRequired = computed(() => list.value.reduce((s: number, r: any) => s + Number(r.requiredQty || 0), 0))
 const totalIssued = computed(() => list.value.reduce((s: number, r: any) => s + Number(r.issuedQty || 0), 0))
-const totalPending = computed(() => totalRequired.value - totalIssued.value)
+const totalCancelled = computed(() => list.value.reduce((s: number, r: any) => s + Number(r.cancelledQty || 0), 0))
+const totalPending = computed(() => totalRequired.value - totalIssued.value - totalCancelled.value)
 
 const todayStr = computed(() => {
   const d = new Date()
@@ -81,6 +82,7 @@ onMounted(async () => {
             <th class="c" style="width: 46px">单位</th>
             <th class="r" style="width: 60px">需求量</th>
             <th class="r" style="width: 60px">已领料</th>
+            <th class="r" style="width: 60px">已取消</th>
             <th class="r" style="width: 60px">待领料</th>
             <th class="c" style="width: 66px">库位</th>
             <th style="width: 100px">备注</th>
@@ -98,7 +100,8 @@ onMounted(async () => {
             <td class="c">{{ row.unit || row.material?.unit }}</td>
             <td class="r">{{ row.requiredQty }}</td>
             <td class="r">{{ row.issuedQty ?? 0 }}</td>
-            <td class="r f">{{ Number(row.requiredQty || 0) - Number(row.issuedQty || 0) }}</td>
+            <td class="r">{{ row.cancelledQty ?? 0 }}</td>
+            <td class="r f">{{ Number(row.requiredQty || 0) - Number(row.issuedQty || 0) - Number(row.cancelledQty || 0) }}</td>
             <td class="c">{{ row.material?.location || '-' }}</td>
             <td class="l">{{ row.remark || '' }}</td>
           </tr>
@@ -108,6 +111,7 @@ onMounted(async () => {
             <td class="c" colspan="5">合计</td>
             <td class="r b">{{ totalRequired }}</td>
             <td class="r b">{{ totalIssued }}</td>
+            <td class="r b">{{ totalCancelled }}</td>
             <td class="r b">{{ totalPending }}</td>
             <td colspan="2"></td>
           </tr>

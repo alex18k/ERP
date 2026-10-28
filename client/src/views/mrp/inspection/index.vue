@@ -191,6 +191,9 @@ onMounted(() => {
         <el-table-column label="已发料冲抵" width="86" align="right">
           <template #default="{ row }">{{ row.issuedQuantity || '-' }}</template>
         </el-table-column>
+        <el-table-column label="已取消冲抵" width="86" align="right">
+          <template #default="{ row }">{{ row.cancelledQuantity || '-' }}</template>
+        </el-table-column>
         <el-table-column label="净需求" width="76" align="right">
           <template #default="{ row }">
             <el-tag v-if="row.netDemand > 0" type="danger" size="small">{{ Math.round(row.netDemand * 100) / 100 }}</el-tag>

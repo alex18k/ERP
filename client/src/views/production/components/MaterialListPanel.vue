@@ -241,6 +241,7 @@ async function handleDelete(row: any) {
       </el-table-column>
       <el-table-column prop="requiredQty" label="需求量" width="100" align="right" />
       <el-table-column prop="issuedQty" label="已领料" width="90" />
+      <el-table-column prop="cancelledQty" label="已取消" width="90" />
       <el-table-column prop="unit" label="单位" width="70" />
       <el-table-column label="领料状态" width="100">
         <template #default="{ row }">
