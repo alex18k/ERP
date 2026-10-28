@@ -181,11 +181,17 @@ function statusType(s: string) {
   return statusOptions.find((o) => o.value === s)?.type || 'info'
 }
 
-// 发料进度标记：按领料明细 已发/需求量 汇总（不影响领料按钮，超发由后端跳过拦截）
+// 发料进度标记：按领料明细 已发/未发 汇总（取消未发计入已结清，不影响领料按钮，超发由后端跳过拦截）
 const issueProgressOptions: Record<string, { label: string; type: string }> = {
   none: { label: '未领料', type: 'info' },
   partial: { label: '部分领料', type: 'warning' },
   issued: { label: '已发料', type: 'success' },
+  cancelled: { label: '已取消未发', type: 'info' },
+}
+
+// 未发口径：需求量 - 已发 - 已取消
+function lineRemain(m: any) {
+  return Math.max(0, (m.requiredQty ?? 0) - (m.issuedQty ?? 0) - (m.cancelledQty ?? 0))
 }
 
 function issueProgress(order: any): string | null {
@@ -193,8 +199,10 @@ function issueProgress(order: any): string | null {
   const ms = order.materials || []
   if (ms.length === 0) return null
   const eps = 1e-6
-  if (ms.every((m: any) => (m.issuedQty ?? 0) >= (m.requiredQty ?? 0) - eps)) return 'issued'
-  if (ms.some((m: any) => (m.issuedQty ?? 0) > eps)) return 'partial'
+  if (ms.every((m: any) => lineRemain(m) <= eps)) {
+    return ms.every((m: any) => (m.issuedQty ?? 0) <= eps) ? 'cancelled' : 'issued'
+  }
+  if (ms.some((m: any) => (m.issuedQty ?? 0) > eps) || ms.some((m: any) => (m.cancelledQty ?? 0) > eps)) return 'partial'
   return 'none'
 }
 
@@ -258,6 +266,8 @@ async function onWorkOrderChange(workOrderId?: number) {
     issueUnit: m.unit || m.material?.unit,
     requiredQty: m.requiredQty,
     issuedQty: m.issuedQty ?? 0,
+    cancelledQty: m.cancelledQty ?? 0,
+    cancelRemain: false,
     location: m.material?.location || '',
     binId: null,
     issueQty: 0,
@@ -283,7 +293,7 @@ function recalc() {
   const qty = Number(form.issueQty) || 0
   const planQty = Number(currentWorkOrder.value?.plannedQty) || 0
   for (const line of detail.value) {
-    const remain = line.requiredQty - line.issuedQty
+    const remain = lineRemain(line)
     const perUnit = planQty > 0 ? line.requiredQty / planQty : 0
     const baseSuggest = Math.min(remain, Math.round(perUnit * qty * 100) / 100)
     const rate = line.material?.unitRates?.[line.issueUnit] || 1
@@ -291,22 +301,15 @@ function recalc() {
   }
 }
 
+// 勾选「取消未发」：该行未发不再发料，本次发放清零
+function onCancelRemainChange(row: any) {
+  if (row.cancelRemain) row.issueQty = 0
+}
+
 async function submit() {
-  if (!form.warehouseId) {
-    ElMessage.warning('请选择库位')
-    return
-  }
-  if (detail.value.some((l) => Number(l.issueQty) > 0 && l.material?.batchManaged && !l.batchNo)) {
-    ElMessage.warning('批号管理物料必须选择批号')
-    return
-  }
-  const badLine = detail.value.find((l) => Number(l.issueQty) > 0 && !rowWarehouseId(l))
-  if (badLine) {
-    ElMessage.warning(`${badLine.materialCode} 的库位「${badLine.location || '空'}」未对应启用仓库，请重新选择`)
-    return
-  }
+  const cancelIds = detail.value.filter((l) => l.cancelRemain && lineRemain(l) > 1e-6).map((l) => l.workOrderMaterialId)
   const items = detail.value
-    .filter((l) => Number(l.issueQty) > 0)
+    .filter((l) => !l.cancelRemain && Number(l.issueQty) > 0)
     .map((l) => ({
       workOrderMaterialId: l.workOrderMaterialId,
       quantity: l.issueQty,
@@ -316,17 +319,39 @@ async function submit() {
       binId: l.binId || undefined,
       batchNo: l.batchNo || undefined,
     }))
-  if (items.length === 0) {
-    ElMessage.warning('请填写发放数量')
+  if (items.length === 0 && cancelIds.length === 0) {
+    ElMessage.warning('请填写发放数量或勾选取消未发')
+    return
+  }
+  if (items.length > 0 && !form.warehouseId) {
+    ElMessage.warning('请选择库位')
+    return
+  }
+  if (detail.value.some((l) => Number(l.issueQty) > 0 && l.material?.batchManaged && !l.batchNo)) {
+    ElMessage.warning('批号管理物料必须选择批号')
+    return
+  }
+  const badLine = detail.value.find((l) => !l.cancelRemain && Number(l.issueQty) > 0 && !rowWarehouseId(l))
+  if (badLine) {
+    ElMessage.warning(`${badLine.materialCode} 的库位「${badLine.location || '空'}」未对应启用仓库，请重新选择`)
     return
   }
   submitting.value = true
   try {
-    const res: any = await productionApi.issueOrderMaterials(currentWorkOrder.value.id, { warehouseId: form.warehouseId, effectiveDate: form.effectiveDate || undefined, items })
+    const res: any = await productionApi.issueOrderMaterials(currentWorkOrder.value.id, {
+      warehouseId: form.warehouseId || undefined,
+      effectiveDate: form.effectiveDate || undefined,
+      items,
+      cancelRemainMaterialIds: cancelIds.length ? cancelIds : undefined,
+    })
     const issued = res.data?.issued || []
+    const cancelled = res.data?.cancelled || []
     const skipped = res.data?.skipped || []
+    const parts: string[] = []
+    if (issued.length) parts.push(`发料 ${issued.length} 行`)
+    if (cancelled.length) parts.push(`取消未发 ${cancelled.length} 行`)
     if (skipped.length === 0) {
-      ElMessage.success(`发料完成，共 ${issued.length} 行`)
+      ElMessage.success(parts.join('，') || '已提交')
     } else {
       const lines = skipped
         .map((s: any) => `${s.materialCode} ${s.materialName}：${s.reason}`)
@@ -457,7 +482,12 @@ onMounted(async () => {
         <el-table-column prop="requiredQty" label="需求量" width="100" />
         <el-table-column prop="issuedQty" label="已发" width="90" />
         <el-table-column label="未发" width="90">
-          <template #default="{ row }">{{ row.requiredQty - row.issuedQty }}</template>
+          <template #default="{ row }">{{ row.cancelRemain ? 0 : lineRemain(row) }}</template>
+        </el-table-column>
+        <el-table-column label="取消未发" width="90" align="center">
+          <template #default="{ row }">
+            <el-checkbox v-model="row.cancelRemain" :disabled="lineRemain(row) <= 1e-6" @change="onCancelRemainChange(row)" />
+          </template>
         </el-table-column>
         <el-table-column label="当前库存" width="100" align="right">
           <template #default="{ row }">
@@ -466,7 +496,7 @@ onMounted(async () => {
         </el-table-column>
         <el-table-column label="本次发放" width="140">
           <template #default="{ row }">
-            <el-input-number v-model="row.issueQty" :min="0" :precision="2" :controls="false" style="width: 100%" />
+            <el-input-number v-model="row.issueQty" :min="0" :precision="2" :controls="false" :disabled="row.cancelRemain" style="width: 100%" />
           </template>
         </el-table-column>
         <el-table-column label="批号" width="160">
