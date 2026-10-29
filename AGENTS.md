@@ -75,6 +75,8 @@ cd server && npm run build          # tsc
 
 Import `src/api` as `../../../api` from `views/<module>/<name>/`; `views/login|home/` are one level shallower → `../../api`. `client` tsconfig is strict (no unused imports/vars).
 
+- 例外：**生产发料**是「列表 `/inventory/issue` + 录入住单页 `/inventory/issue-make?orderId=`」两页（参照材料出库 `material-out-maintain` + `material-out`），录入住单页**不注册菜单**，列表「领料」按 `orderId` 跳转，提交成功回列表。
+
 ## Business flow
 
 - Orders must be `confirmed`/`in_production` before MRP sees them.
