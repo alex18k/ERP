@@ -1515,10 +1515,10 @@ export async function receiveProductionOrderProduct(
     const after = await tx.productionOrder.findUnique({ where: { id: order.id }, select: { receivedQty: true } });
     const newReceived = after?.receivedQty ?? order.receivedQty + baseQty;
 
-    // 全部入库或勾选「入库后关闭」时：关闭生产订单状态（status→closed），不改动执行状态
-    const autoClosed = newReceived >= order.plannedQty - 1e-6;
+    // 勾选「入库后关闭生产订单」时：关闭生产订单状态（status→closed），不改动执行状态；入满不再自动关闭
+    const fullyReceived = newReceived >= order.plannedQty - 1e-6;
     let closed = false;
-    if (autoClosed || closeWorkOrder === true) {
+    if (closeWorkOrder === true) {
       const closedResult = await tx.productionOrder.updateMany({
         where: { id: order.id, status: { in: ["planned", "in_progress"] } },
         data: { status: "closed" },
@@ -1547,6 +1547,6 @@ export async function receiveProductionOrderProduct(
         remark: `生产入库 ${material.name} 生产订单${order.orderNo}`,
       },
     });
-    return { success: true, documentNo: docNo, receivedQty: newReceived, autoClosed, closed };
+    return { success: true, documentNo: docNo, receivedQty: newReceived, fullyReceived, closed };
   });
 }
