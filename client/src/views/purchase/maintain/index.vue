@@ -131,7 +131,7 @@ function nextLine(): number {
   return form.items.reduce((m: number, it: any) => Math.max(m, Number(it.line) || 0), 0) + 1
 }
 function addItem() {
-  form.items.push({ id: null, receivedQty: 0, materialId: null, quantity: 1, unit: '', unitPrice: 0, unitPriceText: '', taxIncluded: !!form.taxIncluded, taxRate: form.taxRate ?? 0, location: headerLocation.value || '', expectedDate: form.expectedDate || '', remark: '', status: 'blank', sourceOrderNo: '', line: nextLine(), __options: [] })
+  form.items.push({ id: null, receivedQty: 0, returnedQty: 0, materialId: null, quantity: 1, unit: '', unitPrice: 0, unitPriceText: '', taxIncluded: !!form.taxIncluded, taxRate: form.taxRate ?? 0, location: headerLocation.value || '', expectedDate: form.expectedDate || '', remark: '', status: 'blank', sourceOrderNo: '', line: nextLine(), __options: [] })
 }
 const currentRow = ref<any | null>(null)
 const itemsTableRef = ref()
@@ -281,6 +281,7 @@ async function loadOrder(id: number) {
     form.items = row.items?.map((i: any, idx: number) => ({
       id: i.id,
       receivedQty: i.receivedQty ?? 0,
+      returnedQty: i.returnedQty ?? 0,
       line: i.line > 0 ? i.line : idx + 1,
       materialId: i.materialId,
       quantity: i.quantity,
@@ -662,22 +663,27 @@ async function copyOrderNo() {
                   <span v-if="rowMaterialSpec(row)" style="margin-left: 6px; color: var(--el-text-color-secondary)">{{ rowMaterialSpec(row) }}</span>
                 </template>
               </el-table-column>
-              <el-table-column label="单位" width="90">
+              <el-table-column label="单位" width="70">
                 <template #default="{ row }">
-                  <el-select v-model="row.unit" filterable allow-create default-first-option placeholder="单位" style="width: 100%">
+                  <el-select v-model="row.unit" filterable allow-create default-first-option placeholder="单位" size="small" style="width: 100%">
                     <el-option v-for="u in rowUnitOptions(row)" :key="u" :label="u" :value="u" />
                   </el-select>
                 </template>
               </el-table-column>
-              <el-table-column label="数量" width="85" align="right">
+              <el-table-column label="数量" width="75" align="right">
                 <template #default="{ row }">
-                  <el-input-number v-model="row.quantity" :min="Math.max(1, row.receivedQty || 0)" :controls="false" style="width: 100%" />
+                  <el-input-number v-model="row.quantity" :min="Math.max(1, row.receivedQty || 0)" :controls="false" size="small" style="width: 100%" />
                   <div v-if="rowBaseHint(row)" class="unit-hint">{{ rowBaseHint(row) }}</div>
                 </template>
               </el-table-column>
               <el-table-column label="已收量" width="76" align="right">
                 <template #default="{ row }">
                   <span :class="{ 'received-qty': (row.receivedQty || 0) > 0 }">{{ row.receivedQty || '-' }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column label="已退货" width="76" align="right">
+                <template #default="{ row }">
+                  <span :class="{ 'returned-qty': (row.returnedQty || 0) > 0 }">{{ (row.returnedQty || 0) > 0 ? row.returnedQty : '-' }}</span>
                 </template>
               </el-table-column>
               <el-table-column label="单价" width="90" align="right">
@@ -693,16 +699,16 @@ async function copyOrderNo() {
               <el-table-column label="含税" width="60" align="center">
                 <template #default="{ row }"><el-checkbox v-model="row.taxIncluded" /></template>
               </el-table-column>
-              <el-table-column label="税率%" width="95">
+              <el-table-column label="税率%" width="80">
                 <template #default="{ row }">
-                  <el-select v-model="row.taxRate" filterable allow-create default-first-option placeholder="税率" style="width: 100%">
+                  <el-select v-model="row.taxRate" filterable allow-create default-first-option placeholder="税率" size="small" style="width: 100%">
                     <el-option v-for="r in taxRateOptions" :key="r" :label="`${r}`" :value="r" />
                   </el-select>
                 </template>
               </el-table-column>
-              <el-table-column label="库位" width="100">
+              <el-table-column label="库位" width="85">
                 <template #default="{ row }">
-                  <el-select v-model="row.location" filterable allow-create default-first-option clearable placeholder="库位" style="width: 100%">
+                  <el-select v-model="row.location" filterable allow-create default-first-option clearable placeholder="库位" size="small" style="width: 100%">
                     <el-option v-for="l in locationOptions" :key="l.code" :label="l.name || l.code" :value="l.code" />
                   </el-select>
                 </template>
@@ -754,6 +760,10 @@ async function copyOrderNo() {
 }
 .received-qty {
   color: var(--el-color-warning);
+  font-weight: 600;
+}
+.returned-qty {
+  color: var(--erp-red, var(--el-color-danger));
   font-weight: 600;
 }
 .erp-group {
@@ -876,14 +886,14 @@ async function copyOrderNo() {
   padding: 0;
 }
 .items-editor :deep(.el-table .cell) {
-  padding: 3px 4px;
-  line-height: 24px;
+  padding: 2px 4px;
+  line-height: 22px;
 }
 .items-editor :deep(.el-table th.el-table__cell) {
-  height: 28px;
+  height: 26px;
 }
 .items-editor :deep(.el-table td.el-table__cell) {
-  height: 30px;
+  height: 26px;
 }
 /* 单元格内控件：占满、无内边距、无圆角 */
 .items-editor :deep(.el-input__wrapper),
@@ -892,7 +902,7 @@ async function copyOrderNo() {
   background: transparent;
   border-radius: 0;
   padding: 0 2px;
-  min-height: 24px;
+  min-height: 22px;
 }
 .items-editor :deep(.el-input__wrapper:hover),
 .items-editor :deep(.el-select__wrapper:hover) {
