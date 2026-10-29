@@ -170,7 +170,13 @@ async function submit() {
       batchNo: form.batchNo || undefined,
       closeWorkOrder: form.closeWorkOrder || undefined,
     })
-    ElMessage.success(res.data?.closed ? '入库已提交，生产订单已关闭' : '入库已提交')
+    if (res.data?.closed) {
+      ElMessage.success('入库已提交，生产订单已关闭')
+    } else if (res.data?.fullyReceived) {
+      ElMessage.success('入库已提交，已全部入库；如需关闭订单请勾选「入库后关闭生产订单」后再次入库')
+    } else {
+      ElMessage.success('入库已提交')
+    }
     dialogVisible.value = false
     loadData()
   } catch {
