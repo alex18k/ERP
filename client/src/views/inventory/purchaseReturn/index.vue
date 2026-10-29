@@ -38,6 +38,15 @@ function fmtQty(v: any) {
   return Number.isFinite(n) ? n : 0
 }
 
+// 已退数量配色：未退灰色、部分退货橙色、已全部退完绿色
+function returnedClass(returned: any, received: any) {
+  const r = fmtQty(returned)
+  const g = fmtQty(received)
+  if (r <= 0) return 'qty-zero'
+  if (g > 0 && r + 1e-6 >= g) return 'qty-full'
+  return 'qty-partial'
+}
+
 function onQuantityInput(row: any, value: number | undefined) {
   if (value != null && value < 0) row.returnQty = 0
 }
@@ -267,7 +276,9 @@ onMounted(async () => {
                   <template #default="{ row: l }">{{ l.receivedQty }}</template>
                 </el-table-column>
                 <el-table-column label="已退数量" width="90" align="right">
-                  <template #default="{ row: l }">{{ l.returnedQty }}</template>
+                  <template #default="{ row: l }">
+                    <span :class="returnedClass(l.returnedQty, l.receivedQty)">{{ l.returnedQty }}</span>
+                  </template>
                 </el-table-column>
                 <el-table-column label="可退数量" width="90" align="right">
                   <template #default="{ row: l }">{{ l.returnableQty }}</template>
@@ -304,7 +315,9 @@ onMounted(async () => {
           <template #default="{ row }">{{ row.totalReceivedQty }}</template>
         </el-table-column>
         <el-table-column label="已退数量" width="100" align="right">
-          <template #default="{ row }">{{ row.returnedQty }}</template>
+          <template #default="{ row }">
+            <span :class="returnedClass(row.returnedQty, row.totalReceivedQty)">{{ row.returnedQty }}</span>
+          </template>
         </el-table-column>
         <el-table-column label="可退数量" width="100" align="right">
           <template #default="{ row }">{{ row.returnableQty }}</template>
@@ -464,5 +477,16 @@ onMounted(async () => {
 .return-detail {
   padding: 8px 16px 8px 48px;
   background: var(--el-fill-color-lighter);
+}
+.qty-zero {
+  color: var(--erp-steel);
+}
+.qty-partial {
+  color: var(--erp-amber);
+  font-weight: 600;
+}
+.qty-full {
+  color: var(--erp-green);
+  font-weight: 600;
 }
 </style>
