@@ -307,11 +307,16 @@ export async function runMrp(params: MrpParams = {}, userId?: number, existingRu
     for (const item of order.items) {
       // 计量单位换算：销售明细按录入单位录入，MRP 需求按基本单位展开
       const baseQty = item.baseQty && item.baseQty > 0 ? item.baseQty : item.quantity;
+      // 已发运部分已出库，不再计入需求（deliveredQty 为录入单位，按明细换算率折回基本单位）
+      const deliveredBase =
+        item.deliveredQty && item.deliveredQty > 0 ? toBaseQty(item.deliveredQty, item.conversionRate || 1) : 0;
+      const demandQty = Number((baseQty - deliveredBase).toFixed(6));
+      if (demandQty <= 1e-6) continue;
       // 成品自身需求也要统计（用于跟踪）
       const product = item.material ? { code: item.material.code, name: item.material.name } : undefined;
       addDemand({
         materialId: item.materialId,
-        quantity: baseQty,
+        quantity: demandQty,
         orderId: order.id,
         orderNo: order.orderNo,
         productCode: product?.code,
