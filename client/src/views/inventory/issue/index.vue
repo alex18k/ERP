@@ -50,9 +50,9 @@ function issueProgress(order: any): string | null {
 }
 
 function workOrderOf(order: any) {
-  // 未排产、已关闭的生产订单不能领料
+  // 未排产、已关闭、已完工的生产订单不能领料（与发料页 issuableError 同口径）
   if (!order || order.status === 'closed') return null
-  return order.execStatus !== 'none' && order.execStatus !== 'closed' ? order : null
+  return order.execStatus !== 'none' && order.execStatus !== 'closed' && order.execStatus !== 'completed' ? order : null
 }
 
 async function loadData() {
