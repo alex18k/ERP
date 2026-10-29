@@ -130,6 +130,14 @@ function remainingClass(row: any) {
   return 'qty-none'
 }
 
+// 已收量配色：未收过灰色、部分收货橙色、已收满绿色（与未收列口径呼应）
+function receivedClass(row: any) {
+  const received = Number(row.receivedQty) || 0
+  if (received <= 0) return 'qty-zero'
+  if (received >= Number(row.quantity || 0)) return 'qty-full'
+  return 'qty-partial'
+}
+
 const receiveLines = computed(() => receiveItems.value.filter((it) => Number(it.receiveQty) > 0))
 const receiveTotalQty = computed(() => receiveLines.value.reduce((s, it) => s + Number(it.receiveQty || 0), 0))
 
@@ -345,7 +353,11 @@ onMounted(async () => {
           </template>
         </el-table-column>
         <el-table-column prop="quantity" label="采购数量" width="90" align="right" />
-        <el-table-column prop="receivedQty" label="已收" width="80" align="right" />
+        <el-table-column label="已收" width="80" align="right">
+          <template #default="{ row }">
+            <span :class="receivedClass(row)">{{ row.receivedQty ?? 0 }}</span>
+          </template>
+        </el-table-column>
         <el-table-column label="未收" width="80" align="right">
           <template #default="{ row }">
             <span :class="remainingClass(row)">{{ row.remaining }}</span>
@@ -527,6 +539,9 @@ onMounted(async () => {
   font-weight: 600;
 }
 .qty-blocked {
+  color: var(--erp-steel);
+}
+.qty-zero {
   color: var(--erp-steel);
 }
 .empty-tip {
