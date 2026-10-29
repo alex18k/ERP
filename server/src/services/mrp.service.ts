@@ -243,6 +243,31 @@ async function expandDemand(
   return results;
 }
 
+// 分层净算用的 BOM 拓扑序：父件在前、子件在后；检测循环引用与最大深度
+function topologicalBomOrder(bomMap: Map<number, BomWithItems>): number[] {
+  const state = new Map<number, 1 | 2>(); // 1=访问中（祖先链），2=已完成
+  const out: number[] = [];
+  const visit = (id: number, depth: number) => {
+    if (depth > MAX_BOM_DEPTH) {
+      throw new Error(`BOM层级过深，超过最大深度 ${MAX_BOM_DEPTH} 层`);
+    }
+    const s = state.get(id);
+    if (s === 1) throw new Error(`BOM存在循环引用: 物料 ${id}`);
+    if (s === 2) return;
+    state.set(id, 1);
+    const bom = bomMap.get(id);
+    if (bom) {
+      for (const item of bom.items) {
+        if (bomMap.has(item.materialId)) visit(item.materialId, depth + 1);
+      }
+    }
+    state.set(id, 2);
+    out.push(id); // 后序：子件先入栈
+  };
+  for (const id of bomMap.keys()) visit(id, 0);
+  return out.reverse(); // 反转后父件先于子件
+}
+
 // ===== 3. 执行MRP运算 =====
 export async function runMrp(params: MrpParams = {}, userId?: number, existingRunId?: number): Promise<MrpResult> {
   const orders = await fetchOrders(params.orderIds);
@@ -254,15 +279,37 @@ export async function runMrp(params: MrpParams = {}, userId?: number, existingRu
   const cache = await buildMrpCache();
   const allMaterialMap = cache.materialMap;
 
-  // 展开需求
+  // 需求累积：物料 × 订单行 × 需求日期。分层净算后只用「净额」展开下一层 BOM。
+  interface LineDemand { orderId: number; orderNo: string; productCode?: string; productName?: string; quantity: number; needDate: Date | null; }
   const allDemands: ExpandedDemand[] = [];
+  const demandMap = new Map<number, Map<string, LineDemand>>(); // materialId -> lineKey -> demand
+  const materialIds = new Set<number>();
+  const ownDemandByOrder = new Map<string, number>(); // `${materialId}:${salesOrderId}` -> 该销售订单毛需求（取消未发冲抵限幅用）
+
+  const addDemand = (d: ExpandedDemand) => {
+    allDemands.push(d);
+    materialIds.add(d.materialId);
+    if (!demandMap.has(d.materialId)) demandMap.set(d.materialId, new Map());
+    const lineMap = demandMap.get(d.materialId)!;
+    // 同一订单同交期但产品不同时不合并，保证需求来源能显示对应产品
+    const lineKey = `${d.orderId}|${d.needDate ? d.needDate.getTime() : "null"}|${d.productCode || ""}`;
+    const prev = lineMap.get(lineKey);
+    if (prev) prev.quantity += d.quantity;
+    else lineMap.set(lineKey, { orderId: d.orderId, orderNo: d.orderNo, productCode: d.productCode, productName: d.productName, quantity: d.quantity, needDate: d.needDate });
+    if (d.orderId > 0) {
+      const k = `${d.materialId}:${d.orderId}`;
+      ownDemandByOrder.set(k, (ownDemandByOrder.get(k) ?? 0) + d.quantity);
+    }
+  };
+
+  // 种子：销售订单成品需求（第 0 层）；子件在各自层级净算后再展开，父件库存/在途覆盖的需求不再下推
   for (const order of orders) {
     for (const item of order.items) {
       // 计量单位换算：销售明细按录入单位录入，MRP 需求按基本单位展开
       const baseQty = item.baseQty && item.baseQty > 0 ? item.baseQty : item.quantity;
       // 成品自身需求也要统计（用于跟踪）
       const product = item.material ? { code: item.material.code, name: item.material.name } : undefined;
-      allDemands.push({
+      addDemand({
         materialId: item.materialId,
         quantity: baseQty,
         orderId: order.id,
@@ -272,26 +319,8 @@ export async function runMrp(params: MrpParams = {}, userId?: number, existingRu
         needDate: item.deliveryDate ?? order.deliveryDate ?? null,
         isSemiProduct: true,
       });
-
-      const expanded = await expandDemand(item.materialId, baseQty, order.id, order.orderNo, product, item.deliveryDate ?? order.deliveryDate ?? null, cache);
-      allDemands.push(...expanded);
     }
   }
-
-  // 已排产的制造件已由自己的生产订单承担下层用料：父单不再递归展开它的 BOM，
-  // 否则“父单 BOM 展开”和“子件订单领料单”会重复计算下层需求。
-  const scheduledProducedMaterialIds = new Set<number>(
-    (
-      await prisma.productionOrder.findMany({
-        where: {
-          status: { in: ["planned", "in_progress"] },
-          execStatus: { in: ["pending", "in_progress"] },
-        },
-        select: { materialId: true },
-        distinct: ["materialId"],
-      })
-    ).map((o) => o.materialId)
-  );
 
   // 只有已排产（执行状态为待开工/生产中）的手工生产订单参与 MRP；
   // 未排产的手工单不产生需求。已排产订单按领料单的 requiredQty（BOM 快照，含损耗/单位换算）计入子件需求。
@@ -315,6 +344,8 @@ export async function runMrp(params: MrpParams = {}, userId?: number, existingRu
       materials: { select: { materialId: true, requiredQty: true, cancelledQty: true } },
     },
   });
+  // 手工单（无销售订单）的子件需求来自其领料单快照；这些物料不再按 BOM 展开，避免与领料单重复
+  const manualOrderMaterialIds = new Set<number>(manualProductionOrders.map((o) => o.materialId));
   for (const po of manualProductionOrders) {
     const sourceOrderId = -po.id;
 
@@ -322,17 +353,17 @@ export async function runMrp(params: MrpParams = {}, userId?: number, existingRu
     const needDate = po.startTime ?? po.planStartDate ?? po.releaseDate ?? null;
     const poProduct = po.material ? { code: po.material.code, name: po.material.name } : undefined;
     if (po.materials.length === 0) {
-      // 兼容历史/异常数据：已排产但缺领料单的订单，按当前 BOM 展开
+      // 兼容历史/异常数据：已排产但缺领料单的订单，按当前 BOM 展开（毛需求）
       const expanded = await expandDemand(po.materialId, Number(po.plannedQty || 0), sourceOrderId, po.orderNo, poProduct, needDate, cache);
-      allDemands.push(...expanded);
+      expanded.forEach(addDemand);
       continue;
     }
     for (const m of po.materials) {
       // 取消未发的部分不再需要发料，也不计入子件需求
       const requiredQty = Number(m.requiredQty || 0) - Number(m.cancelledQty || 0);
       if (requiredQty <= 1e-6) continue;
-      const hasSubBom = cache.bomMap.has(m.materialId);
-      allDemands.push({
+      // 制造类子件在各自层级净算后再展开其 BOM（需求日逐层下推、采购件再按采购提前期倒推下单日）
+      addDemand({
         materialId: m.materialId,
         quantity: requiredQty,
         orderId: sourceOrderId,
@@ -340,47 +371,41 @@ export async function runMrp(params: MrpParams = {}, userId?: number, existingRu
         productCode: poProduct?.code,
         productName: poProduct?.name,
         needDate,
-        isSemiProduct: hasSubBom,
+        isSemiProduct: cache.bomMap.has(m.materialId),
       });
-      // 制造类子件继续展开其 BOM：expandDemand 会按“子件需求日 − 子件制造提前期”
-      // 计算下下层需求日，采购件再按自身采购提前期倒推建议下单日。
-      // 若该子件已有已排产的生产订单，则由该订单的领料单承担，父单不再展开，避免重复。
-      if (hasSubBom && !scheduledProducedMaterialIds.has(m.materialId)) {
-        const subDemands = await expandDemand(m.materialId, requiredQty, sourceOrderId, po.orderNo, poProduct, needDate, cache);
-        allDemands.push(...subDemands);
-      }
     }
-  }
-
-  // 汇总毛需求（按物料 × 订单明细行分组：同一订单不同明细行交货期各算一行）
-  interface LineDemand { orderId: number; orderNo: string; productCode?: string; productName?: string; quantity: number; needDate: Date | null; }
-  const demandMap = new Map<number, Map<string, LineDemand>>(); // materialId -> lineKey -> demand
-  const materialIds = new Set<number>();
-
-  for (const d of allDemands) {
-    materialIds.add(d.materialId);
-    if (!demandMap.has(d.materialId)) demandMap.set(d.materialId, new Map());
-    const lineMap = demandMap.get(d.materialId)!;
-    // 同一订单同交期但产品不同时不合并，保证需求来源能显示对应产品
-    const lineKey = `${d.orderId}|${d.needDate ? d.needDate.getTime() : "null"}|${d.productCode || ""}`;
-    const prev = lineMap.get(lineKey);
-    if (prev) prev.quantity += d.quantity;
-    else lineMap.set(lineKey, { orderId: d.orderId, orderNo: d.orderNo, productCode: d.productCode, productName: d.productName, quantity: d.quantity, needDate: d.needDate });
   }
 
   // 物料信息全部来自缓存（一次查询），无需再次查询
   const materialMap = allMaterialMap;
 
+  // BOM 可达集合：分层展开时子件（含更深层）需要预取库存/在途/在制，避免边展开边查库
+  const reachableMaterialIds = new Set<number>(materialIds);
+  {
+    const stack = [...materialIds];
+    while (stack.length) {
+      const mid = stack.pop()!;
+      const bom = cache.bomMap.get(mid);
+      if (!bom) continue;
+      for (const item of bom.items) {
+        if (reachableMaterialIds.has(item.materialId)) continue;
+        reachableMaterialIds.add(item.materialId);
+        stack.push(item.materialId);
+      }
+    }
+  }
+  const queryMaterialIds = [...reachableMaterialIds];
+
   // 获取库存、在途采购、安全库存（仅统计启用状态仓库，停用仓库库存不参与MRP）
   const stocks = await prisma.stock.findMany({
-    where: { materialId: { in: [...materialIds] }, warehouse: { status: 1 } },
+    where: { materialId: { in: queryMaterialIds }, warehouse: { status: 1 } },
   });
   const stockMap = new Map<number, number>();
   for (const s of stocks) stockMap.set(s.materialId, (stockMap.get(s.materialId) ?? 0) + s.quantity);
 
   const inTransitRows = await prisma.purchaseOrderItem.findMany({
     where: {
-      materialId: { in: [...materialIds] },
+      materialId: { in: queryMaterialIds },
       status: "",
       order: { status: "confirmed" },
     },
@@ -397,7 +422,7 @@ export async function runMrp(params: MrpParams = {}, userId?: number, existingRu
   // 已发料量（承诺量）：已按未完工生产订单发料（ProductionOrderMaterial.issuedQty）的物料，库存已扣、不会退回。
   const openProductionRows = await prisma.productionOrder.findMany({
     // 已完工（execStatus=completed）不再计入在制供给
-    where: { materialId: { in: [...materialIds] }, status: { in: ["planned", "in_progress"] }, execStatus: { not: "completed" } },
+    where: { materialId: { in: queryMaterialIds }, status: { in: ["planned", "in_progress"] }, execStatus: { not: "completed" } },
     select: {
       materialId: true,
       salesOrderId: true,
@@ -427,7 +452,7 @@ export async function runMrp(params: MrpParams = {}, userId?: number, existingRu
 
   const issuedWipRows = await prisma.productionOrderMaterial.findMany({
     where: {
-      materialId: { in: [...materialIds] },
+      materialId: { in: queryMaterialIds },
       issuedQty: { gt: 0 },
       // 已完成订单的用料已经转化为成品/入库，不能再次冲抵需求
       productionOrder: {
@@ -449,7 +474,7 @@ export async function runMrp(params: MrpParams = {}, userId?: number, existingRu
   // 避免 BOM 外手工追加行/超量取消把别的订单的需求也冲掉（漏采购）。
   const cancelledWipRows = await prisma.productionOrderMaterial.findMany({
     where: {
-      materialId: { in: [...materialIds] },
+      materialId: { in: queryMaterialIds },
       cancelledQty: { gt: 0 },
       productionOrder: {
         salesOrderId: { not: null },
@@ -459,19 +484,13 @@ export async function runMrp(params: MrpParams = {}, userId?: number, existingRu
     },
     select: { materialId: true, cancelledQty: true, productionOrder: { select: { salesOrderId: true } } },
   });
-  const ownDemandByOrder = new Map<string, number>(); // `${materialId}:${salesOrderId}` -> 该销售订单自身毛需求
-  for (const [materialId, lineMap] of demandMap) {
-    for (const d of lineMap.values()) {
-      if (!d.orderId || d.orderId <= 0) continue;
-      const k = `${materialId}:${d.orderId}`;
-      ownDemandByOrder.set(k, (ownDemandByOrder.get(k) ?? 0) + d.quantity);
-    }
-  }
-  const cancelledWipMap = new Map<number, number>();
+  // 按物料分组；「物料 × 销售订单」毛需求限幅延迟到处理该物料时计算（分层展开时毛需求才完整）
+  const cancelledWipByMaterial = new Map<number, { salesOrderId: number; cancelledQty: number }[]>();
   for (const r of cancelledWipRows) {
-    const own = ownDemandByOrder.get(`${r.materialId}:${r.productionOrder.salesOrderId}`) ?? 0;
-    const capped = Math.min(r.cancelledQty, own);
-    if (capped > 1e-6) cancelledWipMap.set(r.materialId, (cancelledWipMap.get(r.materialId) ?? 0) + capped);
+    if (r.productionOrder.salesOrderId == null) continue;
+    const list = cancelledWipByMaterial.get(r.materialId) ?? [];
+    list.push({ salesOrderId: r.productionOrder.salesOrderId, cancelledQty: r.cancelledQty });
+    cancelledWipByMaterial.set(r.materialId, list);
   }
 
   // 计算净需求（按物料的订货周期对需求分桶：周期内合并，周期外拆分）
@@ -485,15 +504,23 @@ export async function runMrp(params: MrpParams = {}, userId?: number, existingRu
     netDemand: number; leadTime: number | null; orderDate: Date | null;
     suggestedPurchaseQty: number; suggestedProductionQty: number; sourceOrders: string;
   }[] = [];
-  for (const materialId of demandMap.keys()) {
+
+  // 单物料净算：库存/在途/在制/已发料/已取消按需求日期由早到晚冲抵，安全库存只进最早桶
+  const netMaterial = (materialId: number) => {
     const material = materialMap.get(materialId);
-    if (!material) continue;
+    if (!material) return null;
 
     const stock = params.deductStock !== false ? (stockMap.get(materialId) ?? 0) : 0;
     const inTransit = params.deductInTransit !== false ? (inTransitMap.get(materialId) ?? 0) : 0;
     const wipQuantity = params.deductInProcess !== false ? (wipMap.get(materialId) ?? 0) : 0;
     const issuedQuantity = params.deductInProcess !== false ? (issuedWipMap.get(materialId) ?? 0) : 0;
-    const cancelledQuantity = params.deductInProcess !== false ? (cancelledWipMap.get(materialId) ?? 0) : 0;
+    const cancelledQuantity =
+      params.deductInProcess !== false
+        ? (cancelledWipByMaterial.get(materialId) ?? []).reduce((sum, r) => {
+            const own = ownDemandByOrder.get(`${materialId}:${r.salesOrderId}`) ?? 0;
+            return sum + Math.min(r.cancelledQty, Math.max(0, own));
+          }, 0)
+        : 0;
     const safetyStock = params.considerSafetyStock !== false ? material.safetyStock : 0;
 
     // 按订单明细行汇总需求，需求日期取明细行交货期（无则回退订单主表交货期）
@@ -581,6 +608,94 @@ export async function runMrp(params: MrpParams = {}, userId?: number, existingRu
         affectedOrders: bucket.orders,
       });
     }
+    return { buckets, stockAvail: stock, transitAvail: inTransit };
+  };
+
+  // 分层处理：BOM 父件先于子件；每个物料先净算，再用净额展开下一层（父件库存/在途覆盖的需求不再下推）
+  const dayMs = 24 * 60 * 60 * 1000;
+  const processed = new Set<number>();
+
+  const expandChildren = (materialId: number, ctx: { buckets: DemandBucket[]; stockAvail: number; transitAvail: number }) => {
+    const bom = cache.bomMap.get(materialId);
+    // 手工生产订单的物料由领料单快照承担子件需求，不再按 BOM 展开（避免重复）
+    if (!bom || manualOrderMaterialIds.has(materialId)) return;
+    const material = materialMap.get(materialId);
+    const parentOffset = material?.category === "manufacture" ? (material.manufactureLeadTime ?? material.leadTime ?? 0) : 0;
+
+    // 行级在制量分配：已排产生产订单覆盖的订单需求不再新下生产建议，但其未发子件仍需采购，
+    // 因此展开量保底取「该行在制量」与「库存/在途未覆盖量」中的较大值
+    const wipByOrder = new Map<number, number>();
+    for (const [key, v] of openByOrderKey) {
+      const [mid, oid] = key.split(":");
+      if (Number(mid) === materialId) wipByOrder.set(Number(oid), v);
+    }
+    const wipForLine = new Map<object, number>();
+    for (const bucket of ctx.buckets) {
+      for (const line of bucket.orders) {
+        const avail = wipByOrder.get(line.orderId) ?? 0;
+        const use = Math.min(avail, line.quantity);
+        if (use > 1e-9) wipForLine.set(line, use);
+        wipByOrder.set(line.orderId, avail - use);
+      }
+    }
+
+    // 库存/在途按需求日期由早到晚冲抵毛需求，得到每行未覆盖量（安全库存不参与展开，A1 口径）
+    let expStock = ctx.stockAvail;
+    let expTransit = ctx.transitAvail;
+    for (const bucket of ctx.buckets) {
+      let need = bucket.grossDemand;
+      const useStock = Math.min(expStock, need);
+      expStock -= useStock;
+      need -= useStock;
+      const useTransit = Math.min(expTransit, need);
+      expTransit -= useTransit;
+      need -= useTransit;
+      let remaining = Math.max(0, need);
+      for (const line of bucket.orders) {
+        const take = remaining > 1e-9 ? Math.min(remaining, line.quantity) : 0;
+        remaining -= take;
+        const expandQty = Math.max(take, wipForLine.get(line) ?? 0);
+        if (expandQty <= 1e-9) continue;
+        // 子件需求日 = 父件需求日 − 父件生产提前期（父件为制造件时）
+        const childNeedDate =
+          line.deliveryDate && parentOffset > 0 ? new Date(line.deliveryDate.getTime() - parentOffset * dayMs) : line.deliveryDate;
+        for (const item of bom.items) {
+          const childMaterial = materialMap.get(item.materialId);
+          if (!childMaterial) continue;
+          // BOM 子件用量按维护的计量单位折算到基本单位，与库存/领料口径一致
+          const unit = (item.unit ?? "").trim();
+          const rate = !unit || unit === childMaterial.unit ? 1 : cache.unitRateMap.get(`${item.materialId}|${unit}`);
+          if (rate === undefined) {
+            throw new Error(`BOM 子件 ${childMaterial.code} 的单位「${unit}」未维护换算关系`);
+          }
+          const qty = expandQty * toBaseQty(item.quantity, rate) * (1 + (item.lossRate ?? 0));
+          if (qty <= 1e-9) continue;
+          addDemand({
+            materialId: item.materialId,
+            quantity: qty,
+            orderId: line.orderId,
+            orderNo: line.orderNo,
+            productCode: line.productCode,
+            productName: line.productName,
+            needDate: childNeedDate,
+            isSemiProduct: cache.bomMap.has(item.materialId),
+          });
+        }
+      }
+    }
+  };
+
+  for (const materialId of topologicalBomOrder(cache.bomMap)) {
+    if (!demandMap.has(materialId)) continue;
+    const ctx = netMaterial(materialId);
+    processed.add(materialId);
+    if (ctx) expandChildren(materialId, ctx);
+  }
+  // 无 BOM 的叶子物料（可能由展开过程新增）在 BOM 物料处理完后统一净算
+  for (const materialId of [...demandMap.keys()]) {
+    if (processed.has(materialId)) continue;
+    netMaterial(materialId);
+    processed.add(materialId);
   }
 
   // 排序：需求日期早的在前，同日期缺口大的在前
