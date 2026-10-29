@@ -90,6 +90,7 @@ const routes = [
       { path: 'inventory/receive', name: 'InventoryReceive', component: () => import('../views/inventory/receive/index.vue'), meta: { title: '采购收货' } },
       { path: 'inventory/receipt-report', name: 'InventoryReceiptReport', component: () => import('../views/purchase/receiptReport/index.vue'), meta: { title: '采购收货报表' } },
       { path: 'inventory/issue', name: 'InventoryIssue', component: () => import('../views/inventory/issue/index.vue'), meta: { title: '生产发料' } },
+      { path: 'inventory/issue-make', name: 'InventoryIssueMake', component: () => import('../views/inventory/issueMake/index.vue'), meta: { title: '生产发料' } },
       { path: 'inventory/production-receive', name: 'InventoryProductionReceive', component: () => import('../views/inventory/productionReceive/index.vue'), meta: { title: '生产入库' } },
       { path: 'inventory/shipping', name: 'InventoryShipping', component: () => import('../views/inventory/shipping/index.vue'), meta: { title: '销售发运' } },
       { path: 'inventory/shipment-record', name: 'InventoryShipmentRecord', component: () => import('../views/inventory/shipmentRecord/index.vue'), meta: { title: '销售发运记录' } },

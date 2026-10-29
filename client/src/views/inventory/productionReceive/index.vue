@@ -85,18 +85,22 @@ function execStatusType(s: any) {
   return execStatusOptions.find((o) => o.value === s)?.type || 'info'
 }
 
-// 发料状态：与生产领料页同口径（按领料明细 已发/需求量 汇总）
+// 发料状态：与生产发料页同口径（按领料明细 已发/未发 汇总，取消未发计入已结清）
 const issueProgressOptions: Record<string, { label: string; type: string }> = {
   none: { label: '未领料', type: 'info' },
   partial: { label: '部分领料', type: 'warning' },
   issued: { label: '已发料', type: 'success' },
+  cancelled: { label: '已取消未发', type: 'info' },
 }
 function issueProgress(row: any): string | null {
   const ms = row.materials || []
   if (ms.length === 0) return null
   const eps = 1e-6
-  if (ms.every((m: any) => (m.issuedQty ?? 0) >= (m.requiredQty ?? 0) - eps)) return 'issued'
-  if (ms.some((m: any) => (m.issuedQty ?? 0) > eps)) return 'partial'
+  const remain = (m: any) => Math.max(0, (m.requiredQty ?? 0) - (m.issuedQty ?? 0) - (m.cancelledQty ?? 0))
+  if (ms.every((m: any) => remain(m) <= eps)) {
+    return ms.every((m: any) => (m.issuedQty ?? 0) <= eps) ? 'cancelled' : 'issued'
+  }
+  if (ms.some((m: any) => (m.issuedQty ?? 0) > eps) || ms.some((m: any) => (m.cancelledQty ?? 0) > eps)) return 'partial'
   return 'none'
 }
 

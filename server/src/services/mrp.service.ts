@@ -312,7 +312,7 @@ export async function runMrp(params: MrpParams = {}, userId?: number, existingRu
       plannedQty: true,
       startTime: true,
       material: { select: { code: true, name: true } },
-      materials: { select: { materialId: true, requiredQty: true } },
+      materials: { select: { materialId: true, requiredQty: true, cancelledQty: true } },
     },
   });
   for (const po of manualProductionOrders) {
@@ -328,7 +328,8 @@ export async function runMrp(params: MrpParams = {}, userId?: number, existingRu
       continue;
     }
     for (const m of po.materials) {
-      const requiredQty = Number(m.requiredQty || 0);
+      // 取消未发的部分不再需要发料，也不计入子件需求
+      const requiredQty = Number(m.requiredQty || 0) - Number(m.cancelledQty || 0);
       if (requiredQty <= 1e-6) continue;
       const hasSubBom = cache.bomMap.has(m.materialId);
       allDemands.push({
@@ -442,6 +443,37 @@ export async function runMrp(params: MrpParams = {}, userId?: number, existingRu
     issuedWipMap.set(r.materialId, (issuedWipMap.get(r.materialId) ?? 0) + r.issuedQty);
   }
 
+  // 已取消未发量（冲抵量）：销售订单下达的生产订单里被「取消未发」标记的部分，需求已声明不再需要，
+  // 与已发料同口径冲抵。手工单在上面的需求侧已扣减，这里只统计有销售订单的单，避免重复冲减。
+  // 按「物料 × 销售订单」限幅：取消量最多冲减该销售订单自身对该物料的毛需求，
+  // 避免 BOM 外手工追加行/超量取消把别的订单的需求也冲掉（漏采购）。
+  const cancelledWipRows = await prisma.productionOrderMaterial.findMany({
+    where: {
+      materialId: { in: [...materialIds] },
+      cancelledQty: { gt: 0 },
+      productionOrder: {
+        salesOrderId: { not: null },
+        status: { in: ["planned", "in_progress"] },
+        execStatus: { in: ["pending", "in_progress"] },
+      },
+    },
+    select: { materialId: true, cancelledQty: true, productionOrder: { select: { salesOrderId: true } } },
+  });
+  const ownDemandByOrder = new Map<string, number>(); // `${materialId}:${salesOrderId}` -> 该销售订单自身毛需求
+  for (const [materialId, lineMap] of demandMap) {
+    for (const d of lineMap.values()) {
+      if (!d.orderId || d.orderId <= 0) continue;
+      const k = `${materialId}:${d.orderId}`;
+      ownDemandByOrder.set(k, (ownDemandByOrder.get(k) ?? 0) + d.quantity);
+    }
+  }
+  const cancelledWipMap = new Map<number, number>();
+  for (const r of cancelledWipRows) {
+    const own = ownDemandByOrder.get(`${r.materialId}:${r.productionOrder.salesOrderId}`) ?? 0;
+    const capped = Math.min(r.cancelledQty, own);
+    if (capped > 1e-6) cancelledWipMap.set(r.materialId, (cancelledWipMap.get(r.materialId) ?? 0) + capped);
+  }
+
   // 计算净需求（按物料的订货周期对需求分桶：周期内合并，周期外拆分）
   const shortages: ShortageItem[] = [];
   // MRP信息检查表：全部参与运算的物料（含无短缺行），按物料×需求日期分桶
@@ -449,6 +481,7 @@ export async function runMrp(params: MrpParams = {}, userId?: number, existingRu
     materialId: number; category: string | null; unit: string | null;
     needDate: Date | null; currentStock: number; grossDemand: number; safetyStock: number;
     stockQuantity: number; inTransit: number; wipQuantity: number; issuedQuantity: number;
+    cancelledQuantity: number;
     netDemand: number; leadTime: number | null; orderDate: Date | null;
     suggestedPurchaseQty: number; suggestedProductionQty: number; sourceOrders: string;
   }[] = [];
@@ -460,6 +493,7 @@ export async function runMrp(params: MrpParams = {}, userId?: number, existingRu
     const inTransit = params.deductInTransit !== false ? (inTransitMap.get(materialId) ?? 0) : 0;
     const wipQuantity = params.deductInProcess !== false ? (wipMap.get(materialId) ?? 0) : 0;
     const issuedQuantity = params.deductInProcess !== false ? (issuedWipMap.get(materialId) ?? 0) : 0;
+    const cancelledQuantity = params.deductInProcess !== false ? (cancelledWipMap.get(materialId) ?? 0) : 0;
     const safetyStock = params.considerSafetyStock !== false ? material.safetyStock : 0;
 
     // 按订单明细行汇总需求，需求日期取明细行交货期（无则回退订单主表交货期）
@@ -479,6 +513,7 @@ export async function runMrp(params: MrpParams = {}, userId?: number, existingRu
     let remainingInTransit = inTransit;
     let remainingWip = wipQuantity;
     let remainingIssued = issuedQuantity;
+    let remainingCancelled = cancelledQuantity;
     let safetyApplied = false;
     for (const bucket of buckets) {
       const bucketSafety = safetyApplied ? 0 : safetyStock;
@@ -498,6 +533,9 @@ export async function runMrp(params: MrpParams = {}, userId?: number, existingRu
       const useIssued = Math.min(remainingIssued, need);
       remainingIssued -= useIssued;
       need -= useIssued;
+      const useCancelled = Math.min(remainingCancelled, need);
+      remainingCancelled -= useCancelled;
+      need -= useCancelled;
 
       const netDemand = Math.max(0, need);
       // 检查表：无短缺的桶也记录（需求/供应冲抵明细），便于完整检查
@@ -516,6 +554,7 @@ export async function runMrp(params: MrpParams = {}, userId?: number, existingRu
         inTransit: useInTransit,
         wipQuantity: useWip,
         issuedQuantity: useIssued,
+        cancelledQuantity: useCancelled,
         netDemand,
         leadTime,
         orderDate: bucket.needDate ? new Date(bucket.needDate.getTime() - leadTime * 24 * 60 * 60 * 1000) : null,

@@ -22,6 +22,7 @@ const statusOptions = [
   { label: '待领料', value: 'pending', type: 'info' },
   { label: '部分领料', value: 'partial', type: 'warning' },
   { label: '已领料', value: 'issued', type: 'success' },
+  { label: '已取消未发', value: 'cancelled', type: 'info' },
 ]
 function statusLabel(s: string) {
   return statusOptions.find((o) => o.value === s)?.label || s
@@ -241,6 +242,7 @@ async function handleDelete(row: any) {
       </el-table-column>
       <el-table-column prop="requiredQty" label="需求量" width="100" align="right" />
       <el-table-column prop="issuedQty" label="已领料" width="90" />
+      <el-table-column prop="cancelledQty" label="已取消" width="90" />
       <el-table-column prop="unit" label="单位" width="70" />
       <el-table-column label="领料状态" width="100">
         <template #default="{ row }">

@@ -61,6 +61,7 @@ const queryFields: QueryField[] = [
   },
   { field: 'requiredQty', label: '需求量', type: 'number' },
   { field: 'issuedQty', label: '已领料', type: 'number' },
+  { field: 'cancelledQty', label: '已取消', type: 'number' },
   { field: 'unit', label: '单位', type: 'text', placeholder: '单位' },
   {
     field: 'status',
@@ -70,6 +71,7 @@ const queryFields: QueryField[] = [
       { label: '待领料', value: 'pending' },
       { label: '部分领料', value: 'partial' },
       { label: '已领料', value: 'issued' },
+      { label: '已取消未发', value: 'cancelled' },
     ],
   },
   { field: 'remark', label: '备注', type: 'text', placeholder: '备注' },
@@ -105,6 +107,7 @@ const issueStatusOptions = [
   { label: '待领料', value: 'pending', type: 'info' },
   { label: '部分领料', value: 'partial', type: 'warning' },
   { label: '已领料', value: 'issued', type: 'success' },
+  { label: '已取消未发', value: 'cancelled', type: 'info' },
 ]
 function issueStatusLabel(s: string) {
   return issueStatusOptions.find((o) => o.value === s)?.label || s || '-'
@@ -222,6 +225,7 @@ onMounted(loadData)
           </el-table-column>
           <el-table-column prop="requiredQty" label="需求量" width="100" align="right" />
           <el-table-column prop="issuedQty" label="已领料" width="90" align="right" />
+          <el-table-column prop="cancelledQty" label="已取消" width="90" align="right" />
           <el-table-column prop="unit" label="单位" width="70" />
           <el-table-column label="领料状态" width="100">
             <template #default="{ row }">
