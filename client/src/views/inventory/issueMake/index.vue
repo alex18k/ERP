@@ -389,31 +389,31 @@ onMounted(loadPage)</script>
             </el-select>
           </template>
         </el-table-column>
-        <el-table-column label="库位" width="130">
+        <el-table-column label="库位" width="100">
           <template #default="{ row }">
             <el-select v-model="row.location" size="small" filterable allow-create default-first-option clearable placeholder="库位" style="width: 100%" @change="onRowLocationChange(row)">
-              <el-option v-for="l in locationOptions" :key="l.code" :label="l.name ? `${l.code} - ${l.name}` : l.code" :value="l.code" />
+              <el-option v-for="l in locationOptions" :key="l.code" :label="l.name || l.code" :value="l.code" />
             </el-select>
           </template>
         </el-table-column>
-        <el-table-column v-if="hasBinRows" label="货位" width="150">
+        <el-table-column v-if="hasBinRows" label="货位" width="100">
           <template #default="{ row }">
             <el-select v-model="row.binId" size="small" filterable clearable placeholder="选择货位" style="width: 100%" @change="onRowBinChange(row)">
-              <el-option v-for="b in rowBins(row)" :key="b.id" :label="`${b.code} - ${b.name}`" :value="b.id" />
+              <el-option v-for="b in rowBins(row)" :key="b.id" :label="b.name || b.code" :value="b.id" />
             </el-select>
           </template>
         </el-table-column>
-        <el-table-column prop="requiredQty" label="需求量" width="100" />
-        <el-table-column prop="issuedQty" label="已发" width="90" />
-        <el-table-column label="未发" width="90">
+        <el-table-column prop="requiredQty" label="需求量" width="80" />
+        <el-table-column prop="issuedQty" label="已发" width="64" />
+        <el-table-column label="未发" width="64">
           <template #default="{ row }">{{ row.cancelRemain ? 0 : lineRemain(row) }}</template>
         </el-table-column>
-        <el-table-column label="取消未发" width="90" align="center">
+        <el-table-column label="取消未发" width="76" align="center">
           <template #default="{ row }">
             <el-checkbox v-model="row.cancelRemain" :disabled="lineRemain(row) <= 1e-6" @change="onCancelRemainChange(row)" />
           </template>
         </el-table-column>
-        <el-table-column label="当前库存" width="100" align="right">
+        <el-table-column label="当前库存" width="90" align="right">
           <template #default="{ row }">
             <span class="stock-num" :class="{ short: rowStockShort(row) }" :title="rowStockShort(row) ? '当前库存小于本次发放数量' : ''">{{ rowStock(row) }}</span>
           </template>
