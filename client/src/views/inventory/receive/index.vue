@@ -85,6 +85,8 @@ const rows = computed(() => {
   for (const o of list.value) {
     for (const it of (o.items || [])) {
       const remaining = it.quantity - (it.receivedQty ?? 0)
+      // 只列可收货的行：已关闭/已取消、已收满的行不显示
+      if (NON_RECEIVABLE.includes(it.status) || remaining <= 0) continue
       out.push({
         orderId: o.id,
         orderNo: o.orderNo,
