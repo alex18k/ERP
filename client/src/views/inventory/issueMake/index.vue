@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { productionApi, warehouseApi, warehouseBinApi, stockApi } from '../../../api'
 import { BASE_LOCATIONS, warehouseIdByLocation } from '../../../utils/location'
 
@@ -9,6 +9,7 @@ const route = useRoute()
 const router = useRouter()
 
 const loading = ref(false)
+const submitting = ref(false)
 const warehouses = ref<any[]>([])
 const activeWarehouses = computed(() => warehouses.value.filter((w: any) => w.status === 1))
 const order = ref<any>(null)
@@ -277,8 +278,69 @@ async function loadPage() {
   }
 }
 
-onMounted(loadPage)
-</script>
+async function submit() {
+  const cancelIds = detail.value.filter((l) => l.cancelRemain && lineRemain(l) > 1e-6).map((l) => l.workOrderMaterialId)
+  const items = detail.value
+    .filter((l) => !l.cancelRemain && Number(l.issueQty) > 0)
+    .map((l) => ({
+      workOrderMaterialId: l.workOrderMaterialId,
+      quantity: l.issueQty,
+      unit: l.issueUnit || undefined,
+      location: l.location || undefined,
+      warehouseId: rowWarehouseId(l) || undefined,
+      binId: l.binId || undefined,
+      batchNo: l.batchNo || undefined,
+    }))
+  if (items.length === 0 && cancelIds.length === 0) {
+    ElMessage.warning('请填写发放数量或勾选取消未发')
+    return
+  }
+  if (items.length > 0 && !form.warehouseId) {
+    ElMessage.warning('请选择库位')
+    return
+  }
+  if (detail.value.some((l) => !l.cancelRemain && Number(l.issueQty) > 0 && l.material?.batchManaged && !l.batchNo)) {
+    ElMessage.warning('批号管理物料必须选择批号')
+    return
+  }
+  const badLine = detail.value.find((l) => !l.cancelRemain && Number(l.issueQty) > 0 && !rowWarehouseId(l))
+  if (badLine) {
+    ElMessage.warning(`${badLine.materialCode} 的库位「${badLine.location || '空'}」未对应启用仓库，请重新选择`)
+    return
+  }
+  submitting.value = true
+  try {
+    const res: any = await productionApi.issueOrderMaterials(order.value.id, {
+      warehouseId: form.warehouseId || undefined,
+      effectiveDate: form.effectiveDate || undefined,
+      items,
+      cancelRemainMaterialIds: cancelIds.length ? cancelIds : undefined,
+    })
+    const issued = res.data?.issued || []
+    const cancelled = res.data?.cancelled || []
+    const skipped = res.data?.skipped || []
+    const parts: string[] = []
+    if (issued.length) parts.push(`发料 ${issued.length} 行`)
+    if (cancelled.length) parts.push(`取消未发 ${cancelled.length} 行`)
+    if (skipped.length === 0) {
+      ElMessage.success(parts.join('，') || '已提交')
+    } else {
+      const lines = skipped
+        .map((s: any) => `${s.materialCode} ${s.materialName}：${s.reason}`)
+        .join('<br/>')
+      await ElMessageBox.alert(`已发 ${issued.length} 行，跳过 ${skipped.length} 行：<br/><br/>${lines}`, '发料结果', {
+        dangerouslyUseHTMLString: true,
+      })
+    }
+    backToList()
+  } catch {
+    /* error shown */
+  } finally {
+    submitting.value = false
+  }
+}
+
+onMounted(loadPage)</script>
 
 <template>
   <div class="page-container" v-loading="loading">
@@ -286,6 +348,8 @@ onMounted(loadPage)
       <div class="search-bar">
         <span class="toolbar-title">生产发料</span>
         <el-button style="margin-left: 12px" @click="backToList"><el-icon><Back /></el-icon>返回</el-button>
+        <div style="flex: 1" />
+        <el-button type="primary" :loading="submitting" @click="submit">确认发料</el-button>
       </div>
 
       <el-descriptions :column="5" border size="small" style="margin-bottom: 12px">
