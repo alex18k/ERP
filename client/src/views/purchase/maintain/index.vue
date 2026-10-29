@@ -670,7 +670,7 @@ async function copyOrderNo() {
                   </el-select>
                 </template>
               </el-table-column>
-              <el-table-column label="数量" width="75" align="right">
+              <el-table-column label="数量" width="62" align="right">
                 <template #default="{ row }">
                   <el-input-number v-model="row.quantity" :min="Math.max(1, row.receivedQty || 0)" :controls="false" size="small" style="width: 100%" />
                   <div v-if="rowBaseHint(row)" class="unit-hint">{{ rowBaseHint(row) }}</div>
@@ -681,12 +681,12 @@ async function copyOrderNo() {
                   <span :class="{ 'received-qty': (row.receivedQty || 0) > 0 }">{{ row.receivedQty || '-' }}</span>
                 </template>
               </el-table-column>
-              <el-table-column label="已退货" width="76" align="right">
+              <el-table-column label="已退货" width="62" align="right">
                 <template #default="{ row }">
                   <span :class="{ 'returned-qty': (row.returnedQty || 0) > 0 }">{{ (row.returnedQty || 0) > 0 ? row.returnedQty : '-' }}</span>
                 </template>
               </el-table-column>
-              <el-table-column label="单价" width="90" align="right">
+              <el-table-column label="单价" width="70" align="right">
                 <template #default="{ row }">
                   <el-input v-model="row.unitPriceText" class="num-input" size="small" style="width: 100%" @input="onUnitPriceInput(row)" />
                 </template>
