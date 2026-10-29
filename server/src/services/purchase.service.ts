@@ -184,13 +184,26 @@ export async function listPurchaseOrderOptions(where: any) {
 }
 
 export async function getPurchaseOrder(id: number) {
-  return prisma.purchaseOrder.findUnique({
+  const order = await prisma.purchaseOrder.findUnique({
     where: { id },
     include: {
       supplier: true,
       items: { include: { material: true }, orderBy: { line: "asc" } },
     },
   });
+  if (!order) return order;
+  // 每行附带已退货数量（退货流水按基本单位统计，折回该行录入单位，与 quantity/receivedQty 同口径）
+  const returnedBase = await calcReturnedBaseByItem(
+    prisma,
+    [order.id],
+    order.items.map((it) => ({ id: it.id, orderId: it.orderId, line: it.line, materialId: it.materialId }))
+  );
+  const items = order.items.map((it) => {
+    const rate = Number(it.conversionRate) || 1;
+    const base = returnedBase.get(it.id) ?? 0;
+    return { ...it, returnedQty: base ? Math.round((base / rate) * 1e6) / 1e6 : 0 };
+  });
+  return { ...order, items };
 }
 
 // 明细行号必填（正整数）且不可重复，与销售订单明细一致
