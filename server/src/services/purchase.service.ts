@@ -639,10 +639,12 @@ export async function receivePurchaseOrder(
       // 换算为基本单位入库（换算率取下单时快照）
       const baseQty = toBaseQty(qty, item.conversionRate || 1);
 
-      // 原子累加收货量：写入时校验 receivedQty + qty <= quantity，并发下不会超收
+      // 原子累加收货量：写入时校验 receivedQty + qty <= quantity，并发下不会超收；
+      // 同一 UPDATE 内收满（receivedQty >= quantity）即把明细状态置为 closed（关闭），不再可收/不计到货跟踪
       const updatedRows = await tx.$executeRaw`
         UPDATE "PurchaseOrderItem"
-        SET "receivedQty" = "receivedQty" + ${qty}
+        SET "receivedQty" = "receivedQty" + ${qty},
+            "status" = CASE WHEN "receivedQty" + ${qty} >= "quantity" - 1e-6 THEN 'closed' ELSE "status" END
         WHERE "id" = ${item.id}
           AND "receivedQty" + ${qty} <= "quantity"
           AND COALESCE("status", '') NOT IN ('cancelled', 'closed')`;
