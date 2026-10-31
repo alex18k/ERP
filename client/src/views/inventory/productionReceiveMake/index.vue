@@ -313,10 +313,10 @@ onMounted(loadPage)
   margin-bottom: 10px;
 }
 
-/* 金蝶表头：5 列网格，固定标签宽，列对齐、行距紧凑 */
+/* 金蝶表头：4 列网格（本页标签较长，4 列保证日期/批号控件完整可见），列对齐、行距紧凑 */
 .kd-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.6fr) repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   column-gap: 16px;
   row-gap: 2px;
 }
@@ -342,6 +342,32 @@ onMounted(loadPage)
 }
 .kd-flex {
   width: 100%;
+}
+.erp-group :deep(.el-input__wrapper),
+.erp-group :deep(.el-select__wrapper) {
+  box-shadow: 0 1px 0 0 var(--erp-hairline);
+  background: transparent;
+  border-radius: 0;
+  padding-left: 2px;
+  padding-right: 2px;
+  transition: box-shadow 0.2s;
+}
+.erp-group :deep(.el-input__wrapper:hover),
+.erp-group :deep(.el-select__wrapper:hover) {
+  box-shadow: 0 1px 0 0 var(--el-text-color-secondary);
+}
+.erp-group :deep(.el-input__wrapper.is-focus),
+.erp-group :deep(.el-select__wrapper.is-focused) {
+  box-shadow: 0 1px 0 0 var(--erp-copper);
+  background: transparent;
+}
+.erp-group :deep(.el-select__caret),
+.erp-group :deep(.el-input__icon) {
+  color: var(--el-text-color-secondary);
+}
+.erp-group :deep(.el-input__wrapper.is-focus .el-input__icon),
+.erp-group :deep(.el-select__wrapper.is-focused .el-select__caret) {
+  color: var(--erp-copper);
 }
 .unit-hint {
   font-size: 12px;
