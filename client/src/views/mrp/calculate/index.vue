@@ -234,7 +234,7 @@ onMounted(loadData)
     </el-dialog>
 
     <!-- 运算结果 -->
-    <el-dialog v-model="resultDialogVisible" title="MRP运算结果" width="920px" top="5vh">
+    <el-dialog v-model="resultDialogVisible" title="MRP运算结果" width="920px" top="5vh" class="mrp-result-dialog">
       <template v-if="result">
         <el-descriptions :column="4" border size="small" style="margin-bottom: 16px">
           <el-descriptions-item label="运算编号">{{ result.runNo }}</el-descriptions-item>
@@ -245,7 +245,7 @@ onMounted(loadData)
 
         <el-tabs>
           <el-tab-pane :label="`缺料清单 (${(result.shortages || []).length})`">
-            <el-table :data="result.shortages || []" size="small" stripe>
+            <el-table :data="result.shortages || []" size="small" stripe max-height="clamp(280px, calc(100vh - 380px), 680px)">
               <el-table-column label="物料" min-width="150">
                 <template #default="{ row }">{{ row.materialCode }} - {{ row.materialName }}</template>
               </el-table-column>
@@ -260,7 +260,7 @@ onMounted(loadData)
             </el-table>
           </el-tab-pane>
           <el-tab-pane :label="`采购建议 (${(result.purchaseSuggestions || []).length})`">
-            <el-table :data="result.purchaseSuggestions || []" size="small" stripe>
+            <el-table :data="result.purchaseSuggestions || []" size="small" stripe max-height="clamp(280px, calc(100vh - 380px), 680px)">
               <el-table-column label="物料" min-width="150">
                 <template #default="{ row }">{{ row.materialCode }} - {{ row.materialName }}</template>
               </el-table-column>
@@ -291,7 +291,7 @@ onMounted(loadData)
             </el-table>
           </el-tab-pane>
           <el-tab-pane :label="`生产建议 (${(result.productionOrders || []).length})`">
-            <el-table :data="result.productionOrders || []" size="small" stripe>
+            <el-table :data="result.productionOrders || []" size="small" stripe max-height="clamp(280px, calc(100vh - 380px), 680px)">
               <el-table-column label="物料" min-width="150">
                 <template #default="{ row }">{{ row.materialCode }} - {{ row.materialName }}</template>
               </el-table-column>
@@ -324,5 +324,16 @@ onMounted(loadData)
 .pagination-wrap {
   justify-content: space-between;
   align-items: center;
+}
+
+/* MRP运算结果：弹窗不超出屏幕高度，书签表格内部纵向滚动 */
+.mrp-result-dialog {
+  max-height: 92vh;
+  display: flex;
+  flex-direction: column;
+}
+.mrp-result-dialog :deep(.el-dialog__body) {
+  max-height: calc(92vh - 140px);
+  overflow-y: auto;
 }
 </style>
