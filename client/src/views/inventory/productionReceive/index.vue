@@ -22,6 +22,12 @@ const activeWarehouses = computed(() => warehouses.value.filter((w: any) => w.st
 const selectedWarehouse = computed(() => warehouses.value.find((w: any) => w.id === form.warehouseId) || null)
 const binRequired = computed(() => selectedWarehouse.value?.binManaged === true)
 
+function todayStr() {
+  const d = new Date()
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+}
+
 async function loadBins() {
   form.binId = null
   bins.value = []
@@ -128,7 +134,7 @@ function openDialog(row: any) {
   form.batchNo = ''
   form.closeWorkOrder = false
   form.warehouseId = warehouseIdByLocation(activeWarehouses.value, row.material?.location) || activeWarehouses.value[0]?.id || null
-  form.effectiveDate = new Date().toISOString().slice(0, 10)
+  form.effectiveDate = todayStr()
   form.handler = ''
   form.keeper = ''
   dialogVisible.value = true
