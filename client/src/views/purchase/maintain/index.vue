@@ -312,6 +312,7 @@ async function loadOrder(id: number) {
 
 function buildPayload() {
   return {
+    updatedAt: form.updatedAt || undefined,
     supplierId: form.supplierId,
     settleMethod: form.settleMethod || undefined,
     orderDate: form.orderDate || undefined,

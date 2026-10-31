@@ -13,6 +13,7 @@ router.get("/receipt-keepers", requirePermission("purchase:view"), purchaseContr
 router.post("/receipts/:id/return", requirePermission("stock:edit"), operationLog("purchase", "return"), purchaseController.returnReceiptHandler);
 router.get("/return-orders", requirePermission("purchase:view"), purchaseController.returnOrdersHandler);
 router.post("/return-orders/:id/return", requirePermission("stock:edit"), operationLog("purchase", "return"), purchaseController.returnOrderHandler);
+router.post("/return-orders/:id/exchange", requirePermission("stock:edit"), operationLog("purchase", "exchange"), purchaseController.exchangeOrderHandler);
 router.get("/receipt-documents", requirePermission("purchase:view"), purchaseController.receiptDocumentsHandler);
 router.post("/receipt-documents/:documentNo/return", requirePermission("stock:edit"), operationLog("purchase", "return"), purchaseController.returnReceiptDocHandler);
 router.get("/buyers", requirePermission("purchase:view"), purchaseController.buyersHandler);

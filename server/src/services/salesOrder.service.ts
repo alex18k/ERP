@@ -18,6 +18,8 @@ export interface SalesOrderCreateInput {
   seller1?: string;
   seller2?: string;
   paymentMethod?: string;
+  taxIncluded?: boolean;
+  taxRate?: number;
   deliveryDate?: string;
   remark?: string;
   items: {
@@ -172,11 +174,23 @@ export const SALES_QUERY_FIELDS: Record<string, PrismaQueryFieldDefinition> = {
 };
 
 export async function listOrders(where: any) {
-  const { orderNo, customerName, status, page = 1, pageSize = 20, startDate, endDate } = where;
+  const { orderNo, customerName, materialKeyword, status, page = 1, pageSize = 20, startDate, endDate } = where;
 
   const filters: Prisma.SalesOrderWhereInput = {};
   if (orderNo) filters.orderNo = { contains: orderNo };
   if (customerName) filters.customerName = { contains: customerName };
+  if (materialKeyword) {
+    filters.items = {
+      some: {
+        material: {
+          OR: [
+            { code: { contains: materialKeyword } },
+            { name: { contains: materialKeyword } },
+          ],
+        },
+      },
+    };
+  }
   if (status) filters.status = status;
   if (startDate && endDate) {
     filters.deliveryDate = {
@@ -322,6 +336,8 @@ export async function createOrder(data: SalesOrderCreateInput, userId: number) {
           seller1: data.seller1,
           seller2: data.seller2,
           paymentMethod: data.paymentMethod,
+          taxIncluded: data.taxIncluded ?? false,
+          taxRate: data.taxRate ?? 0,
           deliveryDate: data.deliveryDate ? new Date(data.deliveryDate) : null,
           remark: data.remark,
           totalAmount,
@@ -404,6 +420,8 @@ export async function updateOrder(id: number, data: Partial<SalesOrderCreateInpu
         seller1: data.seller1,
         seller2: data.seller2,
         paymentMethod: data.paymentMethod,
+        taxIncluded: data.taxIncluded === undefined ? undefined : !!data.taxIncluded,
+        taxRate: data.taxRate === undefined ? undefined : Number(data.taxRate) || 0,
         deliveryDate: data.deliveryDate ? new Date(data.deliveryDate) : freshOrder.deliveryDate,
         remark: data.remark,
         totalAmount,
@@ -572,11 +590,11 @@ export async function cancelOrder(id: number, opts?: { cancelProduction?: boolea
         const ids = planned.map((p) => p.id);
         await tx.productionOrder.updateMany({
           where: { id: { in: ids } },
-          data: { status: "closed", execStatus: "closed" },
+          data: { status: "closed" },
         });
       }
 
-      // 已开工的生产订单：保留订单，仅关闭其尚未开工（execStatus=pending）的执行状态
+      // 已开工的生产订单：执行未开工（execStatus=pending）的整单关闭；已投产/已完工的保持不动
       const inProgress = await tx.productionOrder.findMany({
         where: { salesOrderId: id, status: "in_progress" },
         select: { id: true },
@@ -584,7 +602,7 @@ export async function cancelOrder(id: number, opts?: { cancelProduction?: boolea
       if (inProgress.length > 0) {
         await tx.productionOrder.updateMany({
           where: { id: { in: inProgress.map((p) => p.id) }, execStatus: "pending" },
-          data: { execStatus: "closed" },
+          data: { status: "closed" },
         });
       }
     }
@@ -1054,7 +1072,7 @@ export async function getOrderTrack(id: number) {
         quantity: po.quantity,
         completedQty,
         status: po.status,
-        workOrderCount: wo ? 1 : 0,
+        execStatus: po.execStatus,
         planStartDate: po.planStartDate,
         planEndDate: po.planEndDate,
         workOrder: wo

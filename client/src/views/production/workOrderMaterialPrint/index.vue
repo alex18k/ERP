@@ -68,7 +68,7 @@ onMounted(async () => {
         <div><span class="lb">计划数量</span>{{ order.plannedQty ?? '-' }}</div>
         <div><span class="lb">计划周期</span>{{ fmt(order.planStartDate) }} ~ {{ fmt(order.planEndDate) }}</div>
         <div><span class="lb">计划员</span>{{ order.planner || '-' }}</div>
-        <div><span class="lb">工单状态</span>{{ order.execStatus === 'completed' ? '已完工' : order.status === 'closed' ? '已关闭' : order.status === 'planned' ? '已计划' : '生产中' }}</div>
+        <div><span class="lb">工单状态</span>{{ order.execStatus === 'completed' ? '已完工' : order.status === 'closed' ? '已关闭' : order.status === 'planned' ? '已计划' : '已下达' }}</div>
         <div><span class="lb">销售订单</span>{{ order.salesOrder?.orderNo || '-' }}</div>
       </div>
 

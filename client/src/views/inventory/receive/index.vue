@@ -3,11 +3,50 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { purchaseApi, warehouseApi, warehouseBinApi, stockApi } from '../../../api'
 import { warehouseIdByLocation } from '../../../utils/location'
+import QueryConditionBuilder from '../../../components/QueryConditionBuilder.vue'
+import { createEmptyCondition, serializeConditions, type QueryCondition, type QueryField } from '../../../utils/queryBuilder'
 
 const loading = ref(false)
 const list = ref<any[]>([])
 const total = ref(0)
-const query = reactive({ page: 1, pageSize: 20, orderNo: '' })
+const query = reactive({ page: 1, pageSize: 20, conditions: undefined as string | undefined })
+
+// 高级查询字段（表头 + 明细；明细条件在 rows 里二次过滤）
+const queryFields: QueryField[] = [
+  { field: 'orderNo', label: '采购单号', type: 'text', placeholder: '采购单号' },
+  { field: 'supplierName', label: '供应商', type: 'text', placeholder: '供应商名称' },
+  { field: 'orderDate', label: '订货日期', type: 'date' },
+  { field: 'expectedDate', label: '期望到货日期', type: 'date' },
+  { field: 'buyer', label: '采购员', type: 'text', placeholder: '采购员' },
+  { field: 'settleMethod', label: '结算方式', type: 'text', placeholder: '结算方式' },
+  { field: 'materialCode', label: '物料编码', type: 'text', placeholder: '物料编码' },
+  { field: 'materialName', label: '物料名称', type: 'text', placeholder: '物料名称' },
+  { field: 'specification', label: '型号规格', type: 'text', placeholder: '型号规格' },
+  { field: 'line', label: '行号', type: 'number' },
+  { field: 'quantity', label: '订购数量', type: 'number' },
+  { field: 'receivedQty', label: '已收数量', type: 'number' },
+  { field: 'unitPrice', label: '单价', type: 'number' },
+  { field: 'itemRemark', label: '明细备注', type: 'text', placeholder: '明细备注' },
+  { field: 'remark', label: '表头备注', type: 'text', placeholder: '表头备注' },
+  { field: 'createdAt', label: '创建日期', type: 'date' },
+]
+const advancedConditions = ref<QueryCondition[]>([createEmptyCondition()])
+const ITEM_FIELDS = new Set(['materialCode', 'materialName', 'specification', 'line', 'quantity', 'receivedQty', 'unitPrice', 'itemRemark'])
+const activeConditions = ref<QueryCondition[]>([])
+
+function submitAdvanced(conditions: QueryCondition[]) {
+  query.conditions = serializeConditions(conditions)
+  activeConditions.value = conditions.filter((c) => c.field && c.value !== null && c.value !== '' && c.value !== undefined)
+  query.page = 1
+  loadData()
+}
+function resetAdvanced() {
+  advancedConditions.value = [createEmptyCondition()]
+  activeConditions.value = []
+  query.conditions = undefined
+  query.page = 1
+  loadData()
+}
 
 const warehouses = ref<any[]>([])
 const receiveVisible = ref(false)
@@ -93,7 +132,7 @@ const rows = computed(() => {
         line: it.line,
         supplierName: o.supplier?.name || '未指定',
         status: o.status,
-        expectedDate: o.expectedDate ? String(o.expectedDate).slice(0, 10) : '',
+        expectedDate: it.expectedDate ? String(it.expectedDate).slice(0, 10) : '',
         itemState: itemState(it),
         receivable: !NON_RECEIVABLE.includes(it.status) && remaining > 0,
         materialCode: it.material?.code,
@@ -103,11 +142,39 @@ const rows = computed(() => {
         receivedQty: it.receivedQty ?? 0,
         remaining,
         unitPrice: it.unitPrice,
+        itemRemark: it.remark,
       })
     }
   }
-  return out
+  const itemConditions = activeConditions.value.filter((c) => ITEM_FIELDS.has(c.field))
+  return itemConditions.length ? out.filter((row) => itemConditions.every((c) => matchCondition(row, c))) : out
 })
+
+function matchCondition(row: any, condition: QueryCondition): boolean {
+  const v = condition.value
+  const v2 = condition.value2
+  switch (condition.field) {
+    case 'materialCode': return String(row.materialCode ?? '').toLowerCase().includes(String(v ?? '').toLowerCase())
+    case 'materialName': return String(row.materialName ?? '').toLowerCase().includes(String(v ?? '').toLowerCase())
+    case 'specification': return String(row.specification ?? '').toLowerCase().includes(String(v ?? '').toLowerCase())
+    case 'itemRemark': return String(row.itemRemark ?? '').toLowerCase().includes(String(v ?? '').toLowerCase())
+    case 'line': return Number(row.line) === Number(v)
+    case 'quantity': return compareNumber(Number(row.quantity), condition.operator, Number(v), Number(v2))
+    case 'receivedQty': return compareNumber(Number(row.receivedQty), condition.operator, Number(v), Number(v2))
+    case 'unitPrice': return compareNumber(Number(row.unitPrice), condition.operator, Number(v), Number(v2))
+    default: return true
+  }
+}
+function compareNumber(num: number, operator: string, v: any, v2: any): boolean {
+  if (operator === 'gt') return num > v
+  if (operator === 'lt') return num < v
+  if (operator === 'range') {
+    const lo = Math.min(Number(v), Number(v2))
+    const hi = Math.max(Number(v), Number(v2))
+    return num >= lo && num <= hi
+  }
+  return num === v
+}
 
 // 预计到货信息编码：逾期红色、今日琥珀色
 function dueClass(row: any) {
@@ -117,8 +184,6 @@ function dueClass(row: any) {
   return ''
 }
 
-const pendingRows = computed(() => rows.value.filter((r) => r.receivable).length)
-const overdueRows = computed(() => rows.value.filter((r) => dueClass(r) === 'due-overdue').length)
 
 // 未收量配色：一行未收红色、部分未收橙色、已收满绿色、明细已关闭/取消灰色（与采购单列表的已收配色同口径）
 function remainingClass(row: any) {
@@ -326,57 +391,41 @@ onMounted(async () => {
         <el-button @click="loadData"><el-icon><Refresh /></el-icon>刷新</el-button>
       </div>
 
-      <div class="search-bar">
-        <el-input v-model="query.orderNo" placeholder="采购单号" clearable style="width: 180px" @keyup.enter="query.page = 1, loadData()" />
-        <el-button type="primary" @click="query.page = 1, loadData()"><el-icon><Search /></el-icon>查询</el-button>
-        <el-button @click="Object.assign(query, { orderNo: '', page: 1 }), loadData()">重置</el-button>
-      </div>
-
-      <div class="list-summary">
-        <span>可收货采购单 <b>{{ total }}</b> 张</span>
-        <span v-if="rows.length">· 本页待收行 <b>{{ pendingRows }}</b> 行</span>
-        <span v-if="overdueRows">· <b class="due-overdue">{{ overdueRows }}</b> 行已过预计到货日期</span>
-        <span class="list-summary-tip">仅显示已确认、且存在未收完明细（状态空白）的采购单；一行 = 一个采购明细</span>
+      <div class="advanced-query">
+        <QueryConditionBuilder v-model="advancedConditions" :fields="queryFields" @query="submitAdvanced" @reset="resetAdvanced" />
       </div>
 
       <el-table :data="rows" v-loading="loading" stripe max-height="calc(100vh - 300px)">
-        <el-table-column prop="orderNo" label="采购单号" width="150" />
+        <el-table-column label="采购单号" width="130">
+          <template #default="{ row }">
+            <el-button size="small" type="primary" link @click="openReceiveByOrder(row.orderId)">{{ row.orderNo }}</el-button>
+          </template>
+        </el-table-column>
         <el-table-column prop="line" label="行号" width="70" align="center" />
         <el-table-column prop="supplierName" label="供应商" min-width="180" show-overflow-tooltip />
         <el-table-column prop="materialCode" label="物料编码" width="120" show-overflow-tooltip />
         <el-table-column prop="materialName" label="物料名称" min-width="150" show-overflow-tooltip />
         <el-table-column prop="specification" label="规格型号" min-width="140" show-overflow-tooltip />
-        <el-table-column label="预计到货" width="110">
+        <el-table-column label="截止日期" width="100">
           <template #default="{ row }">
             <span v-if="row.expectedDate" :class="dueClass(row)">{{ row.expectedDate }}</span>
             <span v-else>-</span>
           </template>
         </el-table-column>
-        <el-table-column prop="quantity" label="采购数量" width="90" align="right" />
-        <el-table-column label="已收" width="80" align="right">
+        <el-table-column prop="quantity" label="采购数量" width="80" align="right" />
+        <el-table-column label="已收" width="70" align="right">
           <template #default="{ row }">
             <span :class="receivedClass(row)">{{ row.receivedQty ?? 0 }}</span>
           </template>
         </el-table-column>
-        <el-table-column label="未收" width="80" align="right">
+        <el-table-column label="未收" width="70" align="right">
           <template #default="{ row }">
             <span :class="remainingClass(row)">{{ row.remaining }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column prop="unitPrice" label="单价" width="90" align="right" />
-        <el-table-column label="状态" width="100">
-          <template #default="{ row }">
-            <el-tag :type="statusType(row.status)" size="small" effect="light">{{ statusLabel(row.status) }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column label="明细状态" width="100">
           <template #default="{ row }">
             <el-tag :type="row.itemState.type" size="small" effect="light">{{ row.itemState.label }}</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="操作" width="80" fixed="right">
-          <template #default="{ row }">
-            <el-button size="small" type="primary" link :disabled="!row.receivable" @click="openReceiveByOrder(row.orderId)">收货</el-button>
           </template>
         </el-table-column>
         <template #empty>
@@ -502,21 +551,12 @@ onMounted(async () => {
 </template>
 
 <style scoped>
-.list-summary {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  color: var(--erp-inktext);
-  padding: 2px 0 8px;
-}
-.list-summary b {
-  color: var(--erp-ink);
-  font-weight: 600;
-}
-.list-summary-tip {
-  margin-left: auto;
-  color: var(--erp-steel);
+.advanced-query {
+  margin: 4px 0 8px;
+  padding: 8px 10px;
+  border: 1px solid #d5dae2;
+  border-radius: 6px;
+  background: #fafbfc;
 }
 .due-overdue {
   color: var(--erp-red);

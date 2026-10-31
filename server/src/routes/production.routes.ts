@@ -29,8 +29,6 @@ router.post("/orders/:id/materials", requirePermission("production:manage"), pro
 router.put("/order-materials/:id", requirePermission("production:manage"), productionController.updateProductionOrderMaterialHandler);
 router.delete("/order-materials/:id", requirePermission("production:manage"), productionController.deleteProductionOrderMaterialHandler);
 router.put("/orders/:id/exec-status", requirePermission("production:manage"), productionController.updateProductionOrderExecStatusHandler);
-router.put("/orders/:id/close", requirePermission("production:manage"), productionController.closeProductionOrderExecHandler);
-router.put("/orders/:id/reopen", requirePermission("production:manage"), productionController.reopenProductionOrderExecHandler);
 router.post("/orders/:id/report", requirePermission("production:report"), productionController.reportWorkHandler);
 router.post("/batch-report", requirePermission("production:report"), productionController.batchReportHandler);
 router.get("/orders/:id/route", requirePermission("production:view"), productionController.orderRouteHandler);

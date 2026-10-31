@@ -192,13 +192,10 @@ export async function closeProductionOrder(id: number) {
   const order = await prisma.productionOrder.findUnique({ where: { id } });
   if (!order) throw new Error("生产订单不存在");
   if (order.status === "closed") return order;
+  // 只改单据状态，不动执行状态（execStatus 保留原值；执行状态取消 closed，关闭即 status=closed）
   return prisma.productionOrder.update({
     where: { id },
-    data: {
-      status: "closed",
-      // 未排产订单保留 none，重新打开时仍可排产
-      execStatus: order.execStatus === "none" ? "none" : "closed",
-    },
+    data: { status: "closed" },
   });
 }
 
@@ -236,29 +233,6 @@ export async function deleteProductionOrder(id: number) {
     await tx.productionOrder.delete({ where: { id } });
   });
   return { success: true };
-}
-
-// 重新打开已关闭订单时，按报工/工艺路线还原执行状态
-async function computeReopenedExecStatus(
-  db: Prisma.TransactionClient,
-  order: { id: number; plannedQty: number; startTime: Date | null }
-) {
-  if (order.plannedQty <= 1e-6 && !order.startTime) return "none";
-  const orderRoute = await db.productionOrderRoute.findUnique({
-    where: { productionOrderId: order.id },
-    include: { steps: { orderBy: { sequence: "asc" } } },
-  });
-  const anyReport = await db.workReport.count({ where: { productionOrderId: order.id } });
-  if (orderRoute && orderRoute.steps.length > 0) {
-    const lastStep = orderRoute.steps[orderRoute.steps.length - 1];
-    const agg = await db.workReport.aggregate({
-      where: { productionOrderId: order.id, processStepId: lastStep.id },
-      _sum: { quantity: true },
-    });
-    const lastQty = agg._sum.quantity ?? 0;
-    return lastQty >= order.plannedQty - 1e-6 ? "completed" : anyReport > 0 ? "in_progress" : "pending";
-  }
-  return anyReport > 0 ? "in_progress" : "pending";
 }
 
 // 销售订单完工回写：该销售订单下不再有「未完工且未关闭」的生产订单时，销售订单及其明细置完成
@@ -306,10 +280,7 @@ export async function updateProductionOrderStatus(id: number, status: string) {
   if (order.status === status) return order;
   if (status === "closed") return closeProductionOrder(id);
 
-  const reopening = order.status === "closed" && order.execStatus === "closed";
-
   return prisma.$transaction(async (tx) => {
-    const reopenedExecStatus = reopening ? await computeReopenedExecStatus(tx, order) : undefined;
     const updated = await tx.productionOrder.update({
       where: { id },
       data:
@@ -318,12 +289,10 @@ export async function updateProductionOrderStatus(id: number, status: string) {
               status: "in_progress",
               actualStartDate: order.actualStartDate ?? new Date(),
               actualEndDate: null,
-              ...(reopenedExecStatus ? { execStatus: reopenedExecStatus } : {}),
             }
           : {
               status,
               actualEndDate: null,
-              ...(reopenedExecStatus ? { execStatus: reopenedExecStatus } : {}),
             },
     });
 
@@ -614,7 +583,6 @@ async function applyWorkReport(tx: Prisma.TransactionClient, productionOrderId: 
   const order = await tx.productionOrder.findUnique({ where: { id: productionOrderId } });
   if (!order) throw new Error("生产订单不存在");
   if (order.status === "closed") throw new Error("生产订单已关闭，不能报工");
-  if (order.execStatus === "closed") throw new Error("生产订单已关闭，不能报工");
   if (order.execStatus === "completed") throw new Error("生产订单已完成，不能重复报工");
   if (order.execStatus === "none") throw new Error("该生产订单尚未排产，不能报工");
   if (!Number.isFinite(data.quantity) || data.quantity <= 0) throw new Error("报工数量必须大于0");
@@ -925,7 +893,7 @@ export async function listProductionOrderMaterials(where: any) {
 }
 
 export async function updateProductionOrderExecStatus(productionOrderId: number, status: string) {
-  if (!["pending", "in_progress", "completed", "closed"].includes(status)) throw new Error("不支持的执行状态");
+  if (!["pending", "in_progress", "completed"].includes(status)) throw new Error("不支持的执行状态");
   const order = await prisma.productionOrder.findUnique({ where: { id: productionOrderId } });
   if (!order) throw new Error("生产订单不存在");
   if (order.execStatus === "none") throw new Error("该生产订单尚未排产");
@@ -950,24 +918,7 @@ export async function updateProductionOrderExecStatus(productionOrderId: number,
 }
 
 // ===== 执行状态关闭 / 重新打开 =====
-// 关闭后：不能报工、不能领料、不能入库，且不参与 MRP（在制量/需求来源均剔除）
-export async function closeProductionOrderExec(productionOrderId: number) {
-  const order = await prisma.productionOrder.findUnique({ where: { id: productionOrderId } });
-  if (!order) throw new Error("生产订单不存在");
-  if (order.execStatus === "none") throw new Error("该生产订单尚未排产，不能关闭");
-  if (order.execStatus === "closed") return order;
-  return prisma.productionOrder.update({ where: { id: productionOrderId }, data: { execStatus: "closed" } });
-}
-
-// 重新打开：按已有报工重算状态（末道工序累计达标→已完成；有报工→生产中；否则→待开工）
-export async function reopenProductionOrderExec(productionOrderId: number) {
-  const order = await prisma.productionOrder.findUnique({ where: { id: productionOrderId } });
-  if (!order) throw new Error("生产订单不存在");
-  if (order.execStatus === "none") throw new Error("该生产订单尚未排产，不能重新打开");
-  if (order.execStatus !== "closed") return order;
-  const status = await computeReopenedExecStatus(prisma, order);
-  return prisma.productionOrder.update({ where: { id: productionOrderId }, data: { execStatus: status } });
-}
+// （已废弃：执行状态取消 closed 值；单据关闭只看 status=closed，closeProductionOrder 不再动 execStatus）
 
 /** 给物料对象附带可用计量单位（基本单位 + 转换单位）及换算率 */
 async function attachUnitInfo(materials: any[]) {
@@ -1010,9 +961,8 @@ export async function issueProductionOrderMaterials(
     where: { id: productionOrderId },
   });
   if (!order) throw new Error("生产订单不存在");
+  // 发料只看生产订单状态（执行状态不参与）
   if (order.status === "closed") throw new Error("生产订单已关闭，不能发料");
-  if (order.execStatus === "none") throw new Error("该生产订单尚未排产，不能发料");
-  if (order.execStatus === "closed") throw new Error("生产订单执行已关闭，不能发料");
   if (cancelIds.length > 0 && !["pending", "in_progress"].includes(order.execStatus)) {
     throw new Error("生产订单已完工，不能取消未发");
   }
@@ -1197,7 +1147,6 @@ export async function createProductionOrderMaterial(
   if (!order) throw new Error("生产订单不存在");
   if (order.execStatus === "none") throw new Error("该生产订单尚未排产");
   if (order.status === "closed") throw new Error("生产订单已关闭，不能修改领料单");
-  if (order.execStatus === "closed") throw new Error("生产订单执行已关闭，不能修改物料");
   if (!data.materialId) throw new Error("请选择物料");
   if (!Number.isFinite(Number(data.requiredQty)) || Number(data.requiredQty) <= 0) {
     throw new Error("需求量必须大于0");
@@ -1231,7 +1180,6 @@ export async function updateProductionOrderMaterial(
   });
   if (!row) throw new Error("物料行不存在");
   if (row.productionOrder.status === "closed") throw new Error("生产订单已关闭，不能修改领料单");
-  if (row.productionOrder.execStatus === "closed") throw new Error("生产订单执行已关闭，不能修改物料");
   const materialChanged = data.materialId !== undefined && data.materialId !== row.materialId;
   if (materialChanged) {
     if (row.issuedQty > 0) throw new Error("已发料的行不能更换物料");
@@ -1281,7 +1229,6 @@ export async function deleteProductionOrderMaterial(id: number) {
   });
   if (!row) throw new Error("物料行不存在");
   if (row.productionOrder.status === "closed") throw new Error("生产订单已关闭，不能修改领料单");
-  if (row.productionOrder.execStatus === "closed") throw new Error("生产订单执行已关闭，不能修改物料");
   if (row.issuedQty > 0) throw new Error("该物料已发料，不能删除");
   await prisma.productionOrderMaterial.delete({ where: { id } });
   return { success: true };
@@ -1439,15 +1386,12 @@ export async function replaceOrderRouteSteps(
 }
 
 export async function listReceivableProductionOrders(where: any) {
-  const { orderNo, onlyReceivable, page = 1, pageSize = 20 } = where;
+  const { orderNo, page = 1, pageSize = 20 } = where;
+  // 生产入库列表只看生产订单状态：未关闭（planned/in_progress）就显示，与是否入满、执行状态无关
   const filters: Prisma.ProductionOrderWhereInput = {
-    execStatus: { notIn: ["none", "closed"] },
     status: { notIn: ["closed"] },
   };
   if (orderNo) filters.orderNo = { contains: orderNo };
-  if (onlyReceivable === "true" || onlyReceivable === true) {
-    filters.receivedQty = { lt: prisma.productionOrder.fields.plannedQty };
-  }
 
   const [total, items] = await Promise.all([
     prisma.productionOrder.count({ where: filters }),
@@ -1478,23 +1422,31 @@ export async function receiveProductionOrderProduct(
   binId?: number | null,
   closeWorkOrder?: boolean
 ) {
-  if (!Number.isFinite(quantity) || quantity <= 0) throw new Error("入库数量必须大于0");
+  if (!Number.isFinite(quantity) || quantity === 0) throw new Error("入库/退库数量不能为0");
   if (!warehouseId) throw new Error("请选择入库仓库");
   const order = await prisma.productionOrder.findUnique({
     where: { id: productionOrderId },
     include: { material: true },
   });
   if (!order) throw new Error("生产订单不存在");
-  if (order.status === "closed") throw new Error("生产订单已关闭，不能入库");
-  
-  if (order.execStatus === "closed") throw new Error("生产订单执行已关闭，不能入库");
-  if (order.execStatus === "none") throw new Error("该生产订单尚未排产，不能入库");
+  if (order.status === "closed") throw new Error("生产订单已关闭，不能入库/退库");
+
+  if (order.execStatus === "none") throw new Error("该生产订单尚未排产，不能入库/退库");
   const material = order.material;
-  // 计量单位换算：录入数量按换算率折算为基本单位后入库
+  // 计量单位换算：录入数量按换算率折算为基本单位；负数表示退库
   const { rate } = await resolveUnitRate(material.id, unit);
   const baseQty = toBaseQty(quantity, rate);
+  if (baseQty === 0) throw new Error("入库/退库数量不能为0");
+  const isReturn = baseQty < 0;
+  const returnQty = Math.abs(baseQty);
   const remain = order.plannedQty - order.receivedQty;
-  if (baseQty > remain + 1e-6) throw new Error(`入库数量超过剩余可入库数量（${remain}）`);
+  if (!isReturn) {
+    if (baseQty > remain + 1e-6) {
+      throw new Error(remain <= 1e-6 ? "该生产订单已全部入库；如需退库请使用负数" : `入库数量超过剩余可入库数量（${remain}）`);
+    }
+  } else if (returnQty > order.receivedQty + 1e-6) {
+    throw new Error(`退库数量超过已入库数量（已入库 ${order.receivedQty}）`);
+  }
   const warehouse = await prisma.warehouse.findUnique({ where: { id: warehouseId } });
   if (!warehouse) throw new Error("仓库不存在");
   const receiveType = await prisma.stockTransactionType.findUnique({ where: { code: "RCT-WO" } });
@@ -1502,15 +1454,63 @@ export async function receiveProductionOrderProduct(
   return prisma.$transaction(async (tx) => {
     await lockOrderNo(tx, ORDER_NO_LOCK.ST);
     const docNo = await generateDocNo(tx, receiveType?.documentPrefix || "ST");
+    // 校验货位（正数入库 / 负数退库共用弹窗选择）
+    const resolvedBinId = await resolveBinId(tx, warehouse, binId);
 
-    // 1) 原子累加入库量（写入时校验不超计划数量），防止并发超收
+    if (isReturn) {
+      // 1) 原子回减已入库量（写入时校验不超已入库），防止并发退超
+      const retUpd = await tx.productionOrder.updateMany({
+        where: { id: order.id, status: { notIn: ["closed"] }, execStatus: { not: "none" }, receivedQty: { gte: returnQty - 1e-6 } },
+        data: { receivedQty: { decrement: returnQty } },
+      });
+      if (retUpd.count === 0) {
+        const fresh = await tx.productionOrder.findUnique({ where: { id: order.id }, select: { receivedQty: true } });
+        throw new Error(`退库数量超过已入库数量（已入库 ${fresh?.receivedQty ?? 0}）`);
+      }
+
+      // 2) 原子扣减产品库存，防止扣成负数
+      const stockUpd = await tx.stock.updateMany({
+        where: { materialId: material.id, warehouseId, binId: resolvedBinId, quantity: { gte: returnQty } },
+        data: { quantity: { decrement: returnQty }, lastOutDate: new Date() },
+      });
+      if (stockUpd.count === 0) {
+        const freshStock = await tx.stock.findFirst({
+          where: { materialId: material.id, warehouseId, binId: resolvedBinId },
+        });
+        throw new Error(`产品库存不足（当前 ${freshStock?.quantity ?? 0}）`);
+      }
+      const resolvedBatchNo = await applyBatchOut(tx, material, warehouseId, resolvedBinId, batchNo, returnQty);
+      await tx.stockRecord.create({
+        data: {
+          materialId: material.id,
+          warehouseId,
+          binId: resolvedBinId,
+          type: "in",
+          quantity: baseQty,
+          batchNo: resolvedBatchNo,
+          relatedType: "ProductionOrder",
+          relatedId: order.id,
+          transactionTypeId: receiveType?.id,
+          documentNo: docNo,
+          lineNo: 1,
+          operatorId: userId,
+          remark: `生产退库 ${material.name} 生产订单${order.orderNo}`,
+        },
+      });
+      const after = await tx.productionOrder.findUnique({ where: { id: order.id }, select: { receivedQty: true } });
+      const newReceived = after?.receivedQty ?? order.receivedQty - returnQty;
+      return { success: true, documentNo: docNo, receivedQty: newReceived, fullyReceived: false, closed: false, returned: true };
+    }
+
+    // 正数 = 入库：原子累加入库量（写入时校验不超计划数量），防止并发超收
     const recvUpd = await tx.productionOrder.updateMany({
-      where: { id: order.id, status: { notIn: ["closed"] }, execStatus: { notIn: ["none", "closed"] }, receivedQty: { lte: order.plannedQty - baseQty + 1e-6 } },
+      where: { id: order.id, status: { notIn: ["closed"] }, execStatus: { not: "none" }, receivedQty: { lte: order.plannedQty - baseQty + 1e-6 } },
       data: { receivedQty: { increment: baseQty } },
     });
     if (recvUpd.count === 0) {
       const fresh = await tx.productionOrder.findUnique({ where: { id: order.id }, select: { plannedQty: true, receivedQty: true } });
-      throw new Error(`入库数量超过剩余可入库数量（${(fresh?.plannedQty ?? 0) - (fresh?.receivedQty ?? 0)}）`);
+      const freshRemain = (fresh?.plannedQty ?? 0) - (fresh?.receivedQty ?? 0);
+      throw new Error(freshRemain <= 1e-6 ? "该生产订单已全部入库；如需退库请使用负数" : `入库数量超过剩余可入库数量（${freshRemain}）`);
     }
     const after = await tx.productionOrder.findUnique({ where: { id: order.id }, select: { receivedQty: true } });
     const newReceived = after?.receivedQty ?? order.receivedQty + baseQty;
@@ -1526,8 +1526,7 @@ export async function receiveProductionOrderProduct(
       closed = closedResult.count > 0;
     }
 
-    // 2) 校验货位 + 库存 upsert + 原子累加
-    const resolvedBinId = await resolveBinId(tx, warehouse, binId);
+    // 库存 upsert + 原子累加
     await addStock(tx, material.id, warehouseId, resolvedBinId, baseQty);
     const resolvedBatchNo = await applyBatchIn(tx, material, warehouseId, resolvedBinId, batchNo, baseQty);
     await tx.stockRecord.create({

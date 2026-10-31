@@ -86,7 +86,7 @@ export async function stockExport(where: any = {}) {
 
 // ===== 生产订单执行信息 =====
 const workOrderStatusLabel: Record<string, string> = {
-  pending: "待开工", in_progress: "生产中", completed: "已完成", closed: "已关闭",
+  pending: "待开工", in_progress: "生产中", completed: "已完成",
 };
 
 export async function productionOrderExport() {

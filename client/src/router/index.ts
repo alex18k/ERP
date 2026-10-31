@@ -85,6 +85,7 @@ const routes = [
       { path: 'inventory/purchase-in-maintain', name: 'InventoryPurchaseInMaintain', component: () => import('../views/inventory/purchaseInMaintain/index.vue'), meta: { title: '采购入库维护' } },
       { path: 'inventory/product-in-print', name: 'InventoryProductInPrint', component: () => import('../views/inventory/productInPrint/index.vue'), meta: { title: '打印产品入库单' } },
       { path: 'inventory/purchase-return', name: 'InventoryPurchaseReturn', component: () => import('../views/inventory/purchaseReturn/index.vue'), meta: { title: '采购退货' } },
+      { path: 'inventory/purchase-exchange', name: 'InventoryPurchaseExchange', component: () => import('../views/inventory/purchaseReturn/index.vue'), meta: { title: '采购换货', exchange: true } },
       { path: 'inventory/record-print', name: 'InventoryRecordPrint', component: () => import('../views/inventory/recordPrint/index.vue'), meta: { title: '打印库存事务单' } },
       { path: 'inventory/sales-deliver-print', name: 'InventorySalesDeliverPrint', component: () => import('../views/inventory/salesDeliverPrint/index.vue'), meta: { title: '打印销售送货单' } },
       { path: 'inventory/receive', name: 'InventoryReceive', component: () => import('../views/inventory/receive/index.vue'), meta: { title: '采购收货' } },
@@ -103,6 +104,7 @@ const routes = [
       // 统计报表
       { path: 'dashboard/report/employee-reports', name: 'ReportEmployeeReports', component: () => import('../views/dashboard/report/employeeReports/index.vue'), meta: { title: '员工报工报表' } },
       { path: 'dashboard/order-tracking', name: 'DashboardOrderTracking', component: () => import('../views/dashboard/orderTracking/index.vue'), meta: { title: '订单追踪看板' } },
+      { path: 'dashboard/workshop-board', name: 'WorkshopBoard', component: () => import('../views/dashboard/workshop/index.vue'), meta: { title: '车间电子看板' } },
       { path: 'dashboard/stock-alert', name: 'DashboardStockAlert', component: () => import('../views/dashboard/report/stockAlert/index.vue'), meta: { title: '库存预警' } },
       // 系统
       { path: 'system/user', name: 'SystemUser', component: () => import('../views/system/user/index.vue'), meta: { title: '用户管理' } },

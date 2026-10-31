@@ -39,7 +39,7 @@ async function loadOrderOptions(keyword: string = '') {
 }
 
 function orderStatusLabel(s: string) {
-  const map: Record<string, string> = { planned: '已计划', in_progress: '生产中', closed: '已关闭' }
+  const map: Record<string, string> = { planned: '已计划', in_progress: '已下达', closed: '已关闭' }
   return map[s] || s
 }
 function orderStatusType(s: string) {
@@ -47,11 +47,11 @@ function orderStatusType(s: string) {
   return map[s] || 'info'
 }
 function execStatusLabel(s: string) {
-  const map: Record<string, string> = { none: '未排产', pending: '待开工', in_progress: '生产中', completed: '已完成', closed: '已关闭' }
+  const map: Record<string, string> = { none: '未排产', pending: '待开工', in_progress: '生产中', completed: '已完成' }
   return map[s] || s
 }
 function execStatusType(s: string) {
-  const map: Record<string, string> = { none: 'info', pending: 'info', in_progress: 'primary', completed: 'success', closed: 'info' }
+  const map: Record<string, string> = { none: 'info', pending: 'info', in_progress: 'primary', completed: 'success' }
   return map[s] || 'info'
 }
 
@@ -79,7 +79,7 @@ async function loadOrder() {
     }
     const workOrder = currentOrder.value
     const out: any[] = []
-    if (currentOrder.value.status !== 'closed' && workOrder.execStatus !== 'none' && !['closed', 'completed'].includes(workOrder.execStatus)) {
+    if (currentOrder.value.status !== 'closed' && workOrder.execStatus !== 'none' && workOrder.execStatus !== 'completed') {
       for (const s of steps.value) {
         out.push({
           workOrder,
@@ -180,7 +180,7 @@ onMounted(loadOrderOptions)
 
       <el-alert v-if="currentOrder && currentOrder.status === 'closed'" title="该生产订单已关闭，不能报工。" type="warning" show-icon :closable="false" style="margin-bottom: 12px" />
       <el-alert v-else-if="currentOrder && currentOrder.execStatus === 'none'" title="该订单尚未排产，不能报工。请先在“生产订单”中排产。" type="warning" show-icon :closable="false" style="margin-bottom: 12px" />
-      <el-alert v-else-if="currentOrder && ['completed', 'closed'].includes(currentOrder.execStatus)" :title="`该生产订单已${execStatusLabel(currentOrder.execStatus)}，不能报工。`" type="warning" show-icon :closable="false" style="margin-bottom: 12px" />
+      <el-alert v-else-if="currentOrder && currentOrder.execStatus === 'completed'" :title="`该生产订单已${execStatusLabel(currentOrder.execStatus)}，不能报工。`" type="warning" show-icon :closable="false" style="margin-bottom: 12px" />
 
       <div v-loading="loading">
         <el-table :data="rows" stripe border max-height="calc(100vh - 330px)">

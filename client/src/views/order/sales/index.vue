@@ -8,7 +8,12 @@ const router = useRouter()
 const loading = ref(false)
 const list = ref<any[]>([])
 const total = ref(0)
-const query = reactive({ page: 1, pageSize: 20, orderNo: '', customerName: '', status: '' })
+const query = reactive({ page: 1, pageSize: 20, orderNo: '', customerName: '', materialKeyword: '', status: '' })
+const currentOrder = ref<any>(null)
+const canEditOrCancel = computed(() => ['draft', 'confirmed', 'in_production'].includes(currentOrder.value?.status))
+const canShip = computed(() => currentOrder.value?.status === 'completed')
+const canDelete = computed(() => currentOrder.value?.status === 'cancelled')
+function onRowSelect(row: any) { currentOrder.value = row }
 const statusOptions = [
   { label: '草稿', value: 'draft', type: 'info' },
   { label: '已确认', value: 'confirmed', type: 'primary' },
@@ -20,6 +25,7 @@ const statusOptions = [
 
 async function loadData() {
   loading.value = true
+  currentOrder.value = null
   try {
     const res: any = await orderApi.list(query)
     list.value = res.data.items
@@ -80,7 +86,7 @@ async function confirmCancel() {
   try {
     await orderApi.cancel(cancelTarget.value.id, { cancelProduction: cancelWithProduction.value })
     ElMessage.success(cancelWithProduction.value && cancelInfo.value?.plannedCount > 0
-      ? `订单已取消${cancelInfo.value.plannedCount ? `，${cancelInfo.value.plannedCount} 张未开工生产订单已取消` : ''}${cancelInfo.value.inProgressCount ? `，${cancelInfo.value.inProgressCount} 张加工中订单仅取消了未开工工单` : ''}`
+      ? `订单已取消${cancelInfo.value.plannedCount ? `，${cancelInfo.value.plannedCount} 张未开工生产订单已取消` : ''}${cancelInfo.value.inProgressCount ? `，${cancelInfo.value.inProgressCount} 张已下达订单仅取消了未开工工单` : ''}`
       : '订单已取消')
     cancelDialogVisible.value = false
     loadData()
@@ -126,23 +132,40 @@ const flatRows = computed(() =>
       <div class="search-bar">
         <el-input v-model="query.orderNo" placeholder="订单编号" clearable style="width: 160px" />
         <el-input v-model="query.customerName" placeholder="客户名称" clearable style="width: 160px" />
+        <el-input v-model="query.materialKeyword" placeholder="物料编码/名称" clearable style="width: 160px" @keyup.enter="query.page = 1, loadData()" />
         <el-select v-model="query.status" placeholder="订单状态" clearable style="width: 130px">
           <el-option v-for="o in statusOptions" :key="o.value" :label="o.label" :value="o.value" />
         </el-select>
         <el-button type="primary" @click="query.page = 1, loadData()"><el-icon><Search /></el-icon>查询</el-button>
-        <el-button @click="Object.assign(query, { orderNo: '', customerName: '', status: '', page: 1 }), loadData()">重置</el-button>
+        <el-button @click="Object.assign(query, { orderNo: '', customerName: '', materialKeyword: '', status: '', page: 1 }), loadData()">重置</el-button>
         <div style="flex: 1" />
-        <el-button type="success" plain class="btn-add" @click="router.push('/order/maintain')"><el-icon><Plus /></el-icon>新增订单</el-button>
         <el-button @click="orderApi.exportCsv()"><el-icon><Download /></el-icon>导出</el-button>
       </div>
 
-      <el-table :data="flatRows" v-loading="loading" stripe max-height="calc(100vh - 300px)">
-        <el-table-column label="行号" width="62" align="center">
-          <template #default="{ row }">{{ row.line || '-' }}</template>
-        </el-table-column>
+      <div class="table-toolbar">
+        <div style="display: flex; gap: 8px">
+          <el-button type="success" plain class="btn-add" @click="router.push('/order/maintain')"><el-icon><Plus /></el-icon>新增订单</el-button>
+          <el-button :disabled="!currentOrder" @click="router.push(`/order/print?id=${currentOrder.id}`)">打印</el-button>
+          <el-button :disabled="!currentOrder" @click="router.push(`/order/tracking?id=${currentOrder.id}`)">跟踪</el-button>
+          <el-button :disabled="!canEditOrCancel" @click="router.push(`/order/maintain?id=${currentOrder.id}`)">编辑</el-button>
+          <el-button :disabled="!canShip" @click="handleShip(currentOrder)">发货</el-button>
+          <el-button :disabled="!canEditOrCancel" @click="openCancelDialog(currentOrder)">取消</el-button>
+          <el-button :disabled="!canDelete" @click="handleDelete(currentOrder)">删除</el-button>
+        </div>
+      </div>
+
+      <el-table :data="flatRows" v-loading="loading" stripe max-height="calc(100vh - 300px)" highlight-current-row @current-change="onRowSelect">
         <el-table-column label="订单编号" width="150">
           <template #default="{ row }">
             <span v-if="row._first" style="font-variant-numeric: tabular-nums">{{ row.orderNo }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="行号" width="62" align="center">
+          <template #default="{ row }">{{ row.line || '-' }}</template>
+        </el-table-column>
+        <el-table-column label="客户编码" width="110">
+          <template #default="{ row }">
+            <span v-if="row._first">{{ row.customerCode }}</span>
           </template>
         </el-table-column>
         <el-table-column label="客户" min-width="120">
@@ -177,19 +200,9 @@ const flatRows = computed(() =>
             <el-tag v-if="row._first" :type="statusType(row.status)">{{ formatStatus(row.status) }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="220" fixed="right">
-          <template #default="{ row }">
-            <el-button size="small" type="primary" link @click="router.push(`/order/print?id=${row.id}`)">打印</el-button>
-            <el-button size="small" type="primary" link @click="router.push(`/order/tracking?id=${row.id}`)">跟踪</el-button>
-            <el-button v-if="['draft','confirmed','in_production'].includes(row.status)" size="small" type="primary" link @click="router.push(`/order/maintain?id=${row.id}`)">编辑</el-button>
-            <el-button v-if="row.status === 'completed'" size="small" type="primary" link @click="handleShip(row)">发货</el-button>
-            <el-button v-if="['draft','confirmed','in_production'].includes(row.status)" size="small" type="danger" link @click="openCancelDialog(row)">取消</el-button>
-            <el-button v-if="row._first && row.status === 'cancelled'" size="small" type="danger" link @click="handleDelete(row)">删除</el-button>
-          </template>
-        </el-table-column>
         <template #empty>
           <el-empty description="没有符合条件的销售订单" :image-size="56">
-            <div class="empty-tip">可清空订单号/客户名称/状态后重试，或点右上角「新增订单」</div>
+            <div class="empty-tip">可清空订单号/客户名称/状态后重试，或点「新增订单」</div>
           </el-empty>
         </template>
       </el-table>
@@ -217,6 +230,14 @@ const flatRows = computed(() =>
 </template>
 
 <style scoped>
+/* 查询条件分组框（同生产订单页） */
+.search-bar {
+  margin: 0 0 8px;
+  padding: 8px 10px;
+  border: 1px solid #d5dae2;
+  border-radius: 6px;
+  background: #fafbfc;
+}
 .erp-group {
   border: 1px solid #D5DAE2;
   border-left: 3px solid var(--erp-primary);

@@ -441,10 +441,8 @@ export async function runMrp(params: MrpParams = {}, userId?: number, existingRu
     const openByOrderKey = new Map<string, number>(); // `${materialId}:${salesOrderId}` -> 在制量（生产建议扣减用）
     const manualWipMap = new Map<number, number>(); // materialId -> 手工生产订单（无销售订单）在制剩余量
   for (const o of openProductionRows) {
-    // 已关闭/已取消订单不参与 MRP：关闭的计划数量从在制量中剔除，取消视为未排产
-    const closedQty = o.execStatus === "closed" ? o.plannedQty : 0;
-    const received = o.execStatus !== "closed" ? o.receivedQty : 0;
-    const remaining = Math.max(0, o.quantity - closedQty - received);
+    // 未排产/已完工已被过滤；单据关闭(status=closed)不参与 MRP
+    const remaining = Math.max(0, o.quantity - o.receivedQty);
     if (remaining <= 0) continue;
     wipMap.set(o.materialId, (wipMap.get(o.materialId) ?? 0) + remaining);
     if (o.salesOrderId == null) {
@@ -1184,6 +1182,44 @@ export async function listShortages() {
 }
 
 // ===== 采购建议转采购单 =====
+async function sourceOrderNoBySuggestion(
+  suggestions: { id: number; runId: number }[],
+): Promise<Map<number, string>> {
+  const runIds = [...new Set(suggestions.map((s) => s.runId))];
+  if (runIds.length === 0) return new Map();
+
+  const runs = await prisma.mrpRun.findMany({
+    where: { id: { in: runIds } },
+    select: { id: true, result: true },
+  });
+
+  const orderNoMap = new Map<number, string>();
+  for (const run of runs) {
+    if (!run.result) continue;
+    let parsed: any;
+    try {
+      parsed = JSON.parse(run.result);
+    } catch {
+      continue;
+    }
+    const rows = Array.isArray(parsed?.purchaseSuggestions) ? parsed.purchaseSuggestions : [];
+    for (const row of rows) {
+      const suggestionId = Number(row?.suggestionId);
+      if (!Number.isInteger(suggestionId)) continue;
+      const sourceOrders = Array.isArray(row?.sourceOrders) ? row.sourceOrders : [];
+      const orderNos = [
+        ...new Set(
+          sourceOrders
+            .map((order: any) => String(order?.orderNo ?? "").trim())
+            .filter(Boolean),
+        ),
+      ];
+      if (orderNos.length > 0) orderNoMap.set(suggestionId, orderNos.join("、"));
+    }
+  }
+  return orderNoMap;
+}
+
 export async function generatePurchaseOrders(
   userId: number,
   suggestionIds?: number[],
@@ -1205,6 +1241,8 @@ export async function generatePurchaseOrders(
   if (suggestions.length === 0) {
     throw new Error("没有待处理的采购建议");
   }
+
+  const sourceOrderNos = await sourceOrderNoBySuggestion(suggestions);
 
   // 供应商：优先使用前端行内选择的覆盖值，否则用建议自带的（允许为空）
   const resolveSupplier = (s: (typeof suggestions)[number]): number | null =>
@@ -1294,6 +1332,7 @@ export async function generatePurchaseOrders(
                 expectedDate: s.needDate,
                 status: "",
                 suggestionId: s.id,
+                sourceOrderNo: sourceOrderNos.get(s.id) ?? null,
               },
             });
             await tx.purchaseSuggestion.update({

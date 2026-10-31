@@ -52,7 +52,7 @@ function onRouteInfo(payload: { route: any; isOrderLevel: boolean }) {
 }
 
 function orderStatusLabel(s: string) {
-  const map: Record<string, string> = { planned: '已计划', in_progress: '生产中', closed: '已关闭', released: '已下达' }
+  const map: Record<string, string> = { planned: '已计划', in_progress: '已下达', closed: '已关闭', released: '已下达' }
   return map[s] || s
 }
 function orderStatusType(s: string) {

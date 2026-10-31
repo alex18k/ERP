@@ -12,7 +12,7 @@ const query = reactive({ page: 1, pageSize: 20, orderNo: '', status: '' })
 
 const statusOptions = [
   { label: '已计划', value: 'planned', type: 'info' },
-  { label: '生产中', value: 'in_progress', type: 'warning' },
+  { label: '已下达', value: 'in_progress', type: 'warning' },
   { label: '已关闭', value: 'closed', type: 'info' },
 ]
 
@@ -50,9 +50,9 @@ function issueProgress(order: any): string | null {
 }
 
 function workOrderOf(order: any) {
-  // 未排产、已关闭、已完工的生产订单不能领料（与发料页 issuableError 同口径）
+  // 发料只看生产订单状态：仅已关闭的订单不能领料（执行状态不参与）
   if (!order || order.status === 'closed') return null
-  return order.execStatus !== 'none' && order.execStatus !== 'closed' && order.execStatus !== 'completed' ? order : null
+  return order
 }
 
 async function loadData() {

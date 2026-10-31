@@ -46,6 +46,8 @@ const form = reactive<any>({
   seller1: '',
   seller2: '',
   paymentMethod: '',
+  taxIncluded: false,
+  taxRate: 0,
   deliveryDate: '',
   status: '',
   remark: '',
@@ -195,7 +197,7 @@ function nextLine(): number {
 function addItem() {
   form.items.push({
     id: null, line: nextLine(), materialId: null, quantity: 1, deliveredQty: 0,
-    unit: '', unitPrice: 0, unitPriceText: '', taxIncluded: false, taxRate: 0,
+    unit: '', unitPrice: 0, unitPriceText: '', taxIncluded: !!form.taxIncluded, taxRate: Number(form.taxRate) || 0,
     deliveryDate: form.deliveryDate || '', __options: [],
   })
 }
@@ -205,10 +207,30 @@ function onCustomerChange(val: any) {
   if (c) {
     form.customerName = c.name
     form.customerCode = c.code
+    if (c.seller) form.seller1 = c.seller
+    if (c.settleMethod) form.paymentMethod = c.settleMethod
+    form.taxIncluded = !!c.taxIncluded
+    form.taxRate = Number(c.taxRate) || 0
+    syncHeaderTaxToItems()
   }
 }
 
 const prevDeliveryDate = ref('')
+// 主表含税/税率联动：与旧主表默认值相同的明细行跟随更新（口径同交期联动）
+const prevHeaderTax = ref({ included: false, rate: 0 })
+function syncHeaderTaxToItems() {
+  const prev = prevHeaderTax.value
+  for (const it of form.items) {
+    if (!!it.taxIncluded === prev.included && (Number(it.taxRate) || 0) === prev.rate) {
+      it.taxIncluded = !!form.taxIncluded
+      it.taxRate = Number(form.taxRate) || 0
+    }
+  }
+  prevHeaderTax.value = { included: !!form.taxIncluded, rate: Number(form.taxRate) || 0 }
+}
+function onHeaderTaxChange() {
+  syncHeaderTaxToItems()
+}
 function onDeliveryDateChange(val: string) {
   for (const item of form.items) {
     if (!item.deliveryDate || item.deliveryDate === prevDeliveryDate.value) item.deliveryDate = val || ''
@@ -286,6 +308,9 @@ function resetForm() {
   form.seller2 = ''
   form.channel = ''
   form.paymentMethod = ''
+  form.taxIncluded = false
+  form.taxRate = 0
+  prevHeaderTax.value = { included: false, rate: 0 }
   form.items = []
   isEditLoad.value = false
   selectedOrderId.value = null
@@ -302,6 +327,9 @@ async function loadOrder(id: number) {
     Object.assign(form, row)
     form.orderDate = row.orderDate?.slice(0, 10) || ''
     form.deliveryDate = row.deliveryDate?.slice(0, 10) || ''
+    form.taxIncluded = !!row.taxIncluded
+    form.taxRate = Number(row.taxRate) || 0
+    prevHeaderTax.value = { included: form.taxIncluded, rate: form.taxRate }
     form.items = (row.items || []).map((i: any, idx: number) => ({
       id: i.id,
       line: Number(i.line) > 0 ? Number(i.line) : idx + 1,
@@ -337,6 +365,8 @@ function buildPayload() {
     seller1: form.seller1,
     seller2: form.seller2,
     paymentMethod: form.paymentMethod,
+    taxIncluded: Boolean(form.taxIncluded),
+    taxRate: Number(form.taxRate) || 0,
     deliveryDate: form.deliveryDate,
     remark: form.remark,
     items: form.items.map((i: any) => ({
@@ -537,6 +567,11 @@ async function copyOrderNo() {
               </el-form-item>
             </div>
             <div class="kd-field">
+              <el-form-item label="客户名称">
+                <span class="kd-customer-name" :title="form.customerName">{{ form.customerName || '—' }}</span>
+              </el-form-item>
+            </div>
+            <div class="kd-field">
               <el-form-item label="订货日期" prop="orderDate">
                 <el-date-picker v-model="form.orderDate" type="date" value-format="YYYY-MM-DD" class="kd-flex" placeholder="选择订货日期" @change="onOrderDateChange" />
               </el-form-item>
@@ -549,13 +584,6 @@ async function copyOrderNo() {
             <div class="kd-field">
               <el-form-item label="销售员1" prop="seller1">
                 <el-select v-model="form.seller1" filterable allow-create default-first-option placeholder="选择或输入销售员" class="kd-flex">
-                  <el-option v-for="s in userOptions" :key="s" :label="s" :value="s" />
-                </el-select>
-              </el-form-item>
-            </div>
-            <div class="kd-field">
-              <el-form-item label="销售员2">
-                <el-select v-model="form.seller2" filterable clearable allow-create default-first-option placeholder="选择或输入销售员" class="kd-flex">
                   <el-option v-for="s in userOptions" :key="s" :label="s" :value="s" />
                 </el-select>
               </el-form-item>
@@ -576,6 +604,19 @@ async function copyOrderNo() {
             <div class="kd-field kd-field-remark">
               <el-form-item label="备注">
                 <el-input v-model="form.remark" placeholder="备注" />
+              </el-form-item>
+            </div>
+
+            <div class="kd-field">
+              <el-form-item label="含税">
+                <el-checkbox v-model="form.taxIncluded" @change="onHeaderTaxChange">默认含税价</el-checkbox>
+              </el-form-item>
+            </div>
+            <div class="kd-field">
+              <el-form-item label="税率">
+                <el-select v-model="form.taxRate" filterable allow-create default-first-option placeholder="默认税率" class="kd-flex" @change="onHeaderTaxChange">
+                  <el-option v-for="r in taxRateOptions" :key="r" :label="`${r}%`" :value="r" />
+                </el-select>
               </el-form-item>
             </div>
           </div>
@@ -750,6 +791,14 @@ async function copyOrderNo() {
 }
 .kd-muted {
   color: var(--el-text-color-secondary);
+}
+.kd-customer-name {
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* 金蝶风格：表头输入控件无方框，仅底部下划线；聚焦时下划线变主题色 */

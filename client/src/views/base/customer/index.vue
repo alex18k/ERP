@@ -5,6 +5,7 @@ import { customerApi, systemApi } from '../../../api'
 
 const customerTypes = ['终端客户', '经销商', '分销商', '电商', '其他']
 const settleMethods = ['现结', '月结30天', '月结60天', '货到付款', '预付款', '其他']
+const taxRateOptions = [0, 1, 3, 5, 6, 9, 13]
 
 const loading = ref(false)
 const list = ref<any[]>([])
@@ -14,7 +15,7 @@ const dialogVisible = ref(false)
 const isEdit = ref(false)
 const formRef = ref()
 const form = reactive<any>({
-  id: null, code: '', name: '', contactPerson: '', phone: '', email: '', address: '', joinedDate: '', type: '', seller: '', settleMethod: '', remark: '',
+  id: null, code: '', name: '', contactPerson: '', phone: '', email: '', address: '', joinedDate: '', type: '', seller: '', settleMethod: '', taxIncluded: false, taxRate: 0, remark: '',
 })
 
 const rules = {
@@ -59,6 +60,8 @@ function openDialog(row?: any) {
   if (row) Object.assign(form, row)
   else {
     Object.keys(form).forEach((k) => (form[k] = null))
+    form.taxIncluded = false
+    form.taxRate = 0
     form.joinedDate = todayStr()
   }
   loadSellers()
@@ -110,6 +113,12 @@ onMounted(loadData)
         <el-table-column prop="type" label="类型" width="90" />
         <el-table-column prop="seller" label="销售员" width="90" />
         <el-table-column prop="settleMethod" label="结算方式" width="110" />
+        <el-table-column label="含税" width="70">
+          <template #default="{ row }">{{ row.taxIncluded ? '是' : '否' }}</template>
+        </el-table-column>
+        <el-table-column label="税率" width="80" align="right">
+          <template #default="{ row }">{{ row.taxRate ?? 0 }}%</template>
+        </el-table-column>
         <el-table-column label="加入日期" width="110">
           <template #default="{ row }">{{ fmtDate(row.joinedDate) }}</template>
         </el-table-column>
@@ -182,6 +191,20 @@ onMounted(loadData)
             <el-form-item label="结算方式">
               <el-select v-model="form.settleMethod" filterable allow-create default-first-option placeholder="选择或输入" style="width: 100%">
                 <el-option v-for="m in settleMethods" :key="m" :label="m" :value="m" />
+              </el-select>
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-row :gutter="16">
+          <el-col :span="12">
+            <el-form-item label="含税">
+              <el-checkbox v-model="form.taxIncluded">默认含税价</el-checkbox>
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="税率">
+              <el-select v-model="form.taxRate" filterable allow-create default-first-option placeholder="默认税率" style="width: 100%">
+                <el-option v-for="r in taxRateOptions" :key="r" :label="`${r}%`" :value="r" />
               </el-select>
             </el-form-item>
           </el-col>

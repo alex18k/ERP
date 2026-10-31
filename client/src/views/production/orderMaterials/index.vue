@@ -23,7 +23,7 @@ const queryFields: QueryField[] = [
     type: 'enum',
     options: [
       { label: '已计划', value: 'planned' },
-      { label: '生产中', value: 'in_progress' },
+      { label: '已下达', value: 'in_progress' },
       { label: '已关闭', value: 'closed' },
     ],
   },
@@ -36,7 +36,6 @@ const queryFields: QueryField[] = [
       { label: '待开工', value: 'pending' },
       { label: '生产中', value: 'in_progress' },
       { label: '已完成', value: 'completed' },
-      { label: '已关闭', value: 'closed' },
     ],
   },
   { field: 'planner', label: '计划员', type: 'text', placeholder: '计划员' },
@@ -79,7 +78,7 @@ const queryFields: QueryField[] = [
 
 const orderStatusOptions = [
   { label: '已计划', value: 'planned', type: 'info' },
-  { label: '生产中', value: 'in_progress', type: 'warning' },
+  { label: '已下达', value: 'in_progress', type: 'warning' },
   { label: '已关闭', value: 'closed', type: 'info' },
 ]
 function orderStatusLabel(s: string) {
@@ -94,7 +93,6 @@ const execStatusOptions = [
   { label: '待开工', value: 'pending', type: 'info' },
   { label: '生产中', value: 'in_progress', type: 'warning' },
   { label: '已完成', value: 'completed', type: 'success' },
-  { label: '已关闭', value: 'closed', type: 'info' },
 ]
 function execStatusLabel(s: string) {
   return execStatusOptions.find((o) => o.value === s)?.label || s || '-'

@@ -101,6 +101,7 @@ const menuItems: MenuNode[] = [
         children: [
           { path: '/inventory/receive', title: '采购收货', icon: 'Download' },
           { path: '/inventory/purchase-return', title: '采购退货', icon: 'RefreshLeft' },
+          { path: '/inventory/purchase-exchange', title: '采购换货', icon: 'Switch' },
           { path: '/inventory/receipt-report', title: '采购收货报表', icon: 'Tickets' },
         ],
       },
@@ -128,6 +129,7 @@ const menuItems: MenuNode[] = [
     children: [
       { path: '/dashboard/inventory-board', title: '库存看板', icon: 'PieChart' },
       { path: '/dashboard/order-tracking', title: '订单追踪看板', icon: 'Position' },
+      { path: '/dashboard/workshop-board', title: '车间电子看板', icon: 'Monitor' },
       { path: '/dashboard/stock-alert', title: '库存预警', icon: 'Warning' },
     ],
   },

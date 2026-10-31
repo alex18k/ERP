@@ -1,4 +1,5 @@
 import prisma from "../config/prisma";
+import { Prisma } from "@prisma/client";
 import { localDateStr } from "../utils/date";
 
 export async function getExecutiveDashboard() {
@@ -263,4 +264,301 @@ export async function getInventoryDashboard() {
     })),
     byCategory: Object.fromEntries(categorized),
   };
+}
+
+export interface WorkshopDashboardFilters {
+  workshopId?: number;
+  execStatus?: string;
+}
+
+export interface WorkshopDashboardResult {
+  summary: {
+    inProgress: number;
+    pending: number;
+    todayReports: number;
+    todayCompleted: number;
+    overdue: number;
+  };
+  orders: Array<{
+    id: number;
+    orderNo: string;
+    salesOrderNo: string | null;
+    customerName: string | null;
+    materialCode: string;
+    materialName: string;
+    quantity: number;
+    plannedQty: number;
+    reportedQty: number;
+    progress: number;
+    execStatus: string;
+    planEndDate: Date | null;
+    isOverdue: boolean;
+    currentStepName: string | null;
+    stepProgress: { completed: number; total: number };
+    steps: Array<{
+      id: number;
+      name: string;
+      sequence: number;
+      workstationName: string | null;
+      reportedQty: number;
+      scrapQty: number;
+      status: "done" | "current" | "waiting";
+    }>;
+  }>;
+  workstations: Array<{
+    id: number;
+    code: string;
+    name: string;
+    workshopName: string | null;
+    status: "busy" | "pending" | "idle";
+    orderNo: string | null;
+    stepName: string | null;
+  }>;
+  recentReports: Array<{
+    id: number;
+    reportTime: Date;
+    reporterName: string;
+    orderNo: string;
+    stepName: string;
+    quantity: number;
+    scrapQty: number;
+  }>;
+  workshops: Array<{ id: number; name: string }>;
+}
+
+export async function getWorkshopDashboard(
+  filters: WorkshopDashboardFilters = {}
+): Promise<WorkshopDashboardResult> {
+  const empty: WorkshopDashboardResult = {
+    summary: { inProgress: 0, pending: 0, todayReports: 0, todayCompleted: 0, overdue: 0 },
+    orders: [],
+    workstations: [],
+    recentReports: [],
+    workshops: [],
+  };
+  if (
+    filters.workshopId !== undefined &&
+    (!Number.isFinite(filters.workshopId) || filters.workshopId <= 0)
+  ) {
+    return empty;
+  }
+
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+  const now = new Date();
+
+  const execStatusWhere: Prisma.ProductionOrderWhereInput = filters.execStatus
+    ? filters.execStatus === "completed"
+      ? { execStatus: "completed", actualEndDate: { gte: todayStart } }
+      : { execStatus: filters.execStatus }
+    : {
+        OR: [
+          { execStatus: { in: ["pending", "in_progress"] } },
+          { execStatus: "completed", actualEndDate: { gte: todayStart } },
+        ],
+      };
+
+  const where: Prisma.ProductionOrderWhereInput = {
+    status: { not: "closed" },
+    ...execStatusWhere,
+    ...(filters.workshopId !== undefined
+      ? { orderRoute: { steps: { some: { workstation: { workshopId: filters.workshopId } } } } }
+      : {}),
+  };
+
+  const sortedOrders = await prisma.productionOrder.findMany({
+    where,
+    include: {
+      material: { select: { code: true, name: true } },
+      salesOrder: { select: { orderNo: true, customerName: true } },
+      orderRoute: {
+        include: {
+          steps: {
+            include: { workstation: { include: { workshop: true } } },
+            orderBy: { sequence: "asc" },
+          },
+        },
+      },
+    },
+    orderBy: { planEndDate: { sort: "asc", nulls: "last" } },
+    take: 200,
+  });
+
+  const orderIds = sortedOrders.map((order) => order.id);
+  const grouped = orderIds.length
+    ? await prisma.workReport.groupBy({
+        by: ["productionOrderId", "processStepId"],
+        where: { productionOrderId: { in: orderIds } },
+        _sum: { quantity: true, scrapQty: true },
+      })
+    : [];
+  const qtyMap = new Map<string, { quantity: number; scrapQty: number }>();
+  for (const row of grouped) {
+    qtyMap.set(`${row.productionOrderId}:${row.processStepId}`, {
+      quantity: row._sum.quantity ?? 0,
+      scrapQty: row._sum.scrapQty ?? 0,
+    });
+  }
+
+  const stepWorkshopMap = new Map<number, number | null>();
+  const stepNameMap = new Map<number, string>();
+  for (const order of sortedOrders) {
+    for (const step of order.orderRoute?.steps ?? []) {
+      stepWorkshopMap.set(step.id, step.workstation?.workshopId ?? null);
+      stepNameMap.set(step.id, step.name);
+    }
+  }
+  const workshopStepIds =
+    filters.workshopId !== undefined
+      ? [...stepWorkshopMap.entries()]
+          .filter(([, workshopId]) => workshopId === filters.workshopId)
+          .map(([stepId]) => stepId)
+      : null;
+
+  const orders = sortedOrders.map((order) => {
+    const steps = order.orderRoute?.steps ?? [];
+    const plan = order.plannedQty || order.quantity || 1;
+    let currentAssigned = false;
+    const stepsOut = steps.map((step) => {
+      const agg = qtyMap.get(`${order.id}:${step.id}`);
+      const reportedQty = agg?.quantity ?? 0;
+      let status: "done" | "current" | "waiting";
+      if (reportedQty >= plan) {
+        status = "done";
+      } else if (!currentAssigned) {
+        status = "current";
+        currentAssigned = true;
+      } else {
+        status = "waiting";
+      }
+      return {
+        id: step.id,
+        name: step.name,
+        sequence: step.sequence,
+        workstationName: step.workstation?.name ?? null,
+        reportedQty,
+        scrapQty: agg?.scrapQty ?? 0,
+        status,
+      };
+    });
+
+    const lastStep = steps.length ? steps[steps.length - 1] : null;
+    const reportedQty = lastStep ? qtyMap.get(`${order.id}:${lastStep.id}`)?.quantity ?? 0 : 0;
+    const progress = Math.round(Math.min(100, (Math.min(reportedQty, plan) / plan) * 100));
+
+    return {
+      id: order.id,
+      orderNo: order.orderNo,
+      salesOrderNo: order.salesOrderNo ?? order.salesOrder?.orderNo ?? null,
+      customerName: order.salesOrder?.customerName ?? null,
+      materialCode: order.material.code,
+      materialName: order.material.name,
+      quantity: order.quantity,
+      plannedQty: order.plannedQty,
+      reportedQty,
+      progress,
+      execStatus: order.execStatus,
+      planEndDate: order.planEndDate,
+      isOverdue: !!order.planEndDate && order.planEndDate < now && order.execStatus !== "completed",
+      currentStepName: stepsOut.find((step) => step.status === "current")?.name ?? null,
+      stepProgress: {
+        completed: stepsOut.filter((step) => step.status === "done").length,
+        total: stepsOut.length,
+      },
+      steps: stepsOut,
+    };
+  });
+
+  const activeByWorkstation = new Map<
+    number,
+    { orderNo: string; stepName: string; status: "busy" | "pending" }
+  >();
+  for (const order of sortedOrders) {
+    if (order.execStatus !== "in_progress" && order.execStatus !== "pending") continue;
+    const plan = order.plannedQty || order.quantity || 1;
+    const currentStep = (order.orderRoute?.steps ?? []).find(
+      (step) => (qtyMap.get(`${order.id}:${step.id}`)?.quantity ?? 0) < plan
+    );
+    if (!currentStep?.workstationId || activeByWorkstation.has(currentStep.workstationId)) continue;
+    activeByWorkstation.set(currentStep.workstationId, {
+      orderNo: order.orderNo,
+      stepName: currentStep.name,
+      status: order.execStatus === "in_progress" ? "busy" : "pending",
+    });
+  }
+
+  const [workshops, rawWorkstations] = await Promise.all([
+    prisma.workshop.findMany({
+      where: { status: 1 },
+      select: { id: true, name: true },
+      orderBy: { code: "asc" },
+    }),
+    prisma.workstation.findMany({
+      where: {
+        status: 1,
+        ...(filters.workshopId !== undefined ? { workshopId: filters.workshopId } : {}),
+      },
+      include: { workshop: true },
+      orderBy: { code: "asc" },
+    }),
+  ]);
+  const workstations = rawWorkstations.map((station) => {
+    const active = activeByWorkstation.get(station.id);
+    return {
+      id: station.id,
+      code: station.code,
+      name: station.name,
+      workshopName: station.workshop?.name ?? null,
+      status: (active?.status ?? "idle") as "busy" | "pending" | "idle",
+      orderNo: active?.orderNo ?? null,
+      stepName: active?.stepName ?? null,
+    };
+  });
+
+  const reportWhere = {
+    productionOrderId: { in: orderIds },
+    reportTime: { gte: todayStart },
+    ...(workshopStepIds ? { processStepId: { in: workshopStepIds } } : {}),
+  };
+  const orderNoMap = new Map(sortedOrders.map((order) => [order.id, order.orderNo]));
+  const [todayReports, reportRows] = orderIds.length
+    ? await Promise.all([
+        prisma.workReport.count({ where: reportWhere }),
+        prisma.workReport.findMany({
+          where: reportWhere,
+          include: { reporter: { select: { realName: true } } },
+          orderBy: { reportTime: "desc" },
+          take: 20,
+        }),
+      ])
+    : [0, []];
+  const recentReports = reportRows.map((report) => ({
+    id: report.id,
+    reportTime: report.reportTime,
+    reporterName: report.reporter.realName,
+    orderNo: orderNoMap.get(report.productionOrderId) ?? "",
+    stepName: stepNameMap.get(report.processStepId) ?? `工序#${report.processStepId}`,
+    quantity: report.quantity,
+    scrapQty: report.scrapQty,
+  }));
+
+  const summary = {
+    inProgress: sortedOrders.filter((order) => order.execStatus === "in_progress").length,
+    pending: sortedOrders.filter((order) => order.execStatus === "pending").length,
+    todayReports,
+    todayCompleted: sortedOrders.filter(
+      (order) =>
+        order.execStatus === "completed" &&
+        !!order.actualEndDate &&
+        order.actualEndDate >= todayStart
+    ).length,
+    overdue: sortedOrders.filter(
+      (order) =>
+        order.execStatus !== "completed" &&
+        !!order.planEndDate &&
+        order.planEndDate < now
+    ).length,
+  };
+
+  return { summary, orders, workstations, recentReports, workshops };
 }

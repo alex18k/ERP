@@ -75,7 +75,7 @@ function fmtDate(d: string | null | undefined) {
 function orderStatusLabel(s: string) {
   const map: Record<string, string> = {
     planned: '已计划',
-    in_progress: '生产中',
+    in_progress: '已下达',
     closed: '已关闭',
     released: '已下达',
   }
@@ -98,7 +98,6 @@ function execStatusLabel(s: string) {
     pending: '待开工',
     in_progress: '生产中',
     completed: '已完成',
-    closed: '已关闭',
   }
   return map[s] || s || '-'
 }
@@ -108,10 +107,9 @@ function execStatusType(s: string) {
     none: 'info',
     pending: 'info',
     in_progress: 'warning',
-    completed: 'success',
-    closed: 'info',
+    completed: '已完成',
   }
-  return map[s] || 'info'
+  return map[s] || s || '-'
 }
 
 onMounted(async () => {

@@ -49,7 +49,7 @@ const query = reactive({ page: 1, pageSize: 20, orderNo: '', status: '', materia
 // 生产订单状态不再保留「已完成」：完工由执行状态 execStatus=completed 表达
 const statusOptions = [
   { label: '已计划', value: 'planned', type: 'info' },
-  { label: '生产中', value: 'in_progress', type: 'warning' },
+  { label: '已下达', value: 'in_progress', type: 'warning' },
   { label: '已关闭', value: 'closed', type: 'info' },
 ]
 
@@ -210,7 +210,6 @@ const execStatusOptions = [
   { label: '待开工', value: 'pending', type: 'info' },
   { label: '生产中', value: 'in_progress', type: 'warning' },
   { label: '已完成', value: 'completed', type: 'success' },
-  { label: '已关闭', value: 'closed', type: 'info' },
 ]
 function execStatusLabel(s: string) {
   return execStatusOptions.find((o) => o.value === s)?.label || s
@@ -694,8 +693,8 @@ onMounted(() => {
         </el-select>
         <span v-if="editOriginalExec === 'none'" class="edit-status-hint">未排产订单不能调整执行状态；排产后「已完成」由末道工序报工满数自动达成，也可在此手工标记</span>
         <span v-else-if="editForm.execStatus === 'completed'" class="edit-status-hint">已完工：改「执行状态」为生产中可继续报工与修改字段</span>
-        <span v-else-if="editForm.status === 'closed'" class="edit-status-hint">已关闭订单：把状态改回 已计划/生产中 即可重新打开；关闭状态下不可修改其他字段</span>
-        <span v-else-if="formLocked" class="edit-status-hint">当前状态不可修改其他字段，请先改回生产中</span>
+        <span v-else-if="editForm.status === 'closed'" class="edit-status-hint">已关闭订单：把状态改回 已计划/已下达 即可重新打开；关闭状态下不可修改其他字段</span>
+        <span v-else-if="formLocked" class="edit-status-hint">当前状态不可修改其他字段，请先改回已下达</span>
       </div>
       <el-form ref="editFormRef" :model="editForm" :rules="editRules" label-width="100px" :disabled="formLocked">
         <el-form-item label="生产订单号">

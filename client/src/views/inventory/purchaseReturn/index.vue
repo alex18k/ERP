@@ -1,7 +1,12 @@
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
+import { useRoute } from 'vue-router'
 import { purchaseApi, stockApi, warehouseApi, warehouseBinApi, workshopApi } from '../../../api'
+
+const route = useRoute()
+const isExchange = computed(() => !!route.meta.exchange)
+const modeLabel = computed(() => (isExchange.value ? '换货' : '退货'))
 
 const loading = ref(false)
 const list = ref<any[]>([])
@@ -213,7 +218,7 @@ async function submitReturn() {
   }
   returning.value = true
   try {
-    const res: any = await purchaseApi.returnOrder(order.id, {
+    const payload = {
       items: lines.map((line: any) => ({
         itemId: line.id,
         quantity: line.returnQty,
@@ -225,8 +230,16 @@ async function submitReturn() {
       departmentId: returnForm.departmentId || undefined,
       handler: returnForm.handler || undefined,
       remark: returnForm.remark || undefined,
-    })
-    ElMessage.success(res.data?.documentNo ? `退货已提交，退货单号 ${res.data.documentNo}` : '退货已提交')
+    }
+    const res: any = isExchange.value
+      ? await purchaseApi.exchangeOrder(order.id, payload)
+      : await purchaseApi.returnOrder(order.id, payload)
+    if (isExchange.value) {
+      const n = res.data?.replacementLines?.length ?? 0
+      ElMessage.success(`换货已提交，已补采购明细 ${n} 行${res.data?.documentNo ? `，单号 ${res.data.documentNo}` : ''}`)
+    } else {
+      ElMessage.success(res.data?.documentNo ? `退货已提交，退货单号 ${res.data.documentNo}` : '退货已提交')
+    }
     returnVisible.value = false
     await loadData()
   } catch { /* error shown by interceptor */ } finally {
@@ -324,12 +337,12 @@ onMounted(async () => {
         </el-table-column>
         <el-table-column label="操作" width="80" fixed="right">
           <template #default="{ row }">
-            <el-button type="danger" link size="small" :disabled="fmtQty(row.returnableQty) <= 0" @click="openReturn(row)">退货</el-button>
+            <el-button type="danger" link size="small" :disabled="fmtQty(row.returnableQty) <= 0" @click="openReturn(row)">{{ modeLabel }}</el-button>
           </template>
         </el-table-column>
               <template #empty>
           <el-empty description="没有符合条件的采购单" :image-size="56">
-            <div class="empty-tip">仅已确认且存在可退数量的采购单可退货；可清空单号/供应商/日期条件后重试</div>
+            <div class="empty-tip">仅已确认且存在可退数量的采购单可{{ modeLabel }}；可清空单号/供应商/日期条件后重试</div>
           </el-empty>
         </template>
 </el-table>
@@ -339,7 +352,8 @@ onMounted(async () => {
       </div>
     </div>
 
-    <el-dialog v-model="returnVisible" :title="`采购退货 - ${currentOrder?.orderNo || ''}`" width="1250px" destroy-on-close :close-on-click-modal="false">
+    <el-dialog v-model="returnVisible" :title="`采购${modeLabel} - ${currentOrder?.orderNo || ''}`" width="1250px" destroy-on-close :close-on-click-modal="false">
+      <el-alert v-if="isExchange" type="info" :closable="false" show-icon style="margin-bottom: 10px" title="换货提交后将自动在采购单新增明细行（单价/截止日期等复制原行），可直接收货。" />
       <el-descriptions :column="4" border size="small" style="margin-bottom: 12px">
         <el-descriptions-item label="采购单号">{{ currentOrder?.orderNo }}</el-descriptions-item>
         <el-descriptions-item label="供应商">{{ currentOrder?.supplierName || '-' }}</el-descriptions-item>
@@ -377,10 +391,10 @@ onMounted(async () => {
       </el-form>
 
       <div class="table-toolbar">
-        <span class="toolbar-title">退货明细</span>
+        <span class="toolbar-title">{{ modeLabel }}明细</span>
         <div style="flex: 1" />
         <span class="doc-summary" style="margin-right: 10px">
-          已填 <b>{{ returnLines.filter((l: any) => Number(l.returnQty) > 0).length }}</b> 行 · 退货数量合计
+          已填 <b>{{ returnLines.filter((l: any) => Number(l.returnQty) > 0).length }}</b> 行 · {{ modeLabel }}数量合计
           <b>{{ returnLines.reduce((s: number, l: any) => s + (Number(l.returnQty) || 0), 0) }}</b>
         </span>
         <el-button size="small" @click="toggleFill">{{ returnLines.some((l: any) => Number(l.returnQty) > 0) ? '清空数量' : '填充可退数量' }}</el-button>
@@ -408,7 +422,7 @@ onMounted(async () => {
         <el-table-column label="可退数量" width="85" align="right">
           <template #default="{ row }">{{ row.returnableQty }}</template>
         </el-table-column>
-        <el-table-column label="本次退货" width="105">
+        <el-table-column :label="`本次${modeLabel}`" width="105">
           <template #default="{ row }">
             <el-input-number
               v-model="row.returnQty"
@@ -467,7 +481,7 @@ onMounted(async () => {
 
       <template #footer>
         <el-button @click="returnVisible = false">取消</el-button>
-        <el-button type="danger" :loading="returning" @click="submitReturn">提交退货</el-button>
+        <el-button type="danger" :loading="returning" @click="submitReturn">提交{{ modeLabel }}</el-button>
       </template>
     </el-dialog>
   </div>

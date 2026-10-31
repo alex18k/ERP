@@ -141,24 +141,6 @@ export async function updateProductionOrderExecStatusHandler(req: AuthRequest, r
 }
 
 // 执行状态关闭 / 重新打开
-export async function closeProductionOrderExecHandler(req: AuthRequest, res: Response) {
-  try {
-    const data = await productionService.closeProductionOrderExec(Number(req.params.id));
-    return success(res, data, "执行已关闭");
-  } catch (error: any) {
-    return fail(res, 400, error.message);
-  }
-}
-
-export async function reopenProductionOrderExecHandler(req: AuthRequest, res: Response) {
-  try {
-    const data = await productionService.reopenProductionOrderExec(Number(req.params.id));
-    return success(res, data, "执行已重新打开");
-  } catch (error: any) {
-    return fail(res, 400, error.message);
-  }
-}
-
 // 批量排产：逐单独立事务，返回成功/失败明细
 export async function batchScheduleHandler(req: AuthRequest, res: Response) {
   try {
@@ -327,7 +309,7 @@ export async function receiveProductionOrderHandler(req: AuthRequest, res: Respo
       binId,
       closeWorkOrder === true
     );
-    return success(res, data, "生产入库成功");
+    return success(res, data, "生产入库/退库成功");
   } catch (error: any) {
     return fail(res, 400, error.message);
   }

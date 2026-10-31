@@ -141,6 +141,16 @@ function rowStockShort(row: any) {
   return need > 0 && rowStock(row) + 1e-6 < need
 }
 
+function rowIssueActive(row: any) {
+  return (Number(row.issueQty) || 0) > 0
+}
+
+// 当前库存 / 本次发放配色：有发放时库存不足红色、足够绿色
+function rowQtyColor(row: any) {
+  if (!rowIssueActive(row)) return ''
+  return rowStockShort(row) ? 'short' : 'ok'
+}
+
 // 批号候选：该物料×行库位仓库×货位尚有结存的批次，打开下拉时按需加载
 async function loadRowBatches(row: any) {
   const whId = rowWarehouseId(row)
@@ -203,12 +213,9 @@ function onCancelRemainChange(row: any) {
   if (row.cancelRemain) row.issueQty = 0
 }
 
-// 与后端发料校验同口径：已关闭/未排产/执行关闭/已完工 的订单不允许发料
+// 与后端发料校验同口径：只看生产订单状态，已关闭的订单不允许发料（执行状态不参与）
 function issuableError(data: any): string | null {
   if (data?.status === 'closed') return '该生产订单已关闭，不能发料'
-  if (data?.execStatus === 'none') return '该生产订单尚未排产，不能发料'
-  if (data?.execStatus === 'closed') return '该生产订单执行已关闭，不能发料'
-  if (data?.execStatus === 'completed') return '该生产订单已完工，不能发料'
   return null
 }
 
@@ -415,12 +422,12 @@ onMounted(loadPage)</script>
         </el-table-column>
         <el-table-column label="当前库存" width="90" align="right">
           <template #default="{ row }">
-            <span class="stock-num" :class="{ short: rowStockShort(row) }" :title="rowStockShort(row) ? '当前库存小于本次发放数量' : ''">{{ rowStock(row) }}</span>
+            <span class="stock-num" :class="rowQtyColor(row)" :title="rowStockShort(row) ? '当前库存小于本次发放数量' : ''">{{ rowStock(row) }}</span>
           </template>
         </el-table-column>
         <el-table-column label="本次发放" width="140">
           <template #default="{ row }">
-            <el-input-number v-model="row.issueQty" :min="0" :precision="2" :controls="false" :disabled="row.cancelRemain" style="width: 100%" />
+            <el-input-number v-model="row.issueQty" :class="rowQtyColor(row)" :min="0" :precision="2" :controls="false" :disabled="row.cancelRemain" style="width: 100%" />
           </template>
         </el-table-column>
         <el-table-column label="批号" width="160">
@@ -459,8 +466,13 @@ onMounted(loadPage)</script>
   font-weight: 600;
   color: var(--erp-ink);
 }
-.stock-num.short {
+.stock-num.short,
+.el-input-number.short :deep(.el-input__inner) {
   color: var(--erp-red);
+}
+.stock-num.ok,
+.el-input-number.ok :deep(.el-input__inner) {
+  color: var(--erp-green);
 }
 .issue-footer {
   display: flex;

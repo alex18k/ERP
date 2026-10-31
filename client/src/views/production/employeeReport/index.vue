@@ -69,7 +69,7 @@ async function onOrderChange() {
   selectedOrder.value = [...orderOptionMap.values()].find((o) => o.orderNo === form.orderNo) || null
   if (!selectedOrder.value) return
   const wo = selectedOrder.value
-  workOrderOptions.value = wo && wo.execStatus !== 'none' && !['completed', 'closed'].includes(wo.execStatus) ? [wo] : []
+  workOrderOptions.value = wo && wo.execStatus !== 'none' && wo.execStatus !== 'completed' ? [wo] : []
   form.workOrderId = workOrderOptions.value[0]?.id ?? null
   try {
     const res: any = await productionApi.orderRoute(selectedOrder.value.id)
@@ -124,7 +124,7 @@ async function handleSave() {
     registerOrderOptions(res.data.items || [])
     selectedOrder.value = [...orderOptionMap.values()].find((o) => o.orderNo === form.orderNo) || selectedOrder.value
     const wo = selectedOrder.value
-    workOrderOptions.value = wo && wo.execStatus !== 'none' && !['completed', 'closed'].includes(wo.execStatus) ? [wo] : []
+    workOrderOptions.value = wo && wo.execStatus !== 'none' && wo.execStatus !== 'completed' ? [wo] : []
     if (form.workOrderId && !workOrderOptions.value.some((w: any) => w.id === form.workOrderId)) form.workOrderId = null
   } catch {
     /* error shown */

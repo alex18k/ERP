@@ -34,7 +34,7 @@ function statusType(s: string) {
 function orderStatusLabel(s: string) {
   const map: Record<string, string> = {
     planned: '已计划',
-    in_progress: '生产中',
+    in_progress: '已下达',
     closed: '已关闭',
     released: '已下达',
   }
@@ -88,12 +88,12 @@ function currentWorkOrder() {
   const order = props.order
   if (!order || order.execStatus === 'none') return null
   if (order.status === 'closed') return null
-  return order.execStatus !== 'closed' ? order : null
+  return order
 }
 
 function isWorkOrderLocked(row: any) {
   const o = row.productionOrder
-  return o?.execStatus === 'closed' || o?.status === 'closed'
+  return o?.status === 'closed'
 }
 
 function printOrder() {

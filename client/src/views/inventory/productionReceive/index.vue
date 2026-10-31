@@ -9,7 +9,7 @@ const list = ref<any[]>([])
 const total = ref(0)
 const warehouses = ref<any[]>([])
 const bins = ref<any[]>([])
-const query = reactive({ page: 1, pageSize: 20, orderNo: '', onlyReceivable: 'true' })
+const query = reactive({ page: 1, pageSize: 20, orderNo: '' })
 
 const dialogVisible = ref(false)
 const submitting = ref(false)
@@ -57,7 +57,7 @@ function remaining(row: any) {
 // 状态：与生产领料页一致，显示所属生产订单的状态
 const statusOptions = [
   { label: '已计划', value: 'planned', type: 'info' },
-  { label: '生产中', value: 'in_progress', type: 'warning' },
+  { label: '已下达', value: 'in_progress', type: 'warning' },
   { label: '已关闭', value: 'closed', type: 'info' },
 ]
 
@@ -74,7 +74,6 @@ const execStatusOptions = [
   { label: '待开工', value: 'pending', type: 'info' },
   { label: '生产中', value: 'in_progress', type: 'warning' },
   { label: '已完成', value: 'completed', type: 'success' },
-  { label: '已关闭', value: 'closed', type: 'info' },
 ]
 
 function execStatusLabel(s: any) {
@@ -132,8 +131,9 @@ function openDialog(row: any) {
 }
 
 async function submit() {
-  if (!form.quantity || form.quantity <= 0) {
-    ElMessage.warning('入库数量必须大于0')
+  const qty = Number(form.quantity) || 0
+  if (qty === 0) {
+    ElMessage.warning('入库/退库数量不能为0')
     return
   }
   if (!form.warehouseId) {
@@ -144,20 +144,42 @@ async function submit() {
     ElMessage.warning(`单位「${form.unit}」未维护换算关系`)
     return
   }
-  const baseQty = (Number(form.quantity) || 0) * unitRate.value
-  if (baseQty > remaining(current.value) + 1e-6) {
-    ElMessage.warning(`入库数量超过剩余可入库数量 ${remaining(current.value)}`)
-    return
-  }
-  if (form.closeWorkOrder) {
+  const baseQty = qty * unitRate.value
+  const isReturn = baseQty < 0
+  if (isReturn) {
+    if (Math.abs(baseQty) > (Number(current.value?.receivedQty) || 0) + 1e-6) {
+      ElMessage.warning(`退库数量超过已入库数量 ${current.value?.receivedQty ?? 0}`)
+      return
+    }
     try {
       await ElMessageBox.confirm(
-        `已勾选“入库后关闭生产订单”，提交后生产订单 ${current.value.orderNo} 将被关闭，不能再继续入库、报工或发料。是否继续？`,
-        '关闭生产订单确认',
-        { type: 'warning', confirmButtonText: '继续提交', cancelButtonText: '返回修改' }
+        `将退库 ${Math.abs(qty)} ${form.unit || ''}（折算 ${Math.abs(baseQty)} ${productMaterial.value?.unit || ''}），扣减产品库存并回减已入库数量。是否继续？`,
+        '退库确认',
+        { type: 'warning', confirmButtonText: '确认退库', cancelButtonText: '返回修改' }
       )
     } catch {
       return
+    }
+  } else {
+    if (baseQty > remaining(current.value) + 1e-6) {
+      const remain = remaining(current.value)
+      ElMessage.warning(
+        remain <= 1e-6
+          ? '该生产订单已全部入库，剩余可入库为 0；如需退库请输入负数'
+          : `入库数量超过剩余可入库数量 ${remain}`
+      )
+      return
+    }
+    if (form.closeWorkOrder) {
+      try {
+        await ElMessageBox.confirm(
+          `已勾选“入库后关闭生产订单”，提交后生产订单 ${current.value.orderNo} 将被关闭，不能再继续入库、报工或发料。是否继续？`,
+          '关闭生产订单确认',
+          { type: 'warning', confirmButtonText: '继续提交', cancelButtonText: '返回修改' }
+        )
+      } catch {
+        return
+      }
     }
   }
   submitting.value = true
@@ -168,9 +190,11 @@ async function submit() {
       warehouseId: form.warehouseId,
       binId: binRequired.value ? form.binId : undefined,
       batchNo: form.batchNo || undefined,
-      closeWorkOrder: form.closeWorkOrder || undefined,
+      closeWorkOrder: isReturn ? undefined : form.closeWorkOrder || undefined,
     })
-    if (res.data?.closed) {
+    if (isReturn) {
+      ElMessage.success(`退库已提交，已入库数量回减至 ${res.data?.receivedQty ?? ''}`)
+    } else if (res.data?.closed) {
       ElMessage.success('入库已提交，生产订单已关闭')
     } else if (res.data?.fullyReceived) {
       ElMessage.success('入库已提交，已全部入库；如需关闭订单请勾选「入库后关闭生产订单」后再次入库')
@@ -203,18 +227,14 @@ onMounted(async () => {
 
       <div class="search-bar">
         <el-input v-model="query.orderNo" placeholder="生产订单号" clearable style="width: 170px" @keyup.enter="query.page = 1, loadData()" />
-        <el-select v-model="query.onlyReceivable" placeholder="范围" style="width: 140px">
-          <el-option label="仅未入库完" value="true" />
-          <el-option label="全部" value="false" />
-        </el-select>
         <el-button type="primary" @click="query.page = 1, loadData()"><el-icon><Search /></el-icon>查询</el-button>
-        <el-button @click="Object.assign(query, { orderNo: '', onlyReceivable: 'true', page: 1 }), loadData()">重置</el-button>
+        <el-button @click="Object.assign(query, { orderNo: '', page: 1 }), loadData()">重置</el-button>
       </div>
 
       <div class="list-summary">
         <span>可入库生产订单 <b>{{ total }}</b> 张</span>
         <span v-if="list.length">· 本页剩余待入库 <b>{{ list.reduce((s: number, r: any) => s + Math.max(0, remaining(r)), 0) }}</b></span>
-        <span class="list-summary-tip">范围=「仅未入库完」时只显示还有剩余量的生产订单；成品/半成品按生产订单入库</span>
+        <span class="list-summary-tip">显示所有未关闭的生产订单（含已入满）；成品/半成品按生产订单入库</span>
       </div>
 
       <el-table :data="list" v-loading="loading" stripe max-height="calc(100vh - 300px)">
@@ -251,13 +271,12 @@ onMounted(async () => {
         </el-table-column>
         <el-table-column label="操作" width="90" fixed="right">
           <template #default="{ row }">
-            <el-button v-if="remaining(row) > 0" size="small" type="primary" link @click="openDialog(row)">入库</el-button>
-            <span v-else style="color: var(--el-text-color-secondary)">-</span>
+            <el-button size="small" type="primary" link @click="openDialog(row)">入库</el-button>
           </template>
         </el-table-column>
         <template #empty>
           <el-empty description="没有可入库的生产订单" :image-size="56">
-            <div class="empty-tip">仅已排产且尚未入满的生产订单可入库；可切换范围为「全部」或清空订单号重试</div>
+            <div class="empty-tip">没有未关闭的生产订单；可清空订单号重试</div>
           </el-empty>
         </template>
       </el-table>
@@ -267,13 +286,16 @@ onMounted(async () => {
       </div>
     </div>
 
-    <el-dialog v-model="dialogVisible" title="生产入库" width="480px" destroy-on-close>
+    <el-dialog v-model="dialogVisible" title="生产入库/退库" width="480px" destroy-on-close>
       <el-form :model="form" label-width="100px">
         <el-form-item label="生产订单">
           <span>{{ current?.orderNo }}</span>
         </el-form-item>
         <el-form-item label="产品">
           <span>{{ current?.material?.code }} - {{ current?.material?.name }}</span>
+        </el-form-item>
+        <el-form-item label="已入库">
+          <span>{{ current?.receivedQty ?? 0 }} / {{ current?.plannedQty ?? 0 }}</span>
         </el-form-item>
         <el-form-item label="剩余可入库">
           <span>{{ current ? remaining(current) : 0 }}</span>
@@ -288,8 +310,9 @@ onMounted(async () => {
             <el-option v-for="b in bins" :key="b.id" :label="`${b.code} - ${b.name}`" :value="b.id" />
           </el-select>
         </el-form-item>
-        <el-form-item label="入库数量" required>
-          <el-input-number v-model="form.quantity" :min="0" :precision="2" :controls="false" style="width: 100%" />
+        <el-form-item label="入库/退库数量" required>
+          <el-input-number v-model="form.quantity" :precision="2" :controls="false" style="width: 100%" />
+          <div class="unit-hint">正数入库，负数退库；退库最多 {{ current?.receivedQty ?? 0 }}（输入负数）</div>
           <div v-if="baseHint" class="unit-hint">{{ baseHint }}</div>
         </el-form-item>
         <el-form-item label="计量单位">
@@ -298,16 +321,16 @@ onMounted(async () => {
           </el-select>
         </el-form-item>
         <el-form-item label="批号">
-          <el-input v-model="form.batchNo" placeholder="空则自动生成；批号管理物料建议填生产批号" />
+          <el-input v-model="form.batchNo" placeholder="空则自动生成；退库时批号管理物料必填" />
         </el-form-item>
         <el-form-item label="关闭订单">
-          <el-checkbox v-model="form.closeWorkOrder">入库后关闭生产订单</el-checkbox>
-          <div class="unit-hint">勾选后提交时会再次确认；关闭后不能再入库、报工或发料</div>
+          <el-checkbox v-model="form.closeWorkOrder" :disabled="Number(form.quantity) < 0">入库后关闭生产订单</el-checkbox>
+          <div class="unit-hint">勾选后提交时会再次确认；退库不关闭订单；关闭后不能再入库、报工或发料</div>
         </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="submitting" @click="submit">提交入库</el-button>
+        <el-button type="primary" :loading="submitting" @click="submit">提交</el-button>
       </template>
     </el-dialog>
   </div>

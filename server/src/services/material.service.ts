@@ -299,7 +299,29 @@ export async function listMaterialOptions(where: MaterialOptionWhere) {
   }));
 }
 
+function validateRequiredMaterialFields(
+  data: Partial<MaterialCreateInput>,
+  options: { requireBoth: boolean },
+) {
+  const fields = [
+    { key: "materialType", label: "物料类别" },
+    { key: "location", label: "库位" },
+  ] as const;
+
+  for (const field of fields) {
+    const value = data[field.key];
+    const missing = value === undefined || value === null || String(value).trim() === "";
+    if (missing && (options.requireBoth || value !== undefined)) {
+      throw new Error(`${field.label}不能为空`);
+    }
+  }
+
+  if (data.materialType !== undefined) data.materialType = String(data.materialType).trim();
+  if (data.location !== undefined) data.location = String(data.location).trim();
+}
+
 export async function createMaterial(data: MaterialCreateInput) {
+  validateRequiredMaterialFields(data, { requireBoth: true });
   const exists = await prisma.material.findUnique({ where: { code: data.code } });
   if (exists) throw new Error("物料编码已存在");
 
@@ -321,6 +343,8 @@ export async function createMaterial(data: MaterialCreateInput) {
 export async function updateMaterial(id: number, data: Partial<MaterialCreateInput>) {
   const exists = await prisma.material.findUnique({ where: { id } });
   if (!exists) throw new Error("物料不存在");
+
+  validateRequiredMaterialFields(data, { requireBoth: false });
 
   if (data.code && data.code !== exists.code) throw new Error("物料编码不可修改");
 

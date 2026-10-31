@@ -1,0 +1,3 @@
+-- 销售订单主表默认含税/税率（从客户带出，明细行默认值来源）
+ALTER TABLE "SalesOrder" ADD COLUMN IF NOT EXISTS "taxIncluded" BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE "SalesOrder" ADD COLUMN IF NOT EXISTS "taxRate" DOUBLE PRECISION NOT NULL DEFAULT 0;

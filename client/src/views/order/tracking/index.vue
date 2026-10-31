@@ -68,8 +68,12 @@ async function handleShip() {
 function statusLabel(s: string) {
   return {
     draft: '草稿', confirmed: '已确认', in_production: '生产中', completed: '已完工', shipped: '已发货', cancelled: '已取消',
-    planned: '已计划', scheduled: '已排产', in_progress: '加工中', pending: '待开工', paused: '已暂停', quality_check: '质检中', reported: '已报工', closed: '已关闭',
+    planned: '已计划', scheduled: '已排产', in_progress: '已下达', paused: '已暂停', quality_check: '质检中', reported: '已报工', closed: '已关闭',
   }[s] || s
+}
+
+function execStatusLabel(s: string) {
+  return { none: '未排产', pending: '待开工', in_progress: '生产中', completed: '已完工', closed: '已关闭' }[s] || s || '-'
 }
 
 function statusType(s: string) {
@@ -127,7 +131,11 @@ watch(() => route.query.id, (id) => {
         </div>
 
         <el-table :data="orders" v-loading="loading" stripe max-height="calc(100vh - 260px)">
-          <el-table-column prop="orderNo" label="订单号" width="170" />
+          <el-table-column label="订单号" width="170">
+            <template #default="{ row }">
+              <el-button size="small" type="primary" link @click="goto(row.id)">{{ row.orderNo }}</el-button>
+            </template>
+          </el-table-column>
           <el-table-column prop="customerName" label="客户" min-width="150" />
           <el-table-column label="状态" width="100">
             <template #default="{ row }">
@@ -203,7 +211,7 @@ watch(() => route.query.id, (id) => {
         <div class="table-toolbar">
           <span class="toolbar-title">进度跟踪</span>
         </div>
-        <el-table :data="tracking?.productionProgress || []" size="small" stripe default-expand-all>
+        <el-table :data="tracking?.productionProgress || []" size="small" stripe>
           <el-table-column type="expand">
             <template #default="{ row }">
               <el-table v-if="row.workOrder" :data="[row.workOrder]" size="small" border style="margin: 4px 24px; width: auto">
@@ -216,10 +224,8 @@ watch(() => route.query.id, (id) => {
                     <span v-else>-</span>
                   </template>
                 </el-table-column>
-                <el-table-column label="状态" width="100">
-                  <template #default="{ row: w }">
-                    <el-tag :type="statusType(w.status)" size="small">{{ statusLabel(w.status) }}</el-tag>
-                  </template>
+                <el-table-column label="执行状态" width="100">
+                  <template #default="{ row: w }">{{ execStatusLabel(w.status) }}</template>
                 </el-table-column>
               </el-table>
               <div v-else style="padding: 8px 24px; color: var(--el-text-color-secondary)">未排产</div>
@@ -241,7 +247,11 @@ watch(() => route.query.id, (id) => {
               <el-tag :type="statusType(row.status)" size="small">{{ statusLabel(row.status) }}</el-tag>
             </template>
           </el-table-column>
-          <el-table-column prop="workOrderCount" label="已排产" width="80" />
+          <el-table-column label="执行状态" width="100">
+            <template #default="{ row }">
+              <el-tag :type="statusType(row.execStatus)" size="small">{{ execStatusLabel(row.execStatus || 'none') }}</el-tag>
+            </template>
+          </el-table-column>
         </el-table>
       </div>
 

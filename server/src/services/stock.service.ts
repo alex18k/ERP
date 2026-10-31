@@ -98,8 +98,9 @@ function escapeLike(value: any) {
 }
 
 // SQL 过滤条件（使用 s/m 别名），供明细/分组的数据库分页复用
+// 库存明细/库存查询不屏蔽 0 库存行，故这里不加 quantity > 0
 function buildStockSqlParts(where: any): Prisma.Sql[] {
-  const parts: Prisma.Sql[] = [Prisma.sql`s.quantity > 0`];
+  const parts: Prisma.Sql[] = [Prisma.sql`TRUE`];
   if (where.materialId !== undefined && where.materialId !== "" && where.materialId !== null) {
     const id = Number(where.materialId);
     if (Number.isFinite(id)) parts.push(Prisma.sql`s."materialId" = ${id}`);
@@ -250,7 +251,7 @@ function buildDetailRowCountCte(filters: Prisma.Sql) {
     ) b ON b."materialId" = s."materialId"
        AND b."warehouseId" = s."warehouseId"
        AND b."binId" IS NOT DISTINCT FROM s."binId"
-    WHERE s.quantity > 0 ${filters}
+    WHERE TRUE ${filters}
   `;
 }
 
@@ -315,7 +316,7 @@ export async function listStockSummary(where: any) {
     FROM "Stock" s
     JOIN "Material" m ON m.id = s."materialId"
     JOIN "Warehouse" w ON w.id = s."warehouseId"
-    WHERE s.quantity > 0 ${filters}
+    WHERE TRUE ${filters}
     GROUP BY s."warehouseId", s."materialId", w.name, m.code
     ${having}
   `;
@@ -335,7 +336,6 @@ export async function listStockSummary(where: any) {
   const binFilter = where.binId !== undefined && where.binId !== "" && where.binId !== null ? Number(where.binId) : null;
   const idRows = await prisma.stock.findMany({
     where: {
-      quantity: { gt: 0 },
       warehouseId: { in: [...new Set(groupRows.map((g) => Number(g.warehouseId)))] },
       materialId: { in: [...new Set(groupRows.map((g) => Number(g.materialId)))] },
       ...(binFilter !== null && Number.isFinite(binFilter) ? { binId: binFilter } : {}),

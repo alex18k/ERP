@@ -159,8 +159,6 @@ export const productionApi = {
   schedulableOrders: () => request.get('/production/orders/schedulable'),
   updateStatus: (id: number, data: any) => request.put(`/production/orders/${id}/status`, data),
   updateExecStatus: (id: number, data: any) => request.put(`/production/orders/${id}/exec-status`, data),
-  closeExec: (id: number) => request.put(`/production/orders/${id}/close`),
-  reopenExec: (id: number) => request.put(`/production/orders/${id}/reopen`),
   batchSchedule: (data: any) => request.post('/production/orders/batch-schedule', data),
   orderRoute: (id: number) => request.get(`/production/orders/${id}/route`),
   updateOrderRoute: (id: number, data: any) => request.put(`/production/orders/${id}/route`, data),
@@ -199,6 +197,7 @@ export const purchaseApi = {
   returnReceipt: (id: number, data: any) => request.post(`/purchase/receipts/${id}/return`, data),
   returnOrders: (params: PageParams) => request.get('/purchase/return-orders', { params }),
   returnOrder: (id: number, data: any) => request.post(`/purchase/return-orders/${id}/return`, data),
+  exchangeOrder: (id: number, data: any) => request.post(`/purchase/return-orders/${id}/exchange`, data),
   receiptDocuments: (params: PageParams) => request.get('/purchase/receipt-documents', { params }),
   returnReceiptDocument: (documentNo: string, data: any) => request.post(`/purchase/receipt-documents/${encodeURIComponent(documentNo)}/return`, data),
   exportCsv: () => downloadCsv('/purchase/export', '采购订单'),
@@ -241,6 +240,7 @@ export const dashboardApi = {
   executive: () => request.get('/dashboard/executive'),
   orderTracking: () => request.get('/dashboard/order-tracking'),
   inventory: () => request.get('/dashboard/inventory'),
+  workshop: (params?: any) => request.get('/dashboard/workshop', { params }),
 }
 
 // ===== 系统管理 =====

@@ -327,6 +327,8 @@ model Customer {
   type          String? // 客户类型（自由填写，如 终端客户/经销商）
   seller        String? // 销售员（责任人）
   settleMethod  String? // 结算方式（如 现结/月结30天）
+  taxIncluded   Boolean      @default(false) // 默认含税
+  taxRate       Float        @default(0) // 默认税率(%)
   status        Int          @default(1)
   remark        String?
   createdAt     DateTime     @default(now())
@@ -351,6 +353,8 @@ model SalesOrder {
   seller1          String? // 销售员1
   seller2          String? // 销售员2
   paymentMethod    String? // 付款方式
+  taxIncluded      Boolean         @default(false) // 默认含税（从客户带出）
+  taxRate          Float           @default(0) // 默认税率(%)（从客户带出）
   deliveryDate     DateTime?
   status           String            @default("draft") // draft, confirmed, in_production, completed, shipped, cancelled
   remark           String?
@@ -413,7 +417,7 @@ model ProductionOrder {
   receivedQty     Float                 @default(0) // 成品已入库量
   actualQty       Float                 @default(0) // 累计报工量
   scrapQty        Float                 @default(0) // 累计报废量
-  execStatus      String                @default("none") // none(未排产), pending(待开工), in_progress(生产中), completed(已完成), closed(已关闭)
+  execStatus      String                @default("none") // none(未排产), pending(待开工), in_progress(生产中), completed(已完成)
   operatorId      Int?
   operator        User?                 @relation("ProductionOrderOperator", fields: [operatorId], references: [id])
   startTime       DateTime?

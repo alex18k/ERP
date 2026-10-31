@@ -160,6 +160,8 @@ const rules = {
   name: [{ required: true, message: '请输入物料名称', trigger: 'blur' }],
   category: [{ required: true, message: '请选择分类', trigger: 'change' }],
   unit: [{ required: true, message: '请输入单位', trigger: 'blur' }],
+  materialType: [{ required: true, message: '请选择物料类别', trigger: 'change' }],
+  location: [{ required: true, message: '请选择库位', trigger: 'change' }],
 }
 
 async function openDialog(row?: any, copy = false) {
@@ -496,8 +498,8 @@ onMounted(() => {
         </el-row>
         <el-row :gutter="16">
           <el-col :span="12">
-            <el-form-item label="物料类别">
-              <el-select v-model="form.materialType" filterable clearable placeholder="选择物料类别（在基础数据→物料类别维护中新增）" :fit-input-width="false" style="width: 100%">
+            <el-form-item label="物料类别" prop="materialType">
+              <el-select v-model="form.materialType" filterable placeholder="选择物料类别（在基础数据→物料类别维护中新增）" :fit-input-width="false" style="width: 100%">
                 <el-option v-for="t in typeOptions" :key="t" :label="t" :value="t" />
               </el-select>
             </el-form-item>
@@ -577,8 +579,8 @@ onMounted(() => {
             </el-form-item>
           </el-col>
           <el-col :span="12">
-            <el-form-item label="库位">
-              <el-select v-model="form.location" clearable filterable placeholder="选择库位" style="width: 100%">
+            <el-form-item label="库位" prop="location">
+              <el-select v-model="form.location" filterable placeholder="选择库位" style="width: 100%">
                 <el-option v-for="l in locationOptions" :key="l.code" :label="l.name ? `${l.code} - ${l.name}` : l.code" :value="l.code" />
               </el-select>
             </el-form-item>

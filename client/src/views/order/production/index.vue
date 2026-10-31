@@ -10,7 +10,7 @@ const query = reactive({ page: 1, pageSize: 20, orderNo: '', status: '', materia
 
 const statusOptions = [
   { label: '已计划', value: 'planned', type: 'info' },
-  { label: '生产中', value: 'in_progress', type: 'warning' },
+  { label: '已下达', value: 'in_progress', type: 'warning' },
   { label: '已关闭', value: 'closed', type: 'info' },
 ]
 
@@ -25,7 +25,6 @@ const execStatusOptions = [
   { label: '待开工', value: 'pending', type: 'info' },
   { label: '生产中', value: 'in_progress', type: 'warning' },
   { label: '已完成', value: 'completed', type: 'success' },
-  { label: '已关闭', value: 'closed', type: 'info' },
 ]
 function execStatusLabel(s: any) {
   return execStatusOptions.find((o) => o.value === s)?.label || s || '-'

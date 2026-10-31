@@ -50,6 +50,15 @@ export async function returnOrderHandler(req: AuthRequest, res: Response) {
   }
 }
 
+export async function exchangeOrderHandler(req: AuthRequest, res: Response) {
+  try {
+    const data = await purchaseService.returnPurchaseOrder(Number(req.params.id), req.body, req.user!.id, { replacement: true });
+    return success(res, data, "采购换货成功");
+  } catch (error: any) {
+    return fail(res, 400, error.message);
+  }
+}
+
 export async function receiptDocumentsHandler(req: Request, res: Response) {
   try {
     const data = await purchaseService.listPurchaseReceiptDocuments(req.query as any);

@@ -20,6 +20,20 @@ export async function orderTrackingHandler(req: Request, res: Response) {
   }
 }
 
+export async function workshopHandler(req: Request, res: Response) {
+  try {
+    const workshopId = req.query.workshopId !== undefined ? Number(req.query.workshopId) : undefined;
+    const execStatus = typeof req.query.execStatus === "string" && req.query.execStatus ? req.query.execStatus : undefined;
+    const data = await dashboardService.getWorkshopDashboard({
+      workshopId,
+      execStatus,
+    });
+    return success(res, data);
+  } catch (error: any) {
+    return fail(res, 500, error.message, 500);
+  }
+}
+
 export async function shortageAlertHandler(req: Request, res: Response) {
   try {
     const data = await dashboardService.getShortageAlertDashboard();

@@ -260,6 +260,7 @@ onMounted(loadData)
         </el-table-column>
         <el-table-column prop="orderNo" label="销售单号" width="146" show-overflow-tooltip />
         <el-table-column prop="line" label="行号" width="60" align="center" />
+        <el-table-column prop="customerCode" label="客户编码" width="110" />
         <el-table-column prop="customerName" label="客户名称" min-width="180" show-overflow-tooltip />
         <el-table-column prop="materialCode" label="物料编码" width="110" />
         <el-table-column prop="materialName" label="物料名称" min-width="160" show-overflow-tooltip />
@@ -283,7 +284,6 @@ onMounted(loadData)
         <el-table-column label="行交货日期" width="110">
           <template #default="{ row }">{{ dateOnly(row.itemDeliveryDate) }}</template>
         </el-table-column>
-        <el-table-column prop="customerCode" label="客户编码" width="110" />
         <el-table-column prop="contactPerson" label="联系人" width="90" />
         <el-table-column prop="contactPhone" label="联系电话" width="120" />
         <el-table-column prop="channel" label="渠道" width="90" />

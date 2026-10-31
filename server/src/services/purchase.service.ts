@@ -24,6 +24,7 @@ export async function generatePurchaseOrderNo(): Promise<string> {
 
 export interface PurchaseOrderInput {
   supplierId: number | null;
+  updatedAt?: string;
   settleMethod?: string;
   orderDate?: string;
   expectedDate?: string;
@@ -250,7 +251,6 @@ function assertDateOrder(orderDate?: string, expectedDate?: string) {
 export async function createPurchaseOrder(data: PurchaseOrderInput, userId: number) {
   if (!data.items || data.items.length === 0) throw new Error("采购单至少需要一个明细");
   if (!data.orderDate) throw new Error("请选择订货日期");
-  if (!data.expectedDate) throw new Error("请选择截止日期");
   if (!data.buyer) throw new Error("请输入采购员");
   assertItemLines(data.items);
   assertItemsPositive(data.items);
@@ -262,7 +262,6 @@ export async function createPurchaseOrder(data: PurchaseOrderInput, userId: numb
     supplierId: data.supplierId,
     settleMethod,
     orderDate: data.orderDate ? new Date(data.orderDate) : null,
-    expectedDate: data.expectedDate ? new Date(data.expectedDate) : null,
     buyer: data.buyer || null,
     items: data.items,
   });
@@ -323,12 +322,16 @@ export async function createPurchaseOrder(data: PurchaseOrderInput, userId: numb
   );
 }
 
+// 采购单级咨询锁：串行化「换货补行」与「维护保存」等整单写入
+async function lockPurchaseOrder(tx: Prisma.TransactionClient, orderId: number): Promise<void> {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`purchase-order:${orderId}`}))`;
+}
+
 export async function updatePurchaseOrder(id: number, data: PurchaseOrderInput) {
   const exists = await prisma.purchaseOrder.findUnique({ where: { id } });
   if (!exists) throw new Error("采购单不存在");
   if (!data.items || data.items.length === 0) throw new Error("采购单至少需要一个明细");
   if (!data.orderDate) throw new Error("请选择订货日期");
-  if (!data.expectedDate) throw new Error("请选择截止日期");
   if (!data.buyer) throw new Error("请输入采购员");
   assertItemLines(data.items);
   assertItemsPositive(data.items);
@@ -342,7 +345,6 @@ export async function updatePurchaseOrder(id: number, data: PurchaseOrderInput) 
     supplierId: data.supplierId,
     settleMethod,
     orderDate: data.orderDate ? new Date(data.orderDate) : null,
-    expectedDate: data.expectedDate ? new Date(data.expectedDate) : null,
     buyer: data.buyer || null,
     items: data.items,
   });
@@ -356,8 +358,18 @@ export async function updatePurchaseOrder(id: number, data: PurchaseOrderInput) 
   const rateMap = await resolveUnitRateMap(data.items.map((i) => ({ materialId: i.materialId, unit: i.unit })));
 
   return prisma.$transaction(async (tx) => {
+    await lockPurchaseOrder(tx, id);
     // 锁定本单明细行：与「收货」的原子 UPDATE 串行化，读取最新 receivedQty，避免丢更新
     await tx.$executeRaw`SELECT "id" FROM "PurchaseOrderItem" WHERE "orderId" = ${id} FOR UPDATE`;
+
+    // 乐观并发：换货等操作会更新采购单 updatedAt，过期整单保存直接拒绝，避免 deleteMany 丢掉换货补行
+    const freshOrder = await tx.purchaseOrder.findUnique({ where: { id }, select: { updatedAt: true } });
+    if (data.updatedAt && freshOrder) {
+      const expected = new Date(data.updatedAt).getTime();
+      if (!Number.isNaN(expected) && freshOrder.updatedAt.getTime() !== expected) {
+        throw new Error("采购单已被其他操作修改，请刷新后重试");
+      }
+    }
 
     const existingItems = await tx.purchaseOrderItem.findMany({ where: { orderId: id } });
     const existingById = new Map(existingItems.map((it) => [it.id, it]));
@@ -475,14 +487,12 @@ function assertConfirmable(po: {
   supplierId: number | null;
   settleMethod: string | null;
   orderDate: Date | null;
-  expectedDate: Date | null;
   buyer: string | null;
   items: { materialId: number; quantity: number }[];
 }) {
   if (!po.supplierId) throw new Error("请先选择供应商");
   if (!po.settleMethod) throw new Error("请先选择结算方式");
   if (!po.orderDate) throw new Error("请先选择订货日期");
-  if (!po.expectedDate) throw new Error("请先选择截止日期");
   if (!po.buyer) throw new Error("请先填写采购员");
   if (!po.items || po.items.length === 0) throw new Error("采购单至少需要一个明细");
   for (const it of po.items) {
@@ -1668,7 +1678,8 @@ export async function returnPurchaseOrder(
     handler?: string;
     remark?: string;
   },
-  userId: number
+  userId: number,
+  options: { replacement?: boolean } = {}
 ) {
   if (!data.departmentId) throw new Error("请选择部门");
   const handler = String(data.handler ?? "").trim();
@@ -1705,19 +1716,32 @@ export async function returnPurchaseOrder(
   }
 
   return prisma.$transaction(async (tx) => {
+    await lockPurchaseOrder(tx, order.id);
     await lockOrderNo(tx, ORDER_NO_LOCK.ST);
     const documentNo = await generateDocNo(tx, returnType.documentPrefix || "PV");
     const effectiveDate = data.effectiveDate ? new Date(data.effectiveDate) : new Date();
 
+    // 事务内重读：避免与维护保存并发时复制过期字段/行号重号
+    const txOrder = await tx.purchaseOrder.findUnique({
+      where: { id: order.id },
+      include: { items: { include: { material: true } } },
+    });
+    if (!txOrder) throw new Error("采购订单不存在");
+    const txItemById = new Map(txOrder.items.map((it) => [it.id, it]));
+
     const returnedMap = await calcReturnedBaseByItem(
       tx,
-      [order.id],
-      order.items.map((it) => ({ id: it.id, orderId: order.id, line: it.line ?? 0, materialId: it.materialId }))
+      [txOrder.id],
+      txOrder.items.map((it) => ({ id: it.id, orderId: txOrder.id, line: it.line ?? 0, materialId: it.materialId }))
     );
     const requestedBase = new Map<number, number>();
 
     for (const line of lines) {
-      const item = itemById.get(Number(line.itemId))!;
+      const item = txItemById.get(Number(line.itemId))!;
+      if (!item) throw new Error("退货明细不属于该采购订单");
+      if (options.replacement && item.status === "cancelled") {
+        throw new Error(`物料 ${item.material.code} 已取消的明细不能换货`);
+      }
       const rate = item.conversionRate || 1;
       const baseQty = toBaseQty(Number(line.quantity), rate);
       const receivedBase = toBaseQty(item.receivedQty, rate);
@@ -1768,20 +1792,61 @@ export async function returnPurchaseOrder(
           batchNo: resolvedBatchNo,
           transactionTypeId: returnType.id,
           documentNo,
-          orderNo: order.orderNo,
+          orderNo: txOrder.orderNo,
           lineNo: item.line,
           effectiveDate,
           operatorId: userId,
           departmentId,
           handler,
-          remark: data.remark || null,
+          remark: data.remark || (options.replacement ? "采购换货" : null),
           relatedType: "PurchaseReturnItem",
           relatedId: item.id,
         },
       });
     }
 
-    return { success: true, documentNo, count: lines.length };
+    let replacementLines: { line: number; materialCode: string; quantity: number }[] | undefined;
+    if (options.replacement) {
+      const existing = await tx.purchaseOrderItem.findMany({ where: { orderId: order.id }, select: { line: true } });
+      let nextLine = existing.reduce((max, it) => Math.max(max, it.line ?? 0), 0) + 1;
+      replacementLines = [];
+      for (const line of lines) {
+        const item = txItemById.get(Number(line.itemId))!;
+        const qty = Number(line.quantity);
+        const rate = item.conversionRate || 1;
+        await tx.purchaseOrderItem.create({
+          data: {
+            orderId: order.id,
+            materialId: item.materialId,
+            quantity: qty,
+            receivedQty: 0,
+            unit: item.unit,
+            conversionRate: rate,
+            baseQty: toBaseQty(qty, rate),
+            unitPrice: item.unitPrice ?? 0,
+            amount: qty * (item.unitPrice ?? 0),
+            taxIncluded: item.taxIncluded,
+            taxRate: item.taxRate,
+            location: item.location,
+            expectedDate: item.expectedDate ?? txOrder.expectedDate,
+            status: "",
+            remark: item.remark || `换货补行（原行 ${item.line}）`,
+            sourceOrderNo: item.sourceOrderNo,
+            line: nextLine,
+          },
+        });
+        replacementLines.push({ line: nextLine, materialCode: item.material.code, quantity: qty });
+        nextLine += 1;
+      }
+      const allItems = await tx.purchaseOrderItem.findMany({
+        where: { orderId: order.id },
+        select: { quantity: true, unitPrice: true },
+      });
+      const totalAmount = allItems.reduce((sum, it) => sum + it.quantity * (it.unitPrice ?? 0), 0);
+      await tx.purchaseOrder.update({ where: { id: order.id }, data: { totalAmount } });
+    }
+
+    return { success: true, documentNo, count: lines.length, ...(replacementLines ? { replacementLines } : {}) };
   });
 }
 
