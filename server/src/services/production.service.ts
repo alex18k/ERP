@@ -1420,7 +1420,10 @@ export async function receiveProductionOrderProduct(
   batchNo?: string,
   unit?: string,
   binId?: number | null,
-  closeWorkOrder?: boolean
+  closeWorkOrder?: boolean,
+  effectiveDate?: string,
+  handler?: string,
+  keeper?: string
 ) {
   if (!Number.isFinite(quantity) || quantity === 0) throw new Error("入库/退库数量不能为0");
   if (!warehouseId) throw new Error("请选择入库仓库");
@@ -1450,6 +1453,9 @@ export async function receiveProductionOrderProduct(
   const warehouse = await prisma.warehouse.findUnique({ where: { id: warehouseId } });
   if (!warehouse) throw new Error("仓库不存在");
   const receiveType = await prisma.stockTransactionType.findUnique({ where: { code: "RCT-WO" } });
+  const effDate = effectiveDate ? new Date(effectiveDate) : new Date();
+  const handlerVal = handler?.trim() || null;
+  const keeperVal = keeper?.trim() || null;
 
   return prisma.$transaction(async (tx) => {
     await lockOrderNo(tx, ORDER_NO_LOCK.ST);
@@ -1494,6 +1500,10 @@ export async function receiveProductionOrderProduct(
           documentNo: docNo,
           lineNo: 1,
           operatorId: userId,
+          orderNo: order.orderNo,
+          effectiveDate: effDate,
+          handler: handlerVal,
+          keeper: keeperVal,
           remark: `生产退库 ${material.name} 生产订单${order.orderNo}`,
         },
       });
@@ -1543,6 +1553,10 @@ export async function receiveProductionOrderProduct(
         documentNo: docNo,
         lineNo: 1,
         operatorId: userId,
+        orderNo: order.orderNo,
+        effectiveDate: effDate,
+        handler: handlerVal,
+        keeper: keeperVal,
         remark: `生产入库 ${material.name} 生产订单${order.orderNo}`,
       },
     });
