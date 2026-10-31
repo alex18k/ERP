@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage, ElMessageBox } from 'element-plus'
 import { orderApi } from '../../../api'
 
 const route = useRoute()
@@ -53,16 +52,6 @@ function searchOrders() {
 
 function goto(id: number) {
   router.push({ path: '/order/tracking', query: { id } })
-}
-
-async function handleShip() {
-  if (!order.value) return
-  try {
-    await ElMessageBox.confirm(`确认订单 ${order.value.orderNo} 已完成生产并安排发货？`, '发货确认', { type: 'warning' })
-    await orderApi.ship(order.value.id)
-    ElMessage.success('订单已发货')
-    loadData()
-  } catch { /* canceled */ }
 }
 
 function statusLabel(s: string) {
@@ -182,9 +171,6 @@ watch(() => route.query.id, (id) => {
           <span class="toolbar-title">{{ order.orderNo }}</span>
           <el-tag :type="statusType(order.status)" style="margin-left: 12px">{{ statusLabel(order.status) }}</el-tag>
           <div style="flex: 1" />
-          <el-button v-if="order.status === 'completed'" type="primary" plain @click="handleShip">
-            <el-icon><Van /></el-icon>发货
-          </el-button>
           <el-button @click="router.back()"><el-icon><Back /></el-icon>返回</el-button>
         </div>
 
