@@ -40,7 +40,7 @@ function todayStr() {
 }
 
 function backToList() {
-  router.replace('/inventory/productionReceive')
+  router.replace({ name: 'InventoryProductionReceive' })
 }
 
 function remaining(row?: any) {

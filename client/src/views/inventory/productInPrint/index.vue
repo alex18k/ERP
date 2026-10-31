@@ -101,6 +101,7 @@ onMounted(() => {
               <th style="width: 50px">单位</th>
               <th style="width: 72px">数量</th>
               <th style="width: 84px">批号</th>
+              <th style="width: 96px">生产订单</th>
               <th style="width: 62px">货位</th>
               <th style="width: 90px">备注</th>
             </tr>
@@ -115,13 +116,14 @@ onMounted(() => {
               <td class="c">{{ it.material?.unit || '' }}</td>
               <td class="r">{{ formatQty(it.quantity) }}</td>
               <td>{{ it.batchNo || '' }}</td>
+              <td>{{ it.orderNo || '' }}</td>
               <td>{{ it.bin?.name || '' }}</td>
               <td>{{ it.remark || '' }}</td>
             </tr>
           </tbody>
           <tfoot>
             <tr>
-              <td class="c" colspan="8">合计</td>
+              <td class="c" colspan="9">合计</td>
               <td class="r total-qty">{{ formatQty(totalQty) }}</td>
               <td></td>
             </tr>
