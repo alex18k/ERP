@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { productionApi, warehouseApi, warehouseBinApi } from '../../../api'
+import { productionApi, warehouseApi, warehouseBinApi, stockApi } from '../../../api'
 import { warehouseIdByLocation } from '../../../utils/location'
 
 const loading = ref(false)
@@ -9,12 +9,14 @@ const list = ref<any[]>([])
 const total = ref(0)
 const warehouses = ref<any[]>([])
 const bins = ref<any[]>([])
+const handlerOptions = ref<string[]>([])
+const keeperOptions = ref<string[]>([])
 const query = reactive({ page: 1, pageSize: 20, orderNo: '' })
 
 const dialogVisible = ref(false)
 const submitting = ref(false)
 const current = ref<any>(null)
-const form = reactive<any>({ quantity: 0, unit: '', warehouseId: null, binId: null, batchNo: '', closeWorkOrder: false })
+const form = reactive<any>({ quantity: 0, unit: '', warehouseId: null, binId: null, batchNo: '', closeWorkOrder: false, effectiveDate: '', handler: '', keeper: '' })
 
 const activeWarehouses = computed(() => warehouses.value.filter((w: any) => w.status === 1))
 const selectedWarehouse = computed(() => warehouses.value.find((w: any) => w.id === form.warehouseId) || null)
@@ -126,6 +128,9 @@ function openDialog(row: any) {
   form.batchNo = ''
   form.closeWorkOrder = false
   form.warehouseId = warehouseIdByLocation(activeWarehouses.value, row.material?.location) || activeWarehouses.value[0]?.id || null
+  form.effectiveDate = new Date().toISOString().slice(0, 10)
+  form.handler = ''
+  form.keeper = ''
   dialogVisible.value = true
   loadBins()
 }
@@ -191,6 +196,9 @@ async function submit() {
       binId: binRequired.value ? form.binId : undefined,
       batchNo: form.batchNo || undefined,
       closeWorkOrder: isReturn ? undefined : form.closeWorkOrder || undefined,
+      effectiveDate: form.effectiveDate || undefined,
+      handler: form.handler || undefined,
+      keeper: form.keeper || undefined,
     })
     if (isReturn) {
       ElMessage.success(`退库已提交，已入库数量回减至 ${res.data?.receivedQty ?? ''}`)
@@ -213,6 +221,8 @@ async function submit() {
 onMounted(async () => {
   await loadWarehouses()
   await loadData()
+  stockApi.handlers().then((r: any) => { handlerOptions.value = r.data || [] })
+  stockApi.handlers('keeper').then((r: any) => { keeperOptions.value = r.data || [] })
 })
 </script>
 
@@ -322,6 +332,19 @@ onMounted(async () => {
         </el-form-item>
         <el-form-item label="批号">
           <el-input v-model="form.batchNo" placeholder="空则自动生成；退库时批号管理物料必填" />
+        </el-form-item>
+        <el-form-item label="生效日期">
+          <el-date-picker v-model="form.effectiveDate" type="date" value-format="YYYY-MM-DD" style="width: 100%" placeholder="选择生效日期" />
+        </el-form-item>
+        <el-form-item label="经手人">
+          <el-select v-model="form.handler" filterable clearable allow-create default-first-option placeholder="选择或输入经手人" style="width: 100%">
+            <el-option v-for="h in handlerOptions" :key="h" :label="h" :value="h" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="仓管员">
+          <el-select v-model="form.keeper" filterable clearable allow-create default-first-option placeholder="选择或输入仓管员" style="width: 100%">
+            <el-option v-for="k in keeperOptions" :key="k" :label="k" :value="k" />
+          </el-select>
         </el-form-item>
         <el-form-item label="关闭订单">
           <el-checkbox v-model="form.closeWorkOrder" :disabled="Number(form.quantity) < 0">入库后关闭生产订单</el-checkbox>
