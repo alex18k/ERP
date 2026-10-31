@@ -515,7 +515,7 @@ onMounted(() => {
         <el-select v-model="query.status" placeholder="状态" clearable style="width: 130px">
           <el-option v-for="o in statusOptions" :key="o.value" :label="o.label" :value="o.value" />
         </el-select>
-        <el-button type="primary" @click="query.page = 1, loadData()"><el-icon><Search /></el-icon>查询</el-button>
+        <el-button @click="query.page = 1, loadData()"><el-icon><Search /></el-icon>查询</el-button>
         <el-button @click="Object.assign(query, { orderNo: '', materialName: '', status: '', page: 1 }), loadData()">重置</el-button>
         <div style="flex: 1" />
         <el-button @click="loadData"><el-icon><Refresh /></el-icon>刷新</el-button>
@@ -525,19 +525,19 @@ onMounted(() => {
         <el-button type="success" plain class="btn-add" @click="openManualDialog">
           <el-icon><Plus /></el-icon>新增生产订单
         </el-button>
-        <el-button type="primary" plain @click="openCreateDialog">
+        <el-button @click="openCreateDialog">
           <el-icon><Plus /></el-icon>从MRP建议下达
         </el-button>
-        <el-button type="warning" plain @click="openBatchSchedule">
+        <el-button @click="openBatchSchedule">
           <el-icon><AlarmClock /></el-icon>批量排产
         </el-button>
-        <el-button type="primary" plain :disabled="!currentRow" @click="handleToolbarEdit">
+        <el-button :disabled="!currentRow" @click="handleToolbarEdit">
           <el-icon><Edit /></el-icon>编辑
         </el-button>
-        <el-button type="success" plain :disabled="!currentRow || !canSchedule(currentRow)" @click="handleToolbarSchedule">
+        <el-button :disabled="!currentRow || !canSchedule(currentRow)" @click="handleToolbarSchedule">
           <el-icon><Calendar /></el-icon>排产
         </el-button>
-        <el-button type="danger" plain :disabled="!currentRow || currentRow.status !== 'closed'" @click="handleToolbarDelete">
+        <el-button :disabled="!currentRow || currentRow.status !== 'closed'" @click="handleToolbarDelete">
           <el-icon><Delete /></el-icon>删除
         </el-button>
       </div>
