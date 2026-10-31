@@ -1392,6 +1392,7 @@ export async function listReceivableProductionOrders(where: any) {
     status: { notIn: ["closed"] },
   };
   if (orderNo) filters.orderNo = { contains: orderNo };
+  if (where.id && Number.isInteger(Number(where.id))) filters.id = Number(where.id);
 
   const [total, items] = await Promise.all([
     prisma.productionOrder.count({ where: filters }),
@@ -1423,7 +1424,8 @@ export async function receiveProductionOrderProduct(
   closeWorkOrder?: boolean,
   effectiveDate?: string,
   handler?: string,
-  keeper?: string
+  keeper?: string,
+  remark?: string
 ) {
   if (!Number.isFinite(quantity) || quantity === 0) throw new Error("入库/退库数量不能为0");
   if (!warehouseId) throw new Error("请选择入库仓库");
@@ -1456,6 +1458,7 @@ export async function receiveProductionOrderProduct(
   const effDate = effectiveDate ? new Date(effectiveDate) : new Date();
   const handlerVal = handler?.trim() || null;
   const keeperVal = keeper?.trim() || null;
+  const remarkVal = remark?.trim() || null;
 
   return prisma.$transaction(async (tx) => {
     await lockOrderNo(tx, ORDER_NO_LOCK.ST);
@@ -1504,7 +1507,7 @@ export async function receiveProductionOrderProduct(
           effectiveDate: effDate,
           handler: handlerVal,
           keeper: keeperVal,
-          remark: `生产退库 ${material.name} 生产订单${order.orderNo}`,
+          remark: remarkVal,
         },
       });
       const after = await tx.productionOrder.findUnique({ where: { id: order.id }, select: { receivedQty: true } });
@@ -1557,7 +1560,7 @@ export async function receiveProductionOrderProduct(
         effectiveDate: effDate,
         handler: handlerVal,
         keeper: keeperVal,
-        remark: `生产入库 ${material.name} 生产订单${order.orderNo}`,
+        remark: remarkVal,
       },
     });
     return { success: true, documentNo: docNo, receivedQty: newReceived, fullyReceived, closed };

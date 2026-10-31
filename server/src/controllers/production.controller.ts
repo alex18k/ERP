@@ -298,7 +298,7 @@ export async function receivableProductionOrdersHandler(req: Request, res: Respo
 
 export async function receiveProductionOrderHandler(req: AuthRequest, res: Response) {
   try {
-    const { quantity, warehouseId, batchNo, unit, binId, closeWorkOrder, effectiveDate, handler, keeper } = req.body || {};
+    const { quantity, warehouseId, batchNo, unit, binId, closeWorkOrder, effectiveDate, handler, keeper, remark } = req.body || {};
     const data = await productionService.receiveProductionOrderProduct(
       Number(req.params.id),
       Number(quantity),
@@ -310,7 +310,8 @@ export async function receiveProductionOrderHandler(req: AuthRequest, res: Respo
       closeWorkOrder === true,
       effectiveDate,
       handler,
-      keeper
+      keeper,
+      remark
     );
     return success(res, data, "生产入库/退库成功");
   } catch (error: any) {
