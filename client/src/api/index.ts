@@ -38,6 +38,7 @@ export const bomApi = {
   get: (id: number) => request.get(`/boms/${id}`),
   getTree: (id: number) => request.get(`/boms/${id}/tree`),
   create: (data: any) => request.post('/boms', data),
+  copy: (id: number, data: any) => request.post(`/boms/${id}/copy`, data),
   update: (id: number, data: any) => request.put(`/boms/${id}`, data),
   activate: (id: number) => request.put(`/boms/${id}/activate`),
   remove: (id: number) => request.delete(`/boms/${id}`),

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Printer } from '@element-plus/icons-vue'
 import { bomApi, materialApi } from '../../../api'
@@ -9,12 +9,23 @@ const list = ref<any[]>([])
 const total = ref(0)
 const query = reactive({ page: 1, pageSize: 20, name: '', productKeyword: '', status: '' })
 
+// ===== 行选中（工具栏「复制BOM」依赖，与物料页同款模式）=====
+const tableRef = ref()
+const currentRow = ref<any>(null)
+
+function handleCurrentChange(row: any) {
+  currentRow.value = row
+}
+
 async function loadData() {
   loading.value = true
   try {
     const res: any = await bomApi.list(query)
     list.value = res.data.items
     total.value = res.data.total
+    // 列表刷新后清空行选中，避免「复制BOM」拿到已失效的旧行
+    currentRow.value = null
+    tableRef.value?.setCurrentRow()
   } finally {
     loading.value = false
   }
@@ -34,9 +45,8 @@ function resetQuery() {
   loadData()
 }
 
-// ===== 新增/编辑 =====
+// ===== 新增/编辑/复制 =====
 const dialogVisible = ref(false)
-const isEdit = ref(false)
 const formRef = ref()
 const products = ref<any[]>([])
 const productLoading = ref(false)
@@ -46,15 +56,61 @@ const form = reactive<any>({
   id: null,
   productId: null,
   version: '1.0',
+  newCode: '',
   items: [],
 })
 
-const rules = {
-  productId: [{ required: true, message: '请选择父零件', trigger: 'change' }],
+// 弹窗三态：新增 / 编辑 / 复制。复制模式下父零件不可选（后端限制同一物料只允许一张BOM），
+// 改为填写「新父零件编码」，保存时连同物料一起克隆。
+const mode = ref<'create' | 'edit' | 'copy'>('create')
+const isEdit = computed(() => mode.value === 'edit')
+const isCopy = computed(() => mode.value === 'copy')
+const copySourceId = ref<number | null>(null)
+
+const rules = computed(() =>
+  mode.value === 'copy'
+    ? { newCode: [{ required: true, message: '请输入新父零件编码', trigger: 'blur' }] }
+    : { productId: [{ required: true, message: '请选择父零件', trigger: 'change' }] }
+)
+
+// 复制模式下预填的新父零件编码：源编码-copy，被占用则顺延 -copy2/-copy3…
+// 预探测失败（如无 material:view 权限）时静默回退默认值，由后端 400 兜底。
+async function resolveCopyCode(base: string): Promise<string> {
+  const first = `${base}-copy`
+  try {
+    const res: any = await materialApi.list({ keyword: base, pageSize: 100 })
+    const taken = new Set((res.data.items as any[]).map((m: any) => m.code))
+    if (!taken.has(first)) return first
+    let n = 2
+    while (taken.has(`${first}${n}`)) n++
+    return `${first}${n}`
+  } catch {
+    return first
+  }
 }
 
-async function openDialog(row?: any) {
-  isEdit.value = !!row
+async function openDialog(row?: any, m: 'create' | 'edit' | 'copy' = row ? 'edit' : 'create') {
+  mode.value = m
+  copySourceId.value = null
+  form.newCode = ''
+  if (row && m === 'copy') {
+    // 复制：明细/版本整份取自源BOM，父零件换成待新建的编码
+    const full: any = await bomApi.get(row.id)
+    const src = full.data
+    form.id = null
+    form.productId = src.productId
+    form.version = src.version || '1.0'
+    form.items = (src.items || []).map((i: any) => ({ ...i }))
+    matList.value = (src.items || [])
+      .map((i: any) => i.material && { id: i.material.id, code: i.material.code, name: i.material.name, specification: i.material.specification, unit: i.material.unit })
+      .filter((mat: any) => !!mat)
+    products.value = src.product ? [{ ...src.product }] : []
+    selectedProduct.value = src.product ? { ...src.product } : null
+    copySourceId.value = src.id
+    form.newCode = await resolveCopyCode(src.product?.code || src.code || '')
+    dialogVisible.value = true
+    return
+  }
   if (row) {
     const full: any = await bomApi.get(row.id)
     Object.assign(form, row, full.data)
@@ -68,6 +124,7 @@ async function openDialog(row?: any) {
   } else {
     Object.keys(form).forEach((k) => { form[k] = null })
     form.version = '1.0'
+    form.newCode = ''
     form.items = []
     matList.value = []
     products.value = []
@@ -75,6 +132,11 @@ async function openDialog(row?: any) {
     dialogVisible.value = true
     queryProducts('')
   }
+}
+
+async function handleCopyCurrent() {
+  if (!currentRow.value) return ElMessage.warning('请先点击选择一行')
+  await openDialog(currentRow.value, 'copy')
 }
 
 function onProductChange(val: number) {
@@ -115,16 +177,28 @@ async function handleSave() {
     ElMessage.warning('请至少添加一个子零件')
     return
   }
+  const itemsPayload = form.items.map((i: any) => ({
+    materialId: i.materialId,
+    quantity: i.quantity,
+    unit: i.unit,
+    lossRate: i.lossRate ?? 0,
+    sortOrder: i.sortOrder,
+  }))
+
+  // 复制：新建父零件物料 + 新建BOM，后端同一事务完成
+  if (isCopy.value) {
+    const newCode = String(form.newCode || '').trim()
+    await bomApi.copy(copySourceId.value!, { code: newCode, version: form.version, items: itemsPayload })
+    ElMessage.success(`已复制到物料 ${newCode}`)
+    dialogVisible.value = false
+    await Promise.all([loadData(), loadActiveBoms()])
+    return
+  }
+
   const payload = {
     productId: form.productId,
     version: form.version,
-    items: form.items.map((i: any) => ({
-      materialId: i.materialId,
-      quantity: i.quantity,
-      unit: i.unit,
-      lossRate: i.lossRate ?? 0,
-      sortOrder: i.sortOrder,
-    })),
+    items: itemsPayload,
   }
 
   if (isEdit.value) {
@@ -308,9 +382,18 @@ onMounted(() => {
         <el-button type="primary" @click="handleSearch"><el-icon><Search /></el-icon>查询</el-button>
         <el-button @click="resetQuery">重置</el-button>
         <el-button style="margin-left: auto" type="success" plain class="btn-add" @click="openDialog()"><el-icon><Plus /></el-icon>新增BOM</el-button>
+        <el-button @click="handleCopyCurrent"><el-icon><CopyDocument /></el-icon>复制BOM</el-button>
       </div>
 
-      <el-table :data="list" v-loading="loading" stripe max-height="calc(100vh - 260px)">
+      <el-table
+        ref="tableRef"
+        :data="list"
+        v-loading="loading"
+        stripe
+        highlight-current-row
+        max-height="calc(100vh - 260px)"
+        @current-change="handleCurrentChange"
+      >
         <el-table-column prop="name" label="父零件" min-width="150" />
         <el-table-column label="物料名称" min-width="180">
           <template #default="{ row }">{{ row.product?.name || '-' }}</template>
@@ -353,31 +436,40 @@ onMounted(() => {
     </div>
 
     <!-- 新增/编辑对话框 -->
-    <el-dialog v-model="dialogVisible" :title="isEdit ? '编辑BOM' : '新增BOM'" width="1100px" destroy-on-close append-to-body>
+    <el-dialog v-model="dialogVisible" :title="isCopy ? '复制BOM' : isEdit ? '编辑BOM' : '新增BOM'" width="1100px" destroy-on-close append-to-body>
       <el-form ref="formRef" :model="form" :rules="rules" label-width="100px">
         <el-row :gutter="16">
           <el-col :span="12">
-            <el-form-item label="父零件" prop="productId">
-              <el-select
-                v-model="form.productId"
-                filterable
-                remote
-                :remote-method="queryProducts"
-                :loading="productLoading"
-                :disabled="isEdit"
-                placeholder="搜索选择父零件"
-                style="width: 100%"
-                @change="onProductChange"
-              >
-                <el-option v-for="p in products" :key="p.id" :label="`${p.code} - ${p.name}`" :value="p.id" />
-              </el-select>
-              <div v-if="selectedProduct" style="display: flex; flex-wrap: wrap; gap: 4px 16px; color: #606266; font-size: 12px; line-height: 1.6; margin-top: 4px">
-                <span>物料名称：{{ selectedProduct.name || '-' }}</span>
-                <span>规格型号：{{ selectedProduct.specification || '-' }}</span>
-              </div>
-              <div style="color: #909399; font-size: 12px; line-height: 1.4; margin-top: 4px">
-                {{ isEdit ? '父零件已锁定，仅可修改版本与明细' : 'BOM名称默认取所选物料的零件号，保存后自动启用' }}
-              </div>
+            <el-form-item :label="isCopy ? '新父零件编码' : '父零件'" :prop="isCopy ? 'newCode' : 'productId'">
+              <template v-if="isCopy">
+                <el-input v-model="form.newCode" placeholder="新父零件编码" style="width: 100%" />
+                <div class="copy-src">
+                  源物料：{{ selectedProduct?.code }} {{ selectedProduct?.name }}{{ selectedProduct?.specification ? ' - ' + selectedProduct.specification : '' }}
+                </div>
+                <div class="copy-hint">保存后将新建父零件物料，并为其创建BOM</div>
+              </template>
+              <template v-else>
+                <el-select
+                  v-model="form.productId"
+                  filterable
+                  remote
+                  :remote-method="queryProducts"
+                  :loading="productLoading"
+                  :disabled="isEdit"
+                  placeholder="搜索选择父零件"
+                  style="width: 100%"
+                  @change="onProductChange"
+                >
+                  <el-option v-for="p in products" :key="p.id" :label="`${p.code} - ${p.name}`" :value="p.id" />
+                </el-select>
+                <div v-if="selectedProduct" style="display: flex; flex-wrap: wrap; gap: 4px 16px; color: #606266; font-size: 12px; line-height: 1.6; margin-top: 4px">
+                  <span>物料名称：{{ selectedProduct.name || '-' }}</span>
+                  <span>规格型号：{{ selectedProduct.specification || '-' }}</span>
+                </div>
+                <div style="color: #909399; font-size: 12px; line-height: 1.4; margin-top: 4px">
+                  {{ isEdit ? '父零件已锁定，仅可修改版本与明细' : 'BOM名称默认取所选物料的零件号，保存后自动启用' }}
+                </div>
+              </template>
             </el-form-item>
           </el-col>
           <el-col :span="12">
@@ -481,6 +573,8 @@ onMounted(() => {
   background: var(--el-fill-color-blank);
 }
 /* 打印预览：iframe 内为真实打印文档 */
+.copy-src { color: #606266; font-size: 12px; line-height: 1.6; margin-top: 4px; }
+.copy-hint { color: #909399; font-size: 12px; line-height: 1.4; margin-top: 4px; }
 .print-preview {
   border: 1px solid #d5dae2;
   border-radius: 4px;
