@@ -359,3 +359,106 @@ export async function getBomTree(id: number) {
   const tree = await build(bom.productId, bom.id, 1, 1, new Set());
   return { ...bom, tree };
 }
+
+// ===== 复制BOM：克隆父零件物料 + 其BOM（同一事务） =====
+// 后硬性限制「同一物料只允许一张BOM」，复制只能落到一个新父零件上，
+// 因此这里连物料一起克隆，编码默认取「源编码-copy」。
+export interface BomCopyInput {
+  code?: string;
+  version?: string;
+  items?: BomCreateInput["items"];
+}
+
+export async function copyBom(id: number, data: BomCopyInput) {
+  const src = await getBom(id);
+  if (!src) throw new Error("BOM不存在");
+
+  const base = data.code?.trim() || `${src.product.code}-copy`;
+  const dup = await prisma.material.findUnique({ where: { code: base } });
+  if (dup) throw new Error("物料编码已存在");
+
+  const items: BomCreateInput["items"] =
+    data.items ??
+    src.items.map((i) => ({
+      materialId: i.materialId,
+      quantity: i.quantity,
+      unit: i.unit,
+      lossRate: i.lossRate ?? 0,
+      sortOrder: i.sortOrder,
+    }));
+  await assertBomItems(items);
+
+  const p = src.product;
+  try {
+    return await prisma.$transaction(async (tx) => {
+      // 直接建物料而不走 createMaterial：后者强制「物料类别/库位」非空，
+      // 导入的老数据这两项可能为 null，走新建校验会导致这类物料永远复制不了。
+      const newMat = await tx.material.create({
+        data: {
+          code: base,
+          name: p.name,
+          specification: p.specification,
+          description: p.description,
+          packageType: p.packageType,
+          brand: p.brand,
+          category: p.category,
+          unit: p.unit,
+          safetyStock: p.safetyStock,
+          minStock: p.minStock,
+          maxStock: p.maxStock,
+          leadTime: p.leadTime,
+          manufactureLeadTime: p.manufactureLeadTime,
+          orderCycleDays: p.orderCycleDays,
+          materialType: p.materialType,
+          minOrderQty: p.minOrderQty,
+          cost: p.cost,
+          price: p.price,
+          location: p.location,
+          supplierId: p.supplierId,
+          batchManaged: p.batchManaged,
+          status: 1,
+          remark: p.remark,
+          desc1: p.desc1,
+          desc2: p.desc2,
+          desc3: p.desc3,
+          desc4: p.desc4,
+          processRouteId: p.processRouteId,
+          bomcode: p.bomcode,
+        },
+      });
+
+      const bom = await tx.bom.create({
+        data: {
+          code: newMat.code,
+          name: newMat.code,
+          productId: newMat.id,
+          version: data.version || src.version || "1.0",
+          status: "active",
+        },
+      });
+
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        await tx.bomItem.create({
+          data: {
+            bomId: bom.id,
+            materialId: item.materialId,
+            quantity: item.quantity,
+            unit: item.unit,
+            lossRate: item.lossRate ?? 0,
+            sortOrder: item.sortOrder ?? i + 1,
+          },
+        });
+      }
+
+      return tx.bom.findUnique({
+        where: { id: bom.id },
+        include: { items: { include: { material: true }, orderBy: { sortOrder: "asc" } } },
+      });
+    });
+  } catch (e: any) {
+    // 并发复制撞物料编码唯一约束：转成与上面一致的业务提示，事务已回滚、无半截数据
+    if (e?.code === "P2002") throw new Error("物料编码已存在");
+    throw e;
+  }
+}

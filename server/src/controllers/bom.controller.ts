@@ -48,6 +48,15 @@ export async function createHandler(req: Request, res: Response) {
   }
 }
 
+export async function copyHandler(req: Request, res: Response) {
+  try {
+    const data = await bomService.copyBom(Number(req.params.id), req.body);
+    return success(res, data, "复制成功");
+  } catch (error: any) {
+    return fail(res, 400, error.message);
+  }
+}
+
 export async function updateHandler(req: Request, res: Response) {
   try {
     const data = await bomService.updateBom(Number(req.params.id), req.body);
