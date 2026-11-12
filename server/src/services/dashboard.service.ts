@@ -271,6 +271,19 @@ export interface WorkshopDashboardFilters {
   execStatus?: string;
 }
 
+// 工位任务：订单级工序中「未达产」的一条（同一工序只出现一次）
+export interface WorkshopTask {
+  stepId: number;
+  orderId: number;
+  orderNo: string;
+  stepName: string;
+  sequence: number;
+  reportedQty: number;
+  plannedQty: number;
+  planEndDate: Date | null;
+  started: boolean;
+}
+
 export interface WorkshopDashboardResult {
   summary: {
     inProgress: number;
@@ -279,6 +292,11 @@ export interface WorkshopDashboardResult {
     todayCompleted: number;
     overdue: number;
   };
+  /** 工位面板只展示开头的若干条，未分配工位的任务单独返回，避免静默消失 */
+  unassignedTasks: WorkshopTask[];
+  unassignedCount: number;
+  /** 符合条件的订单总数（orders 最多返回 200 条） */
+  total: number;
   orders: Array<{
     id: number;
     orderNo: string;
@@ -310,9 +328,13 @@ export interface WorkshopDashboardResult {
     code: string;
     name: string;
     workshopName: string | null;
+    capacity: number;
     status: "busy" | "pending" | "idle";
+    /** 该工位当前排队任务数（含正在加工的一条） */
+    taskCount: number;
     orderNo: string | null;
     stepName: string | null;
+    tasks: WorkshopTask[];
   }>;
   recentReports: Array<{
     id: number;
@@ -335,6 +357,9 @@ export async function getWorkshopDashboard(
     workstations: [],
     recentReports: [],
     workshops: [],
+    unassignedTasks: [],
+    unassignedCount: 0,
+    total: 0,
   };
   if (
     filters.workshopId !== undefined &&
@@ -345,7 +370,6 @@ export async function getWorkshopDashboard(
 
   const todayStart = new Date();
   todayStart.setHours(0, 0, 0, 0);
-  const now = new Date();
 
   const execStatusWhere: Prisma.ProductionOrderWhereInput = filters.execStatus
     ? filters.execStatus === "completed"
@@ -358,31 +382,37 @@ export async function getWorkshopDashboard(
         ],
       };
 
+  const workshopWhere: Prisma.ProductionOrderWhereInput =
+    filters.workshopId !== undefined
+      ? { orderRoute: { steps: { some: { workstation: { workshopId: filters.workshopId } } } } }
+      : {};
+
   const where: Prisma.ProductionOrderWhereInput = {
     status: { not: "closed" },
     ...execStatusWhere,
-    ...(filters.workshopId !== undefined
-      ? { orderRoute: { steps: { some: { workstation: { workshopId: filters.workshopId } } } } }
-      : {}),
+    ...workshopWhere,
   };
 
-  const sortedOrders = await prisma.productionOrder.findMany({
-    where,
-    include: {
-      material: { select: { code: true, name: true } },
-      salesOrder: { select: { orderNo: true, customerName: true } },
-      orderRoute: {
-        include: {
-          steps: {
-            include: { workstation: { include: { workshop: true } } },
-            orderBy: { sequence: "asc" },
+  const [sortedOrders, total] = await Promise.all([
+    prisma.productionOrder.findMany({
+      where,
+      include: {
+        material: { select: { code: true, name: true } },
+        salesOrder: { select: { orderNo: true, customerName: true } },
+        orderRoute: {
+          include: {
+            steps: {
+              include: { workstation: { include: { workshop: true } } },
+              orderBy: { sequence: "asc" },
+            },
           },
         },
       },
-    },
-    orderBy: { planEndDate: { sort: "asc", nulls: "last" } },
-    take: 200,
-  });
+      orderBy: [{ planEndDate: { sort: "asc", nulls: "last" } }, { id: "asc" }],
+      take: 200,
+    }),
+    prisma.productionOrder.count({ where }),
+  ]);
 
   const orderIds = sortedOrders.map((order) => order.id);
   const grouped = orderIds.length
@@ -400,37 +430,15 @@ export async function getWorkshopDashboard(
     });
   }
 
-  const stepWorkshopMap = new Map<number, number | null>();
-  const stepNameMap = new Map<number, string>();
-  for (const order of sortedOrders) {
-    for (const step of order.orderRoute?.steps ?? []) {
-      stepWorkshopMap.set(step.id, step.workstation?.workshopId ?? null);
-      stepNameMap.set(step.id, step.name);
-    }
-  }
-  const workshopStepIds =
-    filters.workshopId !== undefined
-      ? [...stepWorkshopMap.entries()]
-          .filter(([, workshopId]) => workshopId === filters.workshopId)
-          .map(([stepId]) => stepId)
-      : null;
-
   const orders = sortedOrders.map((order) => {
     const steps = order.orderRoute?.steps ?? [];
     const plan = order.plannedQty || order.quantity || 1;
-    let currentAssigned = false;
     const stepsOut = steps.map((step) => {
       const agg = qtyMap.get(`${order.id}:${step.id}`);
       const reportedQty = agg?.quantity ?? 0;
-      let status: "done" | "current" | "waiting";
-      if (reportedQty >= plan) {
-        status = "done";
-      } else if (!currentAssigned) {
-        status = "current";
-        currentAssigned = true;
-      } else {
-        status = "waiting";
-      }
+      // 已开工（有报工未达产）才算「当前」，避免后道先报工却显示待加工
+      const status: "done" | "current" | "waiting" =
+        reportedQty >= plan ? "done" : reportedQty > 0 ? "current" : "waiting";
       return {
         id: step.id,
         name: step.name,
@@ -446,6 +454,12 @@ export async function getWorkshopDashboard(
     const reportedQty = lastStep ? qtyMap.get(`${order.id}:${lastStep.id}`)?.quantity ?? 0 : 0;
     const progress = Math.round(Math.min(100, (Math.min(reportedQty, plan) / plan) * 100));
 
+    // 当前工序：优先取已开工的那道；都没开工则取第一道未完工
+    const currentStep =
+      stepsOut.find((step) => step.status === "current") ??
+      stepsOut.find((step) => step.status !== "done") ??
+      null;
+
     return {
       id: order.id,
       orderNo: order.orderNo,
@@ -459,8 +473,8 @@ export async function getWorkshopDashboard(
       progress,
       execStatus: order.execStatus,
       planEndDate: order.planEndDate,
-      isOverdue: !!order.planEndDate && order.planEndDate < now && order.execStatus !== "completed",
-      currentStepName: stepsOut.find((step) => step.status === "current")?.name ?? null,
+      isOverdue: isOverdueOn(order.planEndDate, order.execStatus, todayStart),
+      currentStepName: currentStep?.name ?? null,
       stepProgress: {
         completed: stepsOut.filter((step) => step.status === "done").length,
         total: stepsOut.length,
@@ -469,23 +483,115 @@ export async function getWorkshopDashboard(
     };
   });
 
-  const activeByWorkstation = new Map<
-    number,
-    { orderNo: string; stepName: string; status: "busy" | "pending" }
-  >();
-  for (const order of sortedOrders) {
-    if (order.execStatus !== "in_progress" && order.execStatus !== "pending") continue;
+  // ===== 工位任务：按「工序」聚合（不再只取每单第一道未达产工序）=====
+  // 未完工订单的全部工序里，凡未达产的都是待完成任务；同一工位可排队多条，按交期升序。
+  const openOrders = await prisma.productionOrder.findMany({
+    where: { status: { not: "closed" }, execStatus: { in: ["pending", "in_progress"] } },
+    select: {
+      id: true,
+      orderNo: true,
+      plannedQty: true,
+      quantity: true,
+      planEndDate: true,
+      execStatus: true,
+    },
+  });
+  const openOrderIds = openOrders.map((order) => order.id);
+  const [openSteps, openStepAgg] = openOrderIds.length
+    ? await Promise.all([
+        prisma.productionOrderStep.findMany({
+          where: { orderRoute: { productionOrderId: { in: openOrderIds } } },
+          select: {
+            id: true,
+            name: true,
+            sequence: true,
+            workstationId: true,
+            orderRoute: { select: { productionOrderId: true } },
+            workstation: { select: { workshopId: true } },
+          },
+          orderBy: { sequence: "asc" },
+        }),
+        prisma.workReport.groupBy({
+          by: ["processStepId"],
+          where: { productionOrderId: { in: openOrderIds } },
+          _sum: { quantity: true },
+        }),
+      ])
+    : [[], []];
+  const openStepQty = new Map<number, number>(
+    (openStepAgg as Array<{ processStepId: number; _sum: { quantity: number | null } }>).map((row) => [
+      row.processStepId,
+      row._sum.quantity ?? 0,
+    ])
+  );
+  const openOrderMap = new Map(openOrders.map((order) => [order.id, order]));
+  const stepRows = (openSteps as Array<{
+    id: number;
+    name: string;
+    sequence: number;
+    workstationId: number | null;
+    orderRoute: { productionOrderId: number };
+    workstation: { workshopId: number | null } | null;
+  }>).map((step) => {
+    const order = openOrderMap.get(step.orderRoute.productionOrderId)!;
     const plan = order.plannedQty || order.quantity || 1;
-    const currentStep = (order.orderRoute?.steps ?? []).find(
-      (step) => (qtyMap.get(`${order.id}:${step.id}`)?.quantity ?? 0) < plan
-    );
-    if (!currentStep?.workstationId || activeByWorkstation.has(currentStep.workstationId)) continue;
-    activeByWorkstation.set(currentStep.workstationId, {
+    const reportedQty = openStepQty.get(step.id) ?? 0;
+    return {
+      stepId: step.id,
+      orderId: order.id,
       orderNo: order.orderNo,
-      stepName: currentStep.name,
-      status: order.execStatus === "in_progress" ? "busy" : "pending",
-    });
+      stepName: step.name,
+      sequence: step.sequence,
+      workstationId: step.workstationId,
+      workshopId: step.workstation?.workshopId ?? null,
+      reportedQty,
+      plannedQty: plan,
+      planEndDate: order.planEndDate,
+      started: reportedQty > 0,
+      done: reportedQty >= plan,
+    };
+  });
+  const pendingTasks = stepRows
+    .filter((step) => !step.done)
+    .sort(
+      (a, b) =>
+        (a.planEndDate?.getTime() ?? Number.POSITIVE_INFINITY) -
+          (b.planEndDate?.getTime() ?? Number.POSITIVE_INFINITY) ||
+        a.sequence - b.sequence
+    );
+
+  const toPublicTask = (task: (typeof pendingTasks)[number]): WorkshopTask => ({
+    stepId: task.stepId,
+    orderId: task.orderId,
+    orderNo: task.orderNo,
+    stepName: task.stepName,
+    sequence: task.sequence,
+    reportedQty: task.reportedQty,
+    plannedQty: task.plannedQty,
+    planEndDate: task.planEndDate,
+    started: task.started,
+  });
+
+  const tasksByStation = new Map<number, typeof pendingTasks>();
+  const unassignedAll = pendingTasks.filter((task) => !task.workstationId);
+  for (const task of pendingTasks) {
+    if (!task.workstationId) continue;
+    const list = tasksByStation.get(task.workstationId) ?? [];
+    list.push(task);
+    tasksByStation.set(task.workstationId, list);
   }
+  // 车间筛选时，未分配工位的任务只保留「该车间确有工序」的订单，避免跨车间串数据
+  const unassignedTasks =
+    filters.workshopId === undefined
+      ? unassignedAll
+      : unassignedAll.filter((task) => {
+          const order = openOrderMap.get(task.orderId);
+          if (!order) return false;
+          return stepRows.some(
+            (step) =>
+              step.orderId === task.orderId && step.workshopId === filters.workshopId
+          );
+        });
 
   const [workshops, rawWorkstations] = await Promise.all([
     prisma.workshop.findMany({
@@ -503,62 +609,115 @@ export async function getWorkshopDashboard(
     }),
   ]);
   const workstations = rawWorkstations.map((station) => {
-    const active = activeByWorkstation.get(station.id);
+    const tasks = tasksByStation.get(station.id) ?? [];
+    // 只要该工位有一条工序已开工，就算加工中；否则有待办算待开工
+    const status: "busy" | "pending" | "idle" =
+      tasks.length === 0 ? "idle" : tasks.some((task) => task.started) ? "busy" : "pending";
     return {
       id: station.id,
       code: station.code,
       name: station.name,
       workshopName: station.workshop?.name ?? null,
-      status: (active?.status ?? "idle") as "busy" | "pending" | "idle",
-      orderNo: active?.orderNo ?? null,
-      stepName: active?.stepName ?? null,
+      capacity: station.capacity ?? 1,
+      status,
+      taskCount: tasks.length,
+      orderNo: tasks[0]?.orderNo ?? null,
+      stepName: tasks[0]?.stepName ?? null,
+      tasks: tasks.map(toPublicTask),
     };
   });
 
+  // 今日报工与报工动态：全厂口径（仅受车间筛选影响），不随 execStatus 筛选变化
+  const workshopStepIds =
+    filters.workshopId !== undefined
+      ? (
+          await prisma.productionOrderStep.findMany({
+            where: { workstation: { workshopId: filters.workshopId } },
+            select: { id: true },
+          })
+        ).map((step) => step.id)
+      : null;
   const reportWhere = {
-    productionOrderId: { in: orderIds },
     reportTime: { gte: todayStart },
     ...(workshopStepIds ? { processStepId: { in: workshopStepIds } } : {}),
   };
-  const orderNoMap = new Map(sortedOrders.map((order) => [order.id, order.orderNo]));
-  const [todayReports, reportRows] = orderIds.length
-    ? await Promise.all([
-        prisma.workReport.count({ where: reportWhere }),
-        prisma.workReport.findMany({
-          where: reportWhere,
-          include: { reporter: { select: { realName: true } } },
-          orderBy: { reportTime: "desc" },
-          take: 20,
-        }),
-      ])
-    : [0, []];
+  const [todayReports, reportRows] = await Promise.all([
+    prisma.workReport.count({ where: reportWhere }),
+    prisma.workReport.findMany({
+      where: reportWhere,
+      include: {
+        reporter: { select: { realName: true } },
+        productionOrder: { select: { orderNo: true } },
+      },
+      orderBy: { reportTime: "desc" },
+      take: 20,
+    }),
+  ]);
+  const reportStepIds = [...new Set(reportRows.map((report) => report.processStepId))];
+  const reportStepNameMap = new Map<number, string>(
+    reportStepIds.length
+      ? (
+          await prisma.productionOrderStep.findMany({
+            where: { id: { in: reportStepIds } },
+            select: { id: true, name: true },
+          })
+        ).map((step) => [step.id, step.name])
+      : []
+  );
   const recentReports = reportRows.map((report) => ({
     id: report.id,
     reportTime: report.reportTime,
     reporterName: report.reporter.realName,
-    orderNo: orderNoMap.get(report.productionOrderId) ?? "",
-    stepName: stepNameMap.get(report.processStepId) ?? `工序#${report.processStepId}`,
+    orderNo: report.productionOrder?.orderNo ?? "",
+    stepName: reportStepNameMap.get(report.processStepId) ?? `工序#${report.processStepId}`,
     quantity: report.quantity,
     scrapQty: report.scrapQty,
   }));
 
-  const summary = {
-    inProgress: sortedOrders.filter((order) => order.execStatus === "in_progress").length,
-    pending: sortedOrders.filter((order) => order.execStatus === "pending").length,
-    todayReports,
-    todayCompleted: sortedOrders.filter(
-      (order) =>
-        order.execStatus === "completed" &&
-        !!order.actualEndDate &&
-        order.actualEndDate >= todayStart
-    ).length,
-    overdue: sortedOrders.filter(
-      (order) =>
-        order.execStatus !== "completed" &&
-        !!order.planEndDate &&
-        order.planEndDate < now
-    ).length,
+  // 顶部统计：不受 orders 的 200 条上限影响（车间筛选仍生效，execStatus 筛选不影响）
+  const summaryWhere: Prisma.ProductionOrderWhereInput = {
+    status: { not: "closed" },
+    ...workshopWhere,
   };
+  const [inProgress, pending, todayCompleted, overdue] = await Promise.all([
+    prisma.productionOrder.count({ where: { ...summaryWhere, execStatus: "in_progress" } }),
+    prisma.productionOrder.count({ where: { ...summaryWhere, execStatus: "pending" } }),
+    prisma.productionOrder.count({
+      where: { ...summaryWhere, execStatus: "completed", actualEndDate: { gte: todayStart } },
+    }),
+    prisma.productionOrder.count({
+      where: {
+        ...summaryWhere,
+        execStatus: { not: "completed" },
+        planEndDate: { lt: todayStart },
+      },
+    }),
+  ]);
+  const summary = { inProgress, pending, todayReports, todayCompleted, overdue };
 
-  return { summary, orders, workstations, recentReports, workshops };
+  return {
+    summary,
+    orders,
+    workstations,
+    recentReports,
+    workshops,
+    unassignedTasks: unassignedTasks.slice(0, 20).map(toPublicTask),
+    unassignedCount: unassignedTasks.length,
+    total,
+  };
+}
+
+/**
+ * 逾期判据：按「日期」比较，计划完工日 = 今天不算逾期（与生产订单页口径一致）。
+ * 已完工订单不算逾期。
+ */
+export function isOverdueOn(
+  planEndDate: Date | null | undefined,
+  execStatus: string,
+  todayStart: Date
+): boolean {
+  if (!planEndDate || execStatus === "completed") return false;
+  const due = new Date(planEndDate);
+  due.setHours(0, 0, 0, 0);
+  return due.getTime() < todayStart.getTime();
 }

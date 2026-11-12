@@ -8,6 +8,9 @@ const workshops = ref<any[]>([])
 const summary = ref<any>({ inProgress: 0, pending: 0, todayReports: 0, todayCompleted: 0, overdue: 0 })
 const orders = ref<any[]>([])
 const workstations = ref<any[]>([])
+const unassignedTasks = ref<any[]>([])
+const unassignedCount = ref(0)
+const total = ref(0)
 const recentReports = ref<any[]>([])
 const query = reactive<{ workshopId?: number; execStatus?: string }>({ execStatus: 'all' })
 
@@ -45,6 +48,16 @@ const stepStatusType = (value: string) => stepStatusMap[value]?.type ?? 'info'
 const stationStatusLabel = (value: string) => stationStatusMap[value]?.label ?? value
 const stationStatusType = (value: string) => stationStatusMap[value]?.type ?? 'info'
 
+// 工位卡片按产能显示前 N 条任务，其余折叠成「还有 N 条排队」
+function visibleTasks(station: any) {
+  const capacity = Math.max(1, Number(station.capacity) || 1)
+  return (station.tasks || []).slice(0, capacity)
+}
+function queuedCount(station: any) {
+  const capacity = Math.max(1, Number(station.capacity) || 1)
+  return Math.max(0, (station.taskCount || 0) - capacity)
+}
+
 const fmtDate = (value?: string | null) => (value ? String(value).slice(0, 10) : '-')
 const fmtTime = (value?: string | null) => {
   if (!value) return '-'
@@ -56,11 +69,21 @@ const fmtTime = (value?: string | null) => {
 
 let timer: ReturnType<typeof setInterval> | null = null
 let disposed = false
-let inFlight = false
+let currentLoad: Promise<void> | null = null
 
-async function loadData(silent = false) {
-  if (inFlight) return
-  inFlight = true
+// 手动刷新撞上进行中请求时，等其结束后重发而不是静默丢弃（自动轮询撞上则跳过）
+function loadData(silent = false): Promise<void> {
+  if (currentLoad) {
+    if (silent) return currentLoad
+    return currentLoad.then(() => loadData(false))
+  }
+  currentLoad = doLoad(silent).finally(() => {
+    currentLoad = null
+  })
+  return currentLoad
+}
+
+async function doLoad(silent: boolean) {
   if (!silent) loading.value = true
   try {
     const params: { workshopId?: number; execStatus?: string } = {}
@@ -71,11 +94,13 @@ async function loadData(silent = false) {
     summary.value = res.data.summary
     orders.value = res.data.orders || []
     workstations.value = res.data.workstations || []
+    unassignedTasks.value = res.data.unassignedTasks || []
+    unassignedCount.value = res.data.unassignedCount || 0
+    total.value = res.data.total || 0
     recentReports.value = res.data.recentReports || []
   } catch {
     // 错误提示由 axios 拦截器统一处理，失败时保留上一次数据
   } finally {
-    inFlight = false
     if (!silent) loading.value = false
   }
 }
@@ -121,14 +146,14 @@ onUnmounted(() => {
           placeholder="全部车间"
           clearable
           style="width: 160px"
-          @change="loadData"
+          @change="loadData()"
         >
           <el-option v-for="workshop in workshops" :key="workshop.id" :label="workshop.name" :value="workshop.id" />
         </el-select>
-        <el-select v-model="query.execStatus" style="width: 130px" @change="loadData">
+        <el-select v-model="query.execStatus" style="width: 130px" @change="loadData()">
           <el-option v-for="option in statusOptions" :key="option.value" :label="option.label" :value="option.value" />
         </el-select>
-        <el-button type="primary" @click="loadData">
+        <el-button type="primary" @click="loadData()">
           <el-icon><Refresh /></el-icon>刷新
         </el-button>
         <div style="flex: 1" />
@@ -161,7 +186,10 @@ onUnmounted(() => {
     </div>
 
     <div class="page-card">
-      <div class="toolbar-title" style="margin-bottom: 10px">生产订单进度</div>
+      <div class="toolbar-title" style="margin-bottom: 10px">
+        生产订单进度
+        <span v-if="total > orders.length" class="empty-tip">（共 {{ total }} 单，仅显示前 {{ orders.length }} 单）</span>
+      </div>
       <el-table
         v-loading="loading"
         :data="orders"
@@ -192,7 +220,7 @@ onUnmounted(() => {
         <el-table-column label="产品" min-width="200" show-overflow-tooltip>
           <template #default="{ row }">{{ row.materialCode }} - {{ row.materialName }}</template>
         </el-table-column>
-        <el-table-column label="数量" width="120" align="right">
+        <el-table-column label="完工 / 计划" width="120" align="right">
           <template #default="{ row }">
             <span style="font-variant-numeric: tabular-nums">{{ row.reportedQty }} / {{ row.plannedQty || row.quantity }}</span>
           </template>
@@ -241,10 +269,32 @@ onUnmounted(() => {
                   {{ stationStatusLabel(station.status) }}
                 </el-tag>
               </div>
-              <div class="station-meta">{{ station.code }} · {{ station.workshopName || '未分车间' }}</div>
-              <div class="station-task">
-                {{ station.status === 'idle' ? '暂无任务' : `${station.orderNo} · ${station.stepName}` }}
+              <div class="station-meta">
+                {{ station.code }} · {{ station.workshopName || '未分车间' }}
+                <span v-if="station.taskCount"> · 任务 {{ station.taskCount }}</span>
               </div>
+              <template v-if="station.tasks && station.tasks.length">
+                <div v-for="task in visibleTasks(station)" :key="task.stepId" class="station-task">
+                  <span class="task-name">{{ task.orderNo }} · {{ task.stepName }}</span>
+                  <span class="task-qty">{{ task.reportedQty }} / {{ task.plannedQty }}</span>
+                </div>
+                <div v-if="queuedCount(station) > 0" class="station-queue">
+                  还有 {{ queuedCount(station) }} 条排队
+                </div>
+              </template>
+              <div v-else class="station-task text-muted">暂无任务</div>
+            </div>
+          </div>
+          <div v-if="unassignedCount" class="unassigned-block">
+            <div class="unassigned-title">未分配工位（{{ unassignedCount }}）</div>
+            <div class="unassigned-list">
+              <span v-for="task in unassignedTasks" :key="task.stepId" class="unassigned-item">
+                {{ task.orderNo }} · {{ task.stepName }}
+                <b>{{ task.reportedQty }} / {{ task.plannedQty }}</b>
+              </span>
+            </div>
+            <div v-if="unassignedCount > unassignedTasks.length" class="empty-tip">
+              还有 {{ unassignedCount - unassignedTasks.length }} 条未显示
             </div>
           </div>
           <el-empty v-if="!workstations.length" description="暂无启用工位" :image-size="50" />
@@ -395,9 +445,63 @@ onUnmounted(() => {
 }
 
 .station-task {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
   margin-top: 6px;
   color: var(--erp-ink);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
+}
+
+.task-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-qty {
+  flex-shrink: 0;
+  color: var(--erp-steel);
+}
+
+.station-queue {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--erp-amber);
+}
+
+.unassigned-block {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border: 1px dashed var(--erp-hairline);
+  border-radius: 6px;
+  background: var(--erp-surface);
+}
+
+.unassigned-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--erp-steel);
+}
+
+.unassigned-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  margin-top: 6px;
+}
+
+.unassigned-item {
+  font-size: 12px;
+  color: var(--erp-ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.unassigned-item b {
+  color: var(--erp-steel);
+  font-weight: 400;
+  margin-left: 4px;
 }
 </style>
