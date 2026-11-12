@@ -222,6 +222,11 @@ function canSchedule(row: any) {
   return row.status !== 'closed' && row.execStatus === 'none'
 }
 
+// 已计划行整行高亮，便于与已下达/已关闭区分（口径同采购单草稿行，只看 status 不看 execStatus）
+function rowClassName({ row }: any) {
+  return row.status === 'planned' ? 'row-planned' : ''
+}
+
 // 已入库数量：未排产的订单不计
 function orderReceivedQty(row: any) {
   const total = row.execStatus !== 'none' ? (row.receivedQty || 0) : 0
@@ -542,7 +547,7 @@ onMounted(() => {
         </el-button>
       </div>
 
-      <el-table :data="flatRows" v-loading="loading" stripe max-height="calc(100vh - 300px)" highlight-current-row @current-change="onCurrentChange">
+      <el-table :data="flatRows" v-loading="loading" stripe max-height="calc(100vh - 300px)" highlight-current-row :row-class-name="rowClassName" @current-change="onCurrentChange">
         <el-table-column label="生产订单号" width="140">
           <template #default="{ row }">
             <el-link type="primary" :underline="false" @click="openEditDialog(row)">{{ row.orderNo }}</el-link>
@@ -860,5 +865,19 @@ onMounted(() => {
 }
 .batch-none {
   color: var(--el-text-color-secondary);
+}
+/* 已计划行整行浅橙标识（同采购单草稿行） */
+:deep(.el-table__row.row-planned > td.el-table__cell) {
+  background-color: #fff7e6 !important;
+}
+:deep(.el-table__row.row-planned:hover > td.el-table__cell) {
+  background-color: #ffefd1 !important;
+}
+:deep(.el-table__row.row-planned > td.el-table__cell:first-child) {
+  box-shadow: inset 3px 0 0 var(--el-color-warning);
+}
+/* 选中行仍使用 Element Plus 的当前行颜色 */
+:deep(.el-table__row.row-planned.current-row > td.el-table__cell) {
+  background-color: var(--el-color-primary-light-9) !important;
 }
 </style>
