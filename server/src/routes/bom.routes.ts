@@ -11,6 +11,7 @@ router.get("/product-options", requirePermission("bom:view"), bomController.prod
 router.get("/:id", requirePermission("bom:view"), bomController.getHandler);
 router.get("/:id/tree", requirePermission("bom:view"), bomController.treeHandler);
 router.post("/", requirePermission("bom:edit"), bomController.createHandler);
+router.post("/:id/copy", requirePermission("bom:edit"), bomController.copyHandler);
 router.put("/:id", requirePermission("bom:edit"), bomController.updateHandler);
 router.put("/:id/activate", requirePermission("bom:edit"), bomController.activateHandler);
 router.delete("/:id", requirePermission("bom:edit"), bomController.deleteHandler);
