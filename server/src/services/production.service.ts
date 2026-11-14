@@ -1427,8 +1427,6 @@ export async function receiveProductionOrderProduct(
   keeper?: string,
   remark?: string
 ) {
-  if (!Number.isFinite(quantity) || quantity === 0) throw new Error("入库/退库数量不能为0");
-  if (!warehouseId) throw new Error("请选择入库仓库");
   const order = await prisma.productionOrder.findUnique({
     where: { id: productionOrderId },
     include: { material: true },
@@ -1436,6 +1434,23 @@ export async function receiveProductionOrderProduct(
   if (!order) throw new Error("生产订单不存在");
   if (order.status === "closed") throw new Error("生产订单已关闭，不能入库/退库");
 
+  // 勾选「入库后关闭生产订单」且数量为 0/未填 = 纯关单：不入库、不写流水、不动 receivedQty/execStatus
+  if (closeWorkOrder === true && (!Number.isFinite(quantity) || quantity === 0)) {
+    const closedResult = await prisma.productionOrder.updateMany({
+      where: { id: order.id, status: { in: ["planned", "in_progress"] } },
+      data: { status: "closed" },
+    });
+    return {
+      success: true,
+      documentNo: null,
+      receivedQty: order.receivedQty,
+      fullyReceived: false,
+      closed: closedResult.count > 0,
+    };
+  }
+
+  if (!Number.isFinite(quantity) || quantity === 0) throw new Error("入库/退库数量不能为0");
+  if (!warehouseId) throw new Error("请选择入库仓库");
   if (order.execStatus === "none") throw new Error("该生产订单尚未排产，不能入库/退库");
   const material = order.material;
   // 计量单位换算：录入数量按换算率折算为基本单位；负数表示退库
