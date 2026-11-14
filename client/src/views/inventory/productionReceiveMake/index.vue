@@ -122,15 +122,28 @@ async function loadPage() {
 
 async function submit() {
   const qty = Number(form.quantity) || 0
-  if (qty === 0) {
-    ElMessage.warning('入库/退库数量不能为0')
+  // 数量 0 + 勾选关闭 = 纯关单：不入库、不写流水，后端只改订单状态
+  const closeOnly = qty === 0 && form.closeWorkOrder === true
+  if (qty === 0 && !closeOnly) {
+    ElMessage.warning('入库/退库数量不能为0；仅关闭订单请勾选「入库后关闭生产订单」')
     return
   }
-  if (!form.warehouseId) {
+  if (closeOnly) {
+    try {
+      await ElMessageBox.confirm(
+        `将仅关闭生产订单 ${order.value?.orderNo ?? ''}：不入库、不写库存流水、已入库数量保持 ${order.value?.receivedQty ?? 0}。是否继续？`,
+        '关闭生产订单确认',
+        { type: 'warning', confirmButtonText: '确认关闭', cancelButtonText: '返回修改' }
+      )
+    } catch {
+      return
+    }
+  }
+  if (!closeOnly && !form.warehouseId) {
     ElMessage.warning('请选择入库仓库')
     return
   }
-  if (!unitRate.value) {
+  if (!closeOnly && !unitRate.value) {
     ElMessage.warning(`单位「${form.unit}」未维护换算关系`)
     return
   }
@@ -150,7 +163,7 @@ async function submit() {
     } catch {
       return
     }
-  } else {
+  } else if (!closeOnly) {
     if (baseQty > remaining() + 1e-6) {
       const remain = remaining()
       ElMessage.warning(
@@ -188,6 +201,8 @@ async function submit() {
     })
     if (isReturn) {
       ElMessage.success(`退库已提交，已入库数量回减至 ${res.data?.receivedQty ?? ''}`)
+    } else if (closeOnly && res.data?.closed) {
+      ElMessage.success('生产订单已关闭（未入库）')
     } else if (res.data?.closed) {
       ElMessage.success('入库已提交，生产订单已关闭')
     } else if (res.data?.fullyReceived) {
@@ -291,7 +306,7 @@ onMounted(loadPage)
               </el-form-item>
             </div>
           </div>
-          <div class="unit-hint">正数入库，负数退库；退库最多 {{ order?.receivedQty ?? 0 }}（输入负数）；勾选「关闭订单」提交时会再次确认，退库不关闭订单。</div>
+          <div class="unit-hint">正数入库，负数退库；数量填 0 并勾选「关闭订单」= 仅关单不入库。退库最多 {{ order?.receivedQty ?? 0 }}（输入负数）；退库不关闭订单。</div>
           <div v-if="baseHint" class="unit-hint">{{ baseHint }}</div>
         </div>
       </el-form>
