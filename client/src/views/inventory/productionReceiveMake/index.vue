@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, watch, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { productionApi, warehouseApi, warehouseBinApi, stockApi } from '../../../api'
@@ -32,6 +32,11 @@ const form = reactive<any>({
 const activeWarehouses = computed(() => warehouses.value.filter((w: any) => w.status === 1))
 const selectedWarehouse = computed(() => warehouses.value.find((w: any) => w.id === form.warehouseId) || null)
 const binRequired = computed(() => selectedWarehouse.value?.binManaged === true)
+
+// 数量转负（退库）时自动取消「入库后关闭生产订单」，避免复选框已禁用但仍保持勾选
+watch(() => form.quantity, (v) => {
+  if (Number(v) < 0) form.closeWorkOrder = false
+})
 
 function todayStr() {
   const d = new Date()
@@ -131,7 +136,7 @@ async function submit() {
   if (closeOnly) {
     try {
       await ElMessageBox.confirm(
-        `将仅关闭生产订单 ${order.value?.orderNo ?? ''}：不入库、不写库存流水、已入库数量保持 ${order.value?.receivedQty ?? 0}。是否继续？`,
+        `将仅关闭生产订单 ${order.value?.orderNo ?? ''}：不入库、不写库存流水、已入库数量保持 ${order.value?.receivedQty ?? 0}。关闭后该订单不能再入库、报工或发料（后续可在生产订单编辑弹窗重新打开）。是否继续？`,
         '关闭生产订单确认',
         { type: 'warning', confirmButtonText: '确认关闭', cancelButtonText: '返回修改' }
       )
@@ -306,7 +311,7 @@ onMounted(loadPage)
               </el-form-item>
             </div>
           </div>
-          <div class="unit-hint">正数入库，负数退库；数量填 0 并勾选「关闭订单」= 仅关单不入库。退库最多 {{ order?.receivedQty ?? 0 }}（输入负数）；退库不关闭订单。</div>
+          <div class="unit-hint">正数入库，负数退库；数量填 0 并勾选「入库后关闭生产订单」= 仅关单不入库。退库最多 {{ order?.receivedQty ?? 0 }}（输入负数）；退库不关闭订单。</div>
           <div v-if="baseHint" class="unit-hint">{{ baseHint }}</div>
         </div>
       </el-form>

@@ -1440,6 +1440,7 @@ export async function receiveProductionOrderProduct(
       where: { id: order.id, status: { in: ["planned", "in_progress"] } },
       data: { status: "closed" },
     });
+    if (closedResult.count === 0) throw new Error("生产订单已关闭，不能入库/退库");
     return {
       success: true,
       documentNo: null,
